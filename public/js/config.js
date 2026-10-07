@@ -1,11 +1,11 @@
 // ① Firebase 콘솔 > 프로젝트 설정 > 내 앱(웹) 에서 복사한 값으로 바꿔주세요.
 export const firebaseConfig = {
-  apiKey: 'YOUR_API_KEY',
-  authDomain: 'YOUR_PROJECT.firebaseapp.com',
-  projectId: 'YOUR_PROJECT',
-  storageBucket: 'YOUR_PROJECT.appspot.com',
-  messagingSenderId: '',
-  appId: '',
+  apiKey: 'AIzaSyCgfjnUtcy6iicv9rFaYuVzjlm0BOFWBxs',
+  authDomain: 'ssaka-manager.firebaseapp.com',
+  projectId: 'ssaka-manager',
+  storageBucket: 'ssaka-manager.firebasestorage.app',
+  messagingSenderId: '217949834329',
+  appId: '1:217949834329:web:bb793e7b655fe31be23548',
 };
 
 // Cloud Functions 리전 (functions/index.js 와 같아야 함)
