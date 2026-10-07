@@ -6,6 +6,7 @@ import {
 } from '../ui.js';
 import { state, inTeam, isOwner, loadContext, publicProfile, go, hooks } from '../store.js';
 import { profileFields, bindPhoto, profileData } from './auth.js';
+import { withdraw } from './privacy.js';
 import { loadPrograms, present } from './training.js';
 import { createPad, blank } from '../tactic.js';
 
@@ -19,7 +20,9 @@ export function profile(el) {
     ${profileFields(p)}
     <button class="btn full">저장</button>
     ${inTeam() && !isOwner() ? '<button type="button" class="link-btn small" data-leave>팀 나가기</button>' : ''}
+    <div class="row between small me-foot"><a href="#/privacy" class="muted">개인정보 처리방침</a><button type="button" class="link-btn small danger-link" data-withdraw>회원 탈퇴</button></div>
   </form>`;
+  el.querySelector('[data-withdraw]').onclick = withdraw;
   const form = el.querySelector('form');
   bindPhoto(form);
   form.onsubmit = async (e) => {
@@ -390,7 +393,7 @@ export async function journalCheck(el, _p, date = todayStr()) {
     getDocs(collection(db, 'teams', tid, 'members')),
     getDocs(query(collection(db, 'teams', tid, 'logs'), where('date', '==', date))),
   ]);
-  const players = ms.docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => m.role === 'player')
+  const players = ms.docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => m.role === 'player' && m.approved !== false)
     .sort((a, b) => (+a.number || 99) - (+b.number || 99));
   const logs = Object.fromEntries(ls.docs.map((d) => [d.data().uid, { id: d.id, ...d.data() }]));
   const done = players.filter((p) => logs[p.id]?.submitted); // 제출한 선수만 '제출'

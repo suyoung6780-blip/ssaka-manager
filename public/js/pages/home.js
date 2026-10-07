@@ -142,7 +142,9 @@ export async function render(el) {
   const todays = sched.filter((x) => x.date === today).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
   const upcoming = sched.filter((x) => x.date > today).slice(0, 5);
   const plans = plansToday ? plansToday.docs.map((d) => d.data()) : [];
-  const players = members ? members.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.role === 'player') : [];
+  const allMembers = members ? members.docs.map((d) => ({ id: d.id, ...d.data() })) : [];
+  const waitingN = isOwner() ? allMembers.filter((x) => x.approved === false).length : 0; // 입장 승인 대기
+  const players = allMembers.filter((x) => x.role === 'player' && x.approved !== false);
   const logs = logsToday ? logsToday.docs.map((d) => d.data()) : [];
   const submitted = logs.filter((l) => l.submitted);
   const alertLogs = logs.filter((l) => l.injury >= 5 || l.condition <= 2 || (l.sleep && l.sleep < 6));
@@ -179,6 +181,7 @@ export async function render(el) {
 
   el.innerHTML = `${morningHead(stats)}
   ${!teamActive() ? `<div class="banner">팀 이용기간이 만료되었습니다. ${isOwner() ? '<a href="#/pay">연장 결제 →</a>' : '팀 관리자에게 문의하세요.'}</div>` : ''}
+  ${waitingN ? `<a class="banner wait-banner" href="#/locker">🙋 입장 승인 대기 <b>${waitingN}명</b> — 락커룸에서 승인해 주세요 →</a>` : ''}
   <div class="home-sec"><span class="eyebrow">TODAY</span><h2>오늘</h2></div>
   <div class="home-grid ${journalCard ? '' : 'two'}">
     ${todayCard}

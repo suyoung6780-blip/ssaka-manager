@@ -32,4 +32,12 @@ export const FEEDS_URL = '';
 //    이 이메일로 가입한 뒤 '이메일 인증'까지 마쳐야 운영자 권한이 열립니다 (남이 먼저 가입해도 인증 못 하면 권한 없음)
 export const ADMIN_EMAILS = ['suyoung6780@gmail.com'];
 
+// ⑦ 개인정보 처리방침 — 보호책임자 연락처 · 시행일 (바꾸면 처리방침 화면에 바로 반영)
+export const PRIVACY = { officer: '싸카매니저 운영자', email: 'suyoung6780@gmail.com', effective: '2026-10-07' };
+
+// ⑧ 파일 저장소(Cloud Storage) — Firebase Blaze 요금제에서만 켤 수 있음.
+//    false: 분석실은 '내 컴퓨터 영상'으로 분석 + 유튜브 공유, 미팅룸은 자료 링크로 (무료)
+//    true : 분석실 영상 · 미팅룸 파일을 서버에 올림 (Blaze + Storage 켠 뒤)
+export const STORAGE_ENABLED = false;
+
 export const isConfigured = !firebaseConfig.apiKey.startsWith('YOUR_');

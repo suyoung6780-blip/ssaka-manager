@@ -18,7 +18,8 @@ service cloud.firestore {
     function isMember(t) { return signedIn() && exists(memberPath(t)); }
     function myRole(t) { return get(memberPath(t)).data.role; }
     function isCoach(t) { return isMember(t) && myRole(t) == 'coach'; }
-    function isSquad(t) { return isMember(t) && myRole(t) in ['coach', 'player']; }
+    // 팀원(코치 · 선수). 팀 코드로 들어온 사람은 팀 대표가 승인(approved)한 뒤부터
+    function isSquad(t) { return isMember(t) && myRole(t) in ['coach', 'player'] && get(memberPath(t)).data.get('approved', true) == true; }
     function isOwner(t) { return signedIn() && teamDoc(t).ownerUid == uid(); }
     function scoutTarget(cat) { return {'U15': 'U12', 'U18': 'U15', 'U22': 'U18'}.get(cat, 'none'); }
     function otherOf(p) { return p[0] == uid() ? p[1] : p[0]; }
@@ -36,9 +37,15 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if (signedIn() && uid() == userId) || isAdmin(); // 운영자: 가입자 수 확인
-      allow create: if signedIn() && uid() == userId;
-      // 계정 유형(role)은 가입 후 변경 불가
-      allow update: if signedIn() && uid() == userId && !changed().hasAny(['role']);
+      // 가입: 보호자 동의 완료 상태로 스스로 만들 수 없음
+      allow create: if signedIn() && uid() == userId && request.resource.data.get('guardianOk', false) != true;
+      // 계정 유형 · 나이 · 동의 링크는 가입 후 변경 불가. 보호자 동의(guardianOk)는 보호자가 링크에서 동의한 뒤에만 켤 수 있음
+      allow update: if signedIn() && uid() == userId
+        && !changed().hasAny(['role', 'under14', 'birth', 'consentToken'])
+        && (!changed().hasAny(['guardianOk']) || (request.resource.data.guardianOk == true
+          && get(/databases/$(database)/documents/consents/$(resource.data.consentToken)).data.status == 'agreed'
+          && get(/databases/$(database)/documents/consents/$(resource.data.consentToken)).data.uid == uid()));
+      allow delete: if signedIn() && uid() == userId; // 회원 탈퇴
 
       // 홈 '오늘 할 일' 메모장 (본인만)
       match /todos/{todoId} {
@@ -79,13 +86,18 @@ service cloud.firestore {
         allow read: if isMember(t) || (signedIn() && teamDoc(t).isPublic == true) || isAdmin();
         allow create: if signedIn() && m == uid()
           && request.resource.data.role == get(/databases/$(database)/documents/users/$(uid())).data.role
+          // 만 14세 미만은 보호자 동의 뒤에만 팀 입장
+          && (get(/databases/$(database)/documents/users/$(uid())).data.get('under14', false) != true
+            || get(/databases/$(database)/documents/users/$(uid())).data.get('guardianOk', false) == true)
           && (
             // 무료 모드: 팀을 만드는 대표 지도자
             (creatingTeam(t) && request.resource.data.role == 'coach')
             || (teamUsable(t) && (isOwner(t)
-              || get(/databases/$(database)/documents/teamCodes/$(request.resource.data.code)).data.teamId == t))
+              || (get(/databases/$(database)/documents/teamCodes/$(request.resource.data.code)).data.teamId == t
+                && request.resource.data.approved == false))) // 코드로 들어오면 승인 대기
           );
-        allow update: if (signedIn() && m == uid() && !changed().hasAny(['role', 'code'])) || isOwner(t);
+        // 본인은 역할 · 승인 · 나이 정보를 못 바꿈. 팀 대표는 승인 · 내보내기 가능
+        allow update: if (signedIn() && m == uid() && !changed().hasAny(['role', 'code', 'under14', 'approved', 'approvedBy', 'approvedAt', 'consentToken'])) || isOwner(t);
         allow delete: if (signedIn() && m == uid()) || isOwner(t);
       }
 
@@ -132,6 +144,7 @@ service cloud.firestore {
         allow update: if (isSquad(t) && resource.data.uid == uid() && request.resource.data.uid == uid()
             && !changed().hasAny(['checked', 'coachComment', 'checkedBy', 'checkedAt']))
           || (isCoach(t) && changed().hasOnly(['checked', 'coachComment', 'checkedBy', 'checkedAt']));
+        allow delete: if isMember(t) && resource.data.uid == uid(); // 회원 탈퇴 시 내 일지 삭제
       }
 
       match /counsel/{c} {
@@ -189,6 +202,18 @@ service cloud.firestore {
       allow read: if isAdmin() || (signedIn() && resource.data.uid == uid());
       allow update: if isAdmin();
       allow delete: if isAdmin() || (signedIn() && resource.data.uid == uid() && resource.data.status == '접수');
+    }
+
+    // 만 14세 미만 보호자 동의 — 링크(추측 불가능한 긴 토큰)를 아는 보호자가 로그인 없이 열어서 동의
+    match /consents/{tk} {
+      allow get: if true;
+      allow create: if signedIn() && tk.size() >= 16 && request.resource.data.uid == uid()
+        && request.resource.data.status == 'pending' && request.resource.data.keys().hasOnly(['uid', 'childName', 'status', 'createdAt']);
+      allow update: if resource.data.status == 'pending' && request.resource.data.status == 'agreed'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'guardianName', 'relation', 'phone', 'agreedAt', 'ver'])
+        && request.resource.data.guardianName is string && request.resource.data.guardianName.size() > 0
+        && request.resource.data.phone is string && request.resource.data.phone.size() >= 10;
+      allow delete: if signedIn() && resource.data.uid == uid();
     }
 
     // 운영자 전체 공지 — 로그인한 모두가 읽고, 운영자만 씀

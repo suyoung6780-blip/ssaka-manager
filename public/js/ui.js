@@ -1,7 +1,7 @@
 export const CATEGORIES = ['U12', 'U15', 'U18', 'U22', 'K5', 'K6', 'K7', '학교동아리', '아마추어 조기회'];
 export const POSITIONS = ['GK', 'CB', 'LB', 'RB', 'CDM', 'CM', 'CAM', 'LW', 'RW', 'ST'];
 export const ROLES = { coach: '코치', player: '선수' };
-export const MATCH_TYPES = ['리그', '토너먼트', '친선', '연습경기'];
+export const MATCH_TYPES = ['리그', '대회', '스토브리그', '연습경기'];
 
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];

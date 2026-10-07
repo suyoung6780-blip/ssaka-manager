@@ -10,12 +10,12 @@ const seed = (p, d) => store.set(p, d);
 const later = Timestamp.fromMillis(Date.now() + 20 * 864e5);
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const today = ymd(new Date());
-seed(`users/${U}`, { name: '김코치', role: 'coach', email: 'c@x.com', teamId: 'T1', position: '', photo: '', coachTitle: '수석코치', duty: 'U15 담당', licenses: 'KFA B급, GK 3급', school: '성남중 - 풍생고 - 용인대', career: '2019~2022 FC 블랙 U12 코치\n2023~ FC 블랙 U15 수석코치' });
+seed(`users/${U}`, { name: '김코치', role: 'coach', agree: { ver: 'demo' }, email: 'c@x.com', teamId: 'T1', position: '', photo: '', coachTitle: '수석코치', duty: 'U15 담당', licenses: 'KFA B급, GK 3급', school: '성남중 - 풍생고 - 용인대', career: '2019~2022 FC 블랙 U12 코치\n2023~ FC 블랙 U15 수석코치' });
 seed('teams/T1', { name: 'FC 블랙', category: 'U15', isPublic: true, ownerUid: U, ownerName: '김코치', createdAt: Timestamp.fromMillis(Date.now() - 30 * 864e5), status: 'active', paidUntil: later, intro: '테스트 팀' });
 seed('teams/T2', { name: '화이트 유나이티드', category: 'K7', isPublic: false, ownerUid: 'x', ownerName: '백감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 12 * 864e5), status: 'active', paidUntil: later });
 seed('teams/T3', { name: '그레이 FC', category: 'U15', isPublic: true, ownerUid: 'y', ownerName: '최감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 5 * 864e5), status: 'active', paidUntil: later });
 seed(`teams/T1/members/${U}`, { name: '김코치', role: 'coach', coachTitle: '수석코치', duty: 'U15 담당', licenses: 'KFA B급, GK 3급', school: '성남중 - 풍생고 - 용인대', career: '2019~2022 FC 블랙 U12 코치\n2023~ FC 블랙 U15 수석코치' });
-seed('users/p1', { name: '박선수', role: 'player', email: 'p@x.com', teamId: 'T1', position: 'ST', number: '9', height: '175', weight: '65', affiliation: '블랙중 3학년' });
+seed('users/p1', { name: '박선수', role: 'player', agree: { ver: 'demo' }, email: 'p@x.com', teamId: 'T1', position: 'ST', number: '9', height: '175', weight: '65', affiliation: '블랙중 3학년' });
 seed('teams/T1/members/p1', { name: '박선수', role: 'player', affiliation: '블랙중 3학년', position: 'ST', number: '9', height: '175', weight: '65' });
 seed('teams/T1/members/p2', { name: '이선수', role: 'player', position: 'GK', number: '1' });
 seed('teams/T3/members/q1', { name: '최상대', role: 'player', position: 'CM', number: '8' });
@@ -30,7 +30,7 @@ seed('teams/T1/private/gameModel', { philosophy: '점유', captain: 'p1', format
 seed('teams/T1/posts/a', { type: 'notice', title: '10월 리그 일정 및 원정 버스 안내', body: '토요일 원정 경기 버스는 7시 30분 출발합니다.', createdAt: now(), pinned: true });
 seed('teams/T1/posts/a2', { type: 'notice', title: '이번 주 훈련 집중 포인트: 압박 탈출', body: '받기 전에 어깨 너머 보기! 일지에 꼭 적어오세요.', createdAt: now() });
 seed('teams/T1/posts/b', { type: 'schedule', title: '리그전', date: today, time: '10:00', kind: '경기', group: 'U15', createdAt: now() });
-[[1, '16:00', '훈련', 'U12', '패스 훈련'], [2, '17:00', '훈련', 'U15', '빌드업 훈련'], [3, '10:00', '경기', 'U12', '친선전 vs 성남'], [5, '19:00', '미팅', '', '전술 미팅'], [6, '16:00', '훈련', 'U15', '세트피스'], [8, '', '휴식', '', '휴식일']]
+[[1, '16:00', '훈련', 'U12', '패스 훈련'], [2, '17:00', '훈련', 'U15', '빌드업 훈련'], [3, '10:00', '경기', 'U12', '연습경기 vs 성남'], [5, '19:00', '미팅', '', '전술 미팅'], [6, '16:00', '훈련', 'U15', '세트피스'], [8, '', '휴식', '', '휴식일']]
   .forEach(([n, time, kind, group, title], i) => { const d = new Date(); d.setDate(d.getDate() + n); seed(`teams/T1/posts/s${i}`, { type: 'schedule', title, date: ymd(d), time, kind, group, place: kind === '경기' ? '탄천 보조구장' : '팀 훈련장', createdAt: now() }); });
 const board = (type, color, grid, items, w, h) => { const b = blank(type); b.field.color = color; if (w) { b.field.w = w; b.field.h = h; } b.grid = grid; b.items = items; return b; };
 const P = (team, n, x, y) => ({ k: 'player', team, n: String(n), x, y });
@@ -67,8 +67,10 @@ tr('c6', { title: '골키퍼 1v1 각 좁히기', topics: ['골키퍼'], ages: ['
 // 데모 전용: 로컬에만 있는 경기 영상(public/__media/demo.m4v, 저장소에 안 올라감)으로 만든 AI 트래킹 예시
 seed('teams/T1/posts/demo', { type: 'analysis', title: '연수구청U12 — 7번 수비 위치', opponent: '연수구청U12', date: '2026-03-14', video: { url: '/__media/demo.m4v', name: '연수구청U12 전력분석.m4v' }, createdAt: now(), tele: {"items":[{"id":"qwtgrlq","k":"spot","color":"#ffd400","t0":200,"t1":208,"hold":4,"p":{"tr":"onk11ig"},"size":0.025,"scale":1,"marker":true,"name":"7번"},{"id":"6bihjyc","k":"arrow","color":"#ffd400","t0":200,"t1":205,"hold":4,"a":{"tr":"onk11ig"},"b":{"x":0.66,"y":0.62},"style":"solid","c":{"x":0.55615,"y":0.74405}}],"trackers":[{"id":"onk11ig","name":"선수 1","path":[[200,0.4523,0.8764,0.2239],[200.083,0.4518,0.8607,0.2227],[200.167,0.4519,0.8518,0.2157],[200.25,0.452,0.8597,0.2152],[200.333,0.452,0.8525,0.2145],[200.417,0.452,0.8632,0.2174],[200.5,0.4522,0.8558,0.2166],[200.583,0.4522,0.8611,0.2169],[200.667,0.4522,0.8519,0.2153],[200.75,0.452,0.8597,0.2145],[200.833,0.4522,0.8527,0.2145],[200.917,0.4518,0.8616,0.215],[201,0.4522,0.8525,0.2143],[201.083,0.4518,0.8598,0.2137],[201.167,0.4522,0.8513,0.2129],[201.25,0.4518,0.8603,0.2135],[201.333,0.4517,0.8602,0.2135],[201.417,0.4517,0.8602,0.2132],[201.5,0.4517,0.8603,0.2133],[201.583,0.4518,0.8591,0.2114],[201.667,0.4519,0.8601,0.2113],[201.75,0.4519,0.8595,0.2101],[201.833,0.4517,0.86,0.2114],[201.917,0.4517,0.8593,0.2114],[202,0.4512,0.8582,0.2143],[202.083,0.452,0.8675,0.2201],[202.167,0.452,0.8544,0.2159],[202.25,0.4516,0.8599,0.2147],[202.333,0.4518,0.867,0.2199],[202.417,0.4522,0.8544,0.2151],[202.5,0.4518,0.859,0.2143],[202.583,0.4518,0.8532,0.2131],[202.667,0.4517,0.8614,0.2145],[202.75,0.452,0.8523,0.2134],[202.833,0.4516,0.8607,0.2139],[202.917,0.4522,0.8524,0.2135],[203,0.4591,0.8454,0.2127],[203.083,0.4669,0.8477,0.2154],[203.167,0.4748,0.8506,0.2257],[203.25,0.4882,0.8403,0.2217],[203.333,0.4939,0.8315,0.2161],[203.417,0.5097,0.8199,0.2091],[203.5,0.5154,0.8073,0.2003],[203.583,0.5195,0.7931,0.1983],[203.667,0.5229,0.7717,0.1767],[203.75,0.5287,0.7788,0.1786],[203.833,0.5291,0.7547,0.1695],[203.917,0.5309,0.7416,0.1597],[204,0.5358,0.7364,0.1577],[204.083,0.5296,0.7155,0.1477],[204.167,0.5242,0.7008,0.1361],[204.25,0.5206,0.7009,0.1406],[204.333,0.5213,0.6966,0.1469],[204.417,0.5094,0.6808,0.1417],[204.5,0.5078,0.6773,0.1375],[204.583,0.5079,0.6658,0.1314],[204.667,0.4928,0.6497,0.1233],[204.75,0.4896,0.6535,0.1248],[204.833,0.4887,0.6471,0.1285],[204.917,0.48,0.6376,0.1277],[205,0.4705,0.6305,0.1265],[205.083,0.4645,0.6164,0.1243],[205.167,0.4598,0.6075,0.117],[205.25,0.4513,0.6068,0.117],[205.333,0.4485,0.6044,0.1193],[205.417,0.4381,0.5892,0.1141],[205.5,0.4354,0.5898,0.1135],[205.583,0.4327,0.5854,0.1162],[205.667,0.425,0.5716,0.1116],[205.75,0.4199,0.5667,0.1083],[205.833,0.4162,0.5613,0.1058],[205.917,0.4164,0.5617,0.1059],[206,0.407,0.5583,0.107],[206.083,0.3893,0.5323,0.1082],[206.167,0.4039,0.547,0.1034],[206.25,0.3888,0.5363,0.1074],[206.333,0.3885,0.5326,0.1106],[206.417,0.3882,0.5299,0.1088],[206.5,0.384,0.5237,0.106],[206.583,0.3816,0.5155,0.1037],[206.667,0.3822,0.5205,0.1024],[206.75,0.3783,0.5198,0.1017],[206.833,0.377,0.519,0.1034],[206.917,0.3771,0.5009,0.0953],[207,0.3667,0.5078,0.0899],[207.083,0.3713,0.5146,0.0927],[207.167,0.3579,0.5071,0.0885],[207.25,0.3559,0.5141,0.0887],[207.333,0.3545,0.511,0.0873],[207.417,0.3534,0.5038,0.0828],[207.5,0.3505,0.5048,0.0798],[207.583,0.3495,0.506,0.0764],[207.667,0.346,0.5112,0.0789],[207.75,0.343,0.5116,0.0775],[207.833,0.3417,0.5089,0.0765],[207.917,0.341,0.5051,0.0752],[208,0.3367,0.5092,0.075]],"h":0.075,"ar":0.325,"manual":false}],"set":{"chroma":true,"hue":100,"hueManual":false,"tol":40,"dur":5,"durEnd":false,"hold":2,"autoTrack":true}} });
 seed('teams/T1/posts/d', { type: 'analysis', title: 'vs A', videoUrl: 'https://youtu.be/dQw4w9WgXcQ', timeline: '1:20 압박', createdAt: now() });
-seed('teams/T1/matches/m1', { date: today, matchType: '리그', opponent: 'A', gf: 2, ga: 1, scorers: [{ name: '박선수', goals: 2 }], assists: [] });
-seed('teams/T1/matches/m2', { date: (() => { const d = new Date(); d.setDate(d.getDate() - 3); return ymd(d); })(), matchType: '친선', opponent: 'B', gf: 0, ga: 0, scorers: [], assists: [] });
+seed('teams/T1/matches/m0', { date: '2025-11-08', matchType: '대회', ageGroup: 'U13', opponent: '성남FC U13', gf: 3, ga: 2, scorers: [{ name: '이선수', goals: 1 }], assists: [] });
+seed('teams/T1/matches/m00', { date: '2025-09-20', matchType: '연습경기', ageGroup: 'U15', opponent: '수원 U15', gf: 1, ga: 1, scorers: [], assists: [] });
+seed('teams/T1/matches/m1', { date: today, matchType: '리그', ageGroup: 'U15', opponent: 'A', gf: 2, ga: 1, scorers: [{ name: '박선수', goals: 2 }], assists: [] });
+seed('teams/T1/matches/m2', { date: (() => { const d = new Date(); d.setDate(d.getDate() - 3); return ymd(d); })(), matchType: '스토브리그', ageGroup: 'U14', opponent: 'B', gf: 0, ga: 0, scorers: [], assists: [] });
 seed('teams/T1/goals/g1', { scope: 'team', title: '리그 3위 이내', category: '결과 · 성적', period: '시즌', due: '2026-11-30', target: 3, current: 5, unit: '위', lower: true, desc: '남은 6경기 4승 이상', status: 'doing', ownerUid: U, createdAt: now() });
 seed('teams/T1/goals/g3', { scope: 'team', title: '클린시트 10경기', category: '경기력', period: '시즌', target: 10, current: 4, unit: '경기', status: 'doing', ownerUid: U, createdAt: now() });
 seed('teams/T1/goals/g4', { scope: 'team', title: '빌드업에서 롱볼 대신 짧은 패스 우선', category: '기술 · 전술', period: '월', progress: 60, status: 'doing', ownerUid: U, createdAt: now() });
@@ -216,6 +218,9 @@ export const confirmPasswordReset = async (_a, code, pw) => {
   try { sessionStorage.setItem('used:' + code, '1'); } catch { /* */ } // 링크는 한 번만
 };
 export const updateProfile = async () => {};
+export const EmailAuthProvider = { credential: (email, pw) => ({ email, pw }) };
+export const reauthenticateWithCredential = async (u, c) => { if (accounts[u.email]?.pw !== c.pw) throw authErr('auth/invalid-credential'); };
+export const deleteUser = async (u) => { delete accounts[u.email]; saveAcc(); setUser(null); };
 
 const join = (parts) => parts.flatMap((p) => (typeof p === 'string' ? p.split('/') : [p.path])).join('/').replace(/^\/+/, '');
 let auto = 0;
@@ -224,7 +229,7 @@ export const doc = (base, ...p) => {
   if (base && base.kind === 'col') return { path: join([base.path, ...(p.length ? p : ['auto' + (++auto)])]), kind: 'doc', get id() { return this.path.split('/').pop(); } };
   return { path: join(p), kind: 'doc', get id() { return this.path.split('/').pop(); } };
 };
-const snapDoc = (path) => ({ id: path.split('/').pop(), exists: () => store.has(path), data: () => (store.has(path) ? structuredClone(store.get(path)) : undefined) });
+const snapDoc = (path) => ({ id: path.split('/').pop(), ref: { path, kind: 'doc', id: path.split('/').pop() }, exists: () => store.has(path), data: () => (store.has(path) ? structuredClone(store.get(path)) : undefined) });
 // keep Timestamp methods through structuredClone
 const fixTs = (o) => { if (o && typeof o === 'object') for (const k in o) { if (o[k] && o[k]._ms !== undefined) o[k] = Timestamp.fromMillis(o[k]._ms); else fixTs(o[k]); } return o; };
 const sd = (path) => { const s = snapDoc(path); const d = s.data; s.data = () => fixTs(d()); return s; };

@@ -1,11 +1,12 @@
 import {
-  auth, db, doc, setDoc, serverTimestamp,
+  auth, db, doc, setDoc, serverTimestamp, writeBatch,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, signOut,
   verifyPasswordResetCode, confirmPasswordReset, applyActionCode,
 } from '../fb.js';
 import { esc, toast, fail, formData, options, POSITIONS, ROLES, resizeImage, avatar, modal } from '../ui.js';
 import { state, loadContext, go } from '../store.js';
 import { FREE_MODE } from '../config.js';
+import { agreeFields, bindAgree, agreeData } from './privacy.js';
 
 // 회원가입 안내: 계정 유형 · 팀이 만들어지는 방식 · 역할별 권한
 const Y = '<span class="ok">✔</span>', N = '<span class="no">—</span>';
@@ -58,6 +59,7 @@ export function login(el) {
       <button type="button" class="link-btn" data-reset>비밀번호 찾기</button>
       <a href="#/signup">회원가입 →</a>
     </div>
+    <p class="center small"><a href="#/privacy" class="muted">개인정보 처리방침</a></p>
   </form>`;
   const form = el.querySelector('form');
   form.onsubmit = async (e) => {
@@ -84,6 +86,7 @@ export function signup(el) {
     <label>비밀번호 확인<input name="password2" type="password" minlength="6" required autocomplete="new-password"></label>
     <button class="btn full">다음 — 개인계정 만들기</button>
     <div class="row between small"><button type="button" class="link-btn" data-guide>계정 유형 · 권한 안내</button><a href="#/login">이미 계정이 있어요</a></div>
+    <p class="center small"><a href="#/privacy" class="muted">개인정보 처리방침</a></p>
   </form>`;
   const form = el.querySelector('form');
   el.querySelector('[data-guide]').onclick = accountGuide;
@@ -196,24 +199,28 @@ export function completeProfile(el) {
     <h2>개인계정 만들기</h2>
     <p class="muted small">${esc(state.user.email)}</p>
     ${profileFields({}, { withRole: true })}
+    ${agreeFields()}
     <button class="btn full">시작하기</button>
     <button type="button" class="link-btn small" data-out>다른 계정으로 로그인</button>
   </form>`;
   const form = el.querySelector('form');
   bindPhoto(form);
+  bindAgree(form);
   bindRoleFields(form);
   el.querySelector('[data-out]').onclick = () => signOut(auth);
   el.querySelector('[data-guide]').onclick = accountGuide;
   accountGuide(); // 계정 유형을 고르기 전에 한 번 보여주기
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const d = profileData(form);
+    const d = agreeData(profileData(form));
     try {
-      await setDoc(doc(db, 'users', state.user.uid), {
-        ...d, email: state.user.email, teamId: null, createdAt: serverTimestamp(),
-      });
+      const b = writeBatch(db);
+      b.set(doc(db, 'users', state.user.uid), { ...d, email: state.user.email, teamId: null, createdAt: serverTimestamp() });
+      // 만 14세 미만: 보호자 동의 링크용 기록 (보호자가 링크에서 동의하면 status = agreed)
+      if (d.under14) b.set(doc(db, 'consents', d.consentToken), { uid: state.user.uid, childName: d.name, status: 'pending', createdAt: serverTimestamp() });
+      await b.commit();
       await loadContext();
-      go(d.role === 'player' ? '/team/join' : '/');
+      go(d.under14 ? '/' : d.role === 'player' ? '/team/join' : '/');
     } catch (err) { fail(err); }
   };
 }

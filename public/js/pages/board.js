@@ -6,6 +6,7 @@ import {
 import {
   esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, options,
 } from '../ui.js';
+import { STORAGE_ENABLED } from '../config.js';
 import { state, isCoach } from '../store.js';
 import { createPad, formationData } from '../tactic.js';
 
@@ -167,6 +168,7 @@ function detail(type, p, refresh) {
     ${p.pad ? '<div data-pad></div>' : ''}
     ${p.files?.length ? `<ul class="files">${p.files.map((f) => `<li><a href="${esc(f.url)}" target="_blank" rel="noopener">↓ ${esc(f.name)}</a></li>`).join('')}</ul>` : ''}
     ${p.link ? `<p><a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.link)} ↗</a></p>` : ''}
+    ${p.links?.length ? `<ul class="files">${p.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">🔗 ${esc(l.name || l.url)}</a></li>`).join('')}</ul>` : ''}
     ${isCoach() ? '<div class="row end"><button class="btn ghost" data-del>삭제</button><button class="btn" data-edit>수정</button></div>' : ''}`, { wide: !!p.pad });
 
   if (p.pad) createPad(m.el.querySelector('[data-pad]'), p.pad, { editable: false });
@@ -196,9 +198,14 @@ function editor(type, p, refresh) {
       <label>내용<textarea name="body" rows="6">${esc(p.body || '')}</textarea></label>
       ${type === 'notice' ? `<label class="switch"><input type="checkbox" name="pinned" ${p.pinned ? 'checked' : ''}><span>상단 고정</span></label>` : ''}
       ${cfg.files ? `
+        ${STORAGE_ENABLED ? `
         <label>링크<input name="link" type="url" value="${esc(p.link || '')}" placeholder="구글 드라이브 등"></label>
         <label>파일 첨부 (PDF · PPT · 이미지 등, 각 50MB 이하)<input type="file" name="files" multiple></label>
-        ${p.files?.length ? `<small class="muted">기존 첨부 ${p.files.length}개 유지</small>` : ''}` : ''}
+        ${p.files?.length ? `<small class="muted">기존 첨부 ${p.files.length}개 유지</small>` : ''}` : `
+        <fieldset class="links-box"><legend>자료 링크 <small class="muted">구글 드라이브 · 원드라이브 · 유튜브 등 — 링크를 받은 사람만 열 수 있게 공유 설정</small></legend>
+          <div data-links>${[...(p.links || []), ...(p.link ? [{ name: '', url: p.link }] : []), {}].map((l) => `<div class="link-row"><input name="lname" placeholder="이름 (예: 전술 PPT)" value="${esc(l.name || '')}"><input name="lurl" type="url" placeholder="https://drive.google.com/…" value="${esc(l.url || '')}"></div>`).join('')}</div>
+          <button type="button" class="link-btn small" data-addlink>+ 링크 추가</button>
+        </fieldset>`}` : ''}
       ${cfg.pad ? `
         <label class="switch"><input type="checkbox" data-use-pad ${p.pad ? 'checked' : ''}><span>텍티컬 패드 사용</span></label>
         <div data-pad></div>` : ''}
@@ -213,6 +220,9 @@ function editor(type, p, refresh) {
     padBox.hidden = !usePad.checked;
   };
   if (usePad) { usePad.onchange = syncPad; syncPad(); }
+  m.el.querySelector('[data-addlink]')?.addEventListener('click', () => {
+    m.el.querySelector('[data-links]').insertAdjacentHTML('beforeend', '<div class="link-row"><input name="lname" placeholder="이름 (예: 전술 PPT)"><input name="lurl" type="url" placeholder="https://drive.google.com/…"></div>');
+  });
 
   const form = m.el.querySelector('form');
   form.onsubmit = async (e) => {
@@ -220,11 +230,16 @@ function editor(type, p, refresh) {
     const btn = form.querySelector('button.btn');
     btn.disabled = true;
     const d = formData(form);
-    delete d.files;
+    delete d.files; delete d.lname; delete d.lurl;
+    if (cfg.files && !STORAGE_ENABLED) {
+      const names = [...form.querySelectorAll('[name=lname]')].map((x) => x.value.trim());
+      d.links = [...form.querySelectorAll('[name=lurl]')].map((x, i) => ({ name: names[i], url: x.value.trim() })).filter((l) => /^https?:\/\//.test(l.url));
+      d.link = '';
+    }
     const data = { ...d, type, pinned: !!d.pinned };
     if (cfg.pad) data.pad = usePad.checked && pad ? pad.getData() : null;
     try {
-      if (cfg.files) {
+      if (cfg.files && STORAGE_ENABLED) {
         const uploaded = [];
         for (const f of form.files.files) {
           if (f.size > 50 * 1024 * 1024) { toast(`${f.name}: 50MB 초과`); continue; }

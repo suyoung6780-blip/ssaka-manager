@@ -44,7 +44,7 @@ let tab = null;
 export async function page(el) {
   const [gs, ms] = await Promise.all([getDocs(gcol()), getDocs(collection(db, 'teams', state.team.id, 'members'))]);
   const all = gs.docs.map((d) => norm({ id: d.id, ...d.data() }));
-  const members = ms.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const members = ms.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.approved !== false);
   const refresh = () => page(el);
   tab ||= isCoach() ? 'team' : 'mine';
 

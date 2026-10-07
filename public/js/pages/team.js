@@ -11,9 +11,10 @@ import { createPad, formationData } from '../tactic.js';
 const tcol = (...p) => collection(db, 'teams', state.team.id, ...p);
 const tdoc = (...p) => doc(db, 'teams', state.team.id, ...p);
 
-async function members() {
+// all: 입장 승인 대기 멤버까지 (락커룸 승인 목록용)
+async function members(all = false) {
   const s = await getDocs(tcol('members'));
-  return s.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return s.docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => all || m.approved !== false);
 }
 const nameOf = (list, id) => list.find((m) => m.id === id)?.name || '';
 
@@ -88,15 +89,23 @@ export async function gameModel(el) {
 
 // ───────── 락커룸 ─────────
 export async function locker(el) {
-  const list = await members();
+  const list = await members(true);
   let code = '';
   if (isCoach()) {
     try { code = (await getDoc(tdoc('private', 'billing'))).data()?.code || ''; } catch { /* */ }
   }
-  const group = (r) => list.filter((m) => m.role === r).sort((a, b) => (+a.number || 99) - (+b.number || 99));
+  const group = (r) => list.filter((m) => m.role === r && m.approved !== false).sort((a, b) => (+a.number || 99) - (+b.number || 99));
+  const waiting = isOwner() ? list.filter((m) => m.approved === false) : []; // 팀 대표만 승인
 
   el.innerHTML = `${pageHead('LOCKER ROOM', '락커룸', code ? `<button class="btn ghost" data-code>팀 코드 ${esc(code)} 복사</button>` : '')}
-    <p class="lead">선수는 개인계정에서 팀 코드를 입력하면 락커룸에 입장합니다.</p>
+    <p class="lead">선수 · 지도자는 팀 코드로 입장을 신청하고, 팀 대표가 승인하면 락커룸에 들어옵니다.</p>
+    ${waiting.length ? `<section class="card wait-box"><h3>입장 승인 대기 <small>${waiting.length}명</small></h3>
+      <p class="muted small">팀 코드로 들어온 사람이에요. 우리 팀 선수 · 지도자가 맞는지 확인하고 승인해 주세요. 승인 전에는 팀 내용을 볼 수 없어요.
+        만 14세 미만은 보호자 동의 내용도 확인해 주세요.</p>
+      <ul class="list">${waiting.map((m) => `<li><div><strong>${esc(m.name)} <span class="tag">${esc(ROLES[m.role] || '')}</span>${m.under14 ? ' <span class="tag warn">만 14세 미만</span>' : ''}</strong>
+        <small>${esc([m.position, m.number && `${m.number}번`, m.affiliation, m.coachTitle].filter(Boolean).join(' · ') || '')}</small>
+        ${m.under14 ? `<small data-g="${esc(m.consentToken || '')}">보호자 정보 불러오는 중…</small>` : ''}</div>
+        <span><button class="btn sm" data-gok="${m.id}">승인</button> <button class="link-btn small" data-gno="${m.id}">거절</button></span></li>`).join('')}</ul></section>` : ''}
     ${['coach', 'player'].map((r) => {
       const g = group(r);
       if (!g.length) return '';
@@ -105,6 +114,23 @@ export async function locker(el) {
     }).join('')}`;
 
   el.querySelector('[data-code]')?.addEventListener('click', () => navigator.clipboard.writeText(code).then(() => toast('팀 코드를 복사했습니다.')));
+  // 만 14세 미만: 보호자 정보(이름 · 관계 · 연락처)
+  el.querySelectorAll('[data-g]').forEach(async (sm) => {
+    try {
+      const c = sm.dataset.g && (await getDoc(doc(db, 'consents', sm.dataset.g))).data();
+      sm.textContent = c?.status === 'agreed' ? `보호자 ${c.guardianName} (${c.relation}) · ${c.phone.replace(/(\d{3})(\d{3,4})(\d{4})/, '$1-$2-$3')} · 온라인 동의함` : '보호자 온라인 동의 기록 없음 — 직접 확인해 주세요';
+    } catch { sm.textContent = '보호자 정보를 불러오지 못했어요'; }
+  });
+  el.querySelectorAll('[data-gok]').forEach((b) => (b.onclick = async () => {
+    try {
+      await updateDoc(tdoc('members', b.dataset.gok), { approved: true, approvedBy: state.profile.name, approvedAt: serverTimestamp() });
+      toast('승인했어요. 이제 팀 내용을 볼 수 있어요.'); locker(el);
+    } catch (e) { fail(e); }
+  }));
+  el.querySelectorAll('[data-gno]').forEach((b) => (b.onclick = async () => {
+    if (!(await confirmBox('입장을 거절할까요? 거절하면 팀에서 빠지고, 다시 팀 코드로 신청할 수 있어요.'))) return;
+    try { await deleteDoc(tdoc('members', b.dataset.gno)); locker(el); } catch (e) { fail(e); }
+  }));
   el.querySelectorAll('[data-pid]').forEach((c) => (c.onclick = (e) => {
     const m = list.find((x) => x.id === c.dataset.pid);
     if (e.target.closest('[data-kick]')) return kick(m);
@@ -176,14 +202,24 @@ export function calcStats(ms) {
 
 const result = (m) => (+m.gf > +m.ga ? 'W' : +m.gf === +m.ga ? 'D' : 'L');
 
+// 팀 구분별 학년(연령) — 기록실에서 경기마다 고르고, 학년별로 모아 봄
+export const AGE_GROUPS = { U12: ['U12', 'U11', 'U10', 'U9'], U15: ['U15', 'U14', 'U13'], U18: ['U18', 'U17', 'U16'], U22: ['U22', 'U21', 'U20', 'U19'] };
+
 export async function records(el) {
   const [snap, list] = await Promise.all([getDocs(query(tcol('matches'), orderBy('date', 'desc'))), members()]);
   const ms = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   const players = list.filter((m) => m.role === 'player');
-  let filter = '전체';
+  const groups = AGE_GROUPS[state.team.category] || [];
+  const years = [...new Set(ms.map((m) => (m.date || '').slice(0, 4)).filter(Boolean))].sort().reverse();
+  const flt = { year: '전체', type: '전체', age: '전체' };
+  const pass = (m, skip) => (skip === 'year' || flt.year === '전체' || (m.date || '').startsWith(flt.year))
+    && (skip === 'type' || flt.type === '전체' || m.matchType === flt.type)
+    && (skip === 'age' || flt.age === '전체' || m.ageGroup === flt.age);
+  const statTable = (title, label, pairs) => `<section class="card"><h3>${title}</h3>${pairs.length ? `<table class="tbl"><tr><th>${label}</th><th>경기</th><th>승-무-패</th><th>승률</th><th>득/실</th></tr>
+    ${pairs.map(([t, x]) => `<tr><td>${esc(t)}</td><td>${x.games}</td><td>${x.w}-${x.d}-${x.l}</td><td>${x.winRate}%</td><td>${x.gf}/${x.ga}</td></tr>`).join('')}</table>` : empty('기록 없음')}</section>`;
 
   const draw = () => {
-    const rows = filter === '전체' ? ms : ms.filter((m) => m.matchType === filter);
+    const rows = ms.filter((m) => pass(m));
     const st = calcStats(rows);
     const scorers = {};
     const assists = {};
@@ -193,12 +229,20 @@ export async function records(el) {
     });
     const topS = Object.entries(scorers).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 10);
     const topA = Object.entries(assists).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 10);
-    const byType = MATCH_TYPES.map((t) => [t, calcStats(ms.filter((m) => m.matchType === t))]).filter(([, s]) => s.games);
+    const typeList = [...MATCH_TYPES, ...new Set(ms.map((m) => m.matchType).filter((t) => t && !MATCH_TYPES.includes(t)))];
+    const byType = typeList.map((t) => [t, calcStats(ms.filter((m) => pass(m, 'type') && m.matchType === t))]).filter(([, x]) => x.games);
+    const byYear = years.map((y) => [`${y}년`, calcStats(ms.filter((m) => pass(m, 'year') && (m.date || '').startsWith(y)))]).filter(([, x]) => x.games);
+    const byAge = [...groups, ...(ms.some((m) => !m.ageGroup) ? ['(학년 미지정)'] : [])]
+      .map((g) => [g, calcStats(ms.filter((m) => pass(m, 'age') && (g === '(학년 미지정)' ? !m.ageGroup : m.ageGroup === g)))]).filter(([, x]) => x.games);
     const opp = {};
-    ms.forEach((m) => (opp[m.opponent] ||= []).push(m));
+    rows.forEach((m) => (opp[m.opponent] ||= []).push(m));
 
     el.innerHTML = `${pageHead('RECORDS', '기록실', isCoach() ? '<button class="btn" data-new>+ 경기 기록</button>' : '')}
-    <div class="chips">${['전체', ...MATCH_TYPES].map((t) => `<button class="chip ${t === filter ? 'active' : ''}" data-filter="${t}">${t}</button>`).join('')}</div>
+    <div class="rec-filters">
+      <div class="chips"><span class="chip-label">년도</span>${['전체', ...years].map((t) => `<button class="chip ${t === flt.year ? 'active' : ''}" data-f="year" data-v="${t}">${t === '전체' ? t : `${t}년`}</button>`).join('')}</div>
+      <div class="chips"><span class="chip-label">경기</span>${['전체', ...MATCH_TYPES].map((t) => `<button class="chip ${t === flt.type ? 'active' : ''}" data-f="type" data-v="${t}">${t}</button>`).join('')}</div>
+      ${groups.length ? `<div class="chips"><span class="chip-label">학년</span>${['전체', ...groups].map((t) => `<button class="chip ${t === flt.age ? 'active' : ''}" data-f="age" data-v="${t}">${t}</button>`).join('')}</div>` : ''}
+    </div>
     <section class="stat-board">
       <div class="big"><small>승률</small><strong>${st.winRate}<i>%</i></strong>
         <div class="wdl"><i style="flex:${st.w}" class="w"></i><i style="flex:${st.d}" class="d"></i><i style="flex:${st.l}" class="l"></i></div>
@@ -210,11 +254,14 @@ export async function records(el) {
       <div><small>무승부율 · 패배율</small><strong>${st.drawRate}<i>/</i>${st.lossRate}</strong><small>%</small></div>
     </section>
     <div class="form-line">최근 경기 ${rows.slice(0, 10).map((m) => `<span class="res ${result(m)}">${result(m)}</span>`).join('') || '-'}</div>
-    <div class="grid3 top">
+    <div class="grid2 top">
       <section class="card"><h3>득점 순위</h3>${topS.length ? `<ol class="rank">${topS.map(([n, g]) => `<li><span>${esc(n)}</span><strong>${g}</strong></li>`).join('')}</ol>` : empty('기록 없음')}</section>
       <section class="card"><h3>도움 순위</h3>${topA.length ? `<ol class="rank">${topA.map(([n, g]) => `<li><span>${esc(n)}</span><strong>${g}</strong></li>`).join('')}</ol>` : empty('기록 없음')}</section>
-      <section class="card"><h3>경기형태별</h3>${byType.length ? `<table class="tbl"><tr><th>형태</th><th>경기</th><th>승률</th><th>득/실</th></tr>
-        ${byType.map(([t, s]) => `<tr><td>${t}</td><td>${s.games}</td><td>${s.winRate}%</td><td>${s.gf}/${s.ga}</td></tr>`).join('')}</table>` : empty('기록 없음')}</section>
+    </div>
+    <div class="rec-tables">
+      ${statTable('년도별', '년도', byYear)}
+      ${statTable('경기별', '형태', byType)}
+      ${groups.length ? statTable('학년별', '학년', byAge) : ''}
     </div>
     <section class="card">
       <h3>상대 전적</h3>
@@ -223,14 +270,14 @@ export async function records(el) {
     </section>
     <section class="card">
       <h3>경기 목록</h3>
-      ${rows.length ? `<table class="tbl matches"><tr><th>날짜</th><th>형태</th><th>상대</th><th>스코어</th><th>득점</th><th></th></tr>
-        ${rows.map((m) => `<tr data-mid="${m.id}"><td>${esc(m.date)}</td><td>${esc(m.matchType)}</td><td>${esc(m.opponent)}${m.venue ? ` <small>(${m.venue === 'home' ? '홈' : '원정'})</small>` : ''}</td>
+      ${rows.length ? `<table class="tbl matches"><tr><th>날짜</th><th>형태</th>${groups.length ? '<th>학년</th>' : ''}<th>상대</th><th>스코어</th><th>득점</th><th></th></tr>
+        ${rows.map((m) => `<tr data-mid="${m.id}"><td>${esc(m.date)}</td><td>${esc(m.matchType)}</td>${groups.length ? `<td>${esc(m.ageGroup || '-')}</td>` : ''}<td>${esc(m.opponent)}${m.venue ? ` <small>(${m.venue === 'home' ? '홈' : '원정'})</small>` : ''}</td>
           <td><span class="res ${result(m)}">${result(m)}</span> <strong>${+m.gf} : ${+m.ga}</strong></td>
           <td><small>${(m.scorers || []).map((s) => `${esc(s.name)}${+s.goals > 1 ? `(${s.goals})` : ''}`).join(', ')}</small></td>
           <td>${isCoach() ? '<button class="link-btn small" data-edit>수정</button>' : ''}</td></tr>`).join('')}</table>` : empty('경기 기록이 없습니다.')}
     </section>`;
 
-    el.querySelectorAll('[data-filter]').forEach((b) => (b.onclick = () => { filter = b.dataset.filter; draw(); }));
+    el.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => { flt[b.dataset.f] = b.dataset.v; draw(); }));
     el.querySelector('[data-new]')?.addEventListener('click', () => matchForm());
     el.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => matchForm(ms.find((m) => m.id === b.closest('tr').dataset.mid))));
   };
@@ -251,6 +298,7 @@ export async function records(el) {
         <div class="grid2">
           <label>날짜<input type="date" name="date" required value="${esc(m.date || todayStr())}"></label>
           <label>경기 형태<select name="matchType">${options(MATCH_TYPES, m.matchType)}</select></label>
+          ${groups.length ? `<label>학년<select name="ageGroup">${options([['', '선택'], ...groups], m.ageGroup || (flt.age !== '전체' ? flt.age : ''))}</select></label>` : ''}
           <label>상대팀<input name="opponent" required value="${esc(m.opponent || '')}"></label>
           <label>홈/원정<select name="venue">${options([['home', '홈'], ['away', '원정'], ['neutral', '중립']], m.venue)}</select></label>
           <label>득점<input type="number" name="gf" min="0" required value="${esc(m.gf ?? 0)}"></label>

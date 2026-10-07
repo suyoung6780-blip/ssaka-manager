@@ -11,6 +11,10 @@ import {
   PALETTE, uid, FrameAnalyzer, PlayerTracker, trackerPos, setTrackerAt, setKeyAt, delKeyAt, thinPath, stampH, GROUND, itemPoints, drawItem, drawMeasureLabel, cutPlayer, meters, label,
 } from '../telestrator.js';
 import { ai, loadAI, detectAround, scanFrame, pickNear } from '../detector.js';
+import { STORAGE_ENABLED } from '../config.js';
+
+// 무료(파일 저장소 없음): 영상은 코치 컴퓨터에서 바로 열어 분석 — 이 창을 닫기 전까지만 기억
+const localFiles = new Map(); // 분석 id → File
 
 const col = () => collection(db, 'teams', state.team.id, 'posts');
 const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -29,7 +33,7 @@ export async function list(el) {
         <div class="lib-body">
           <h3>${esc(p.title)}</h3>
           <div class="lib-tags">${p.opponent ? `<span class="ttag">vs ${esc(p.opponent)}</span>` : ''}<span class="lib-meta">${esc(p.date || fmtDate(p.createdAt))}</span></div>
-          <div class="lib-foot"><span>${esc(p.authorName || '')}</span><span>${p.video ? '업로드 영상' : p.videoUrl ? 'YouTube' : ''}</span></div>
+          <div class="lib-foot"><span>${esc(p.authorName || '')}</span><span>${p.video?.local ? (p.shareUrl ? '유튜브 공유됨' : '공유 전') : p.video ? '업로드 영상' : p.videoUrl ? 'YouTube' : ''}</span></div>
         </div>
       </article>`).join('')}</div>` : empty('아직 분석한 영상이 없습니다.')}`;
   el.querySelectorAll('[data-id]').forEach((c) => (c.onclick = () => go(`/analysis/${c.dataset.id}`)));
@@ -45,8 +49,10 @@ function createModal() {
         <label>상대팀<input name="opponent" maxlength="30"></label>
         <label>경기일<input type="date" name="date" value="${todayStr()}"></label>
       </div>
-      <label>영상 파일 <small class="muted">mp4 · mov · webm — 트래킹/크로마키는 업로드 영상에서만 됩니다 (최대 1GB)</small>
+      ${STORAGE_ENABLED ? `<label>영상 파일 <small class="muted">mp4 · mov · webm — 트래킹/크로마키는 업로드 영상에서만 됩니다 (최대 1GB)</small>
+        <input type="file" name="file" accept="video/*"></label>` : `<label>영상 파일 <small class="muted">내 컴퓨터의 영상을 바로 열어요 — 서버에 올리지 않아요 (AI 트래킹 · 그림 모두 가능)</small>
         <input type="file" name="file" accept="video/*"></label>
+        <p class="muted small">분석한 뒤 <b>영상으로 내보내기</b> → 유튜브에 '일부 공개'로 올리고 링크를 붙이면 선수들이 볼 수 있어요.</p>`}
       <label>또는 YouTube 링크 <small class="muted">재생 + 타임라인 메모만 가능</small><input type="url" name="videoUrl"></label>
       <div class="upload-bar" hidden><i></i><span></span></div>
       <div class="row end"><button class="btn">만들기</button></div>
@@ -57,15 +63,17 @@ function createModal() {
     const d = formData(form);
     const file = form.file.files[0];
     if (!file && !d.videoUrl) return toast('영상 파일이나 YouTube 링크를 넣어주세요.');
-    if (file && file.size > 1024 * 1024 * 1024) return toast('1GB 이하 영상만 올릴 수 있습니다.');
+    if (file && STORAGE_ENABLED && file.size > 1024 * 1024 * 1024) return toast('1GB 이하 영상만 올릴 수 있습니다.');
     const btn = form.querySelector('.btn');
     btn.disabled = true;
     try {
       const ref = await addDoc(col(), {
         type: 'analysis', title: d.title.trim(), opponent: d.opponent.trim(), date: d.date, videoUrl: file ? '' : d.videoUrl,
         authorUid: state.user.uid, authorName: state.profile.name, createdAt: serverTimestamp(),
+        ...(file && !STORAGE_ENABLED ? { video: { local: true, name: file.name, size: file.size, type: file.type } } : {}),
       });
-      if (file) {
+      if (file && !STORAGE_ENABLED) localFiles.set(ref.id, file);
+      else if (file) {
         const bar = form.querySelector('.upload-bar');
         bar.hidden = false;
         const path = `teams/${state.team.id}/analysis/${ref.id}_${file.name.replace(/[^\w.\-가-힣]/g, '_')}`;
@@ -125,6 +133,10 @@ export async function studio(el, { id, mode }) {
 
   // YouTube 는 픽셀 분석이 불가 → 재생 + 타임라인만
   if (!post.video) return youtubeView(el, post);
+  // 내 컴퓨터 영상: 코치는 파일을 다시 열어야 함 · 선수는 코치가 공유한 유튜브 영상을 봄
+  if (post.video.local && (!canEdit || !localFiles.has(id))) return localGate(el, post, canEdit, mode);
+  const vsrc = post.video.local ? URL.createObjectURL(localFiles.get(id)) : post.video.url;
+  if (post.video.local) state.cleanup.push(() => URL.revokeObjectURL(vsrc));
 
   const tele = {
     items: post.tele?.items || [],
@@ -140,14 +152,14 @@ export async function studio(el, { id, mode }) {
       <div class="st-actions">
         ${edit ? `<span class="st-mode">수정 중</span><button class="btn ghost sm" data-export>⏺ 영상으로 내보내기</button><button class="btn ghost sm" data-del>삭제</button>
           ${post.tele ? '<button class="btn ghost sm" data-cancel>수정 취소</button>' : ''}<button class="btn sm" data-save>저장</button>`
-          : `<button class="btn ghost sm" data-export>⏺ 영상으로 내보내기</button>${canEdit ? '<button class="btn sm" data-edit>✎ 수정</button>' : ''}`}
+          : `<button class="btn ghost sm" data-export>⏺ 영상으로 내보내기</button>${canEdit && post.video.local ? `<button class="btn ghost sm" data-share>🔗 ${post.shareUrl ? '공유 링크 바꾸기' : '선수에게 공유'}</button>` : ''}${canEdit ? '<button class="btn sm" data-edit>✎ 수정</button>' : ''}`}
       </div>
     </header>
     <div class="studio-main ${edit ? '' : 'view-only'}">
       ${edit ? `<aside class="st-tools">${TOOLS.map(([k, l, ic]) => `<button class="st-tool" data-tool="${k}" title="${l}"><b>${ic}</b><span>${l}</span></button>`).join('')}
         <div class="st-palette">${PALETTE.map((c, i) => `<button style="--c:${c}" data-color="${c}" class="${i ? '' : 'on'}" aria-label="그림 색"></button>`).join('')}</div></aside>` : ''}
       <div class="st-stage">
-        <div class="st-canvas-wrap"><video class="st-video" playsinline preload="auto" crossorigin="anonymous" src="${esc(post.video.url)}"></video><canvas class="st-canvas"></canvas><div class="st-hint" data-hint></div>
+        <div class="st-canvas-wrap"><video class="st-video" playsinline preload="auto" crossorigin="anonymous" src="${esc(vsrc)}"></video><canvas class="st-canvas"></canvas><div class="st-hint" data-hint></div>
           <div class="st-shapes" data-shapes hidden>${[['circle', '◯', '동그라미'], ['tri', '△', '세모'], ['rect', '▭', '네모'], ['penta', '⬠', '오각형'], ['hexa', '⬡', '육각형']].map(([k, ic, l], i) => `<button data-shape="${k}" class="${i ? '' : 'on'}" title="${l}">${ic}<small>${l}</small></button>`).join('')}</div><div class="st-rec" hidden>● REC</div></div>
         <div class="st-transport">
           <button class="icon-btn" data-play aria-label="재생">▶</button>
@@ -1566,6 +1578,7 @@ export async function studio(el, { id, mode }) {
   }
 
   el.querySelector('[data-edit]')?.addEventListener('click', () => go(`/analysis/${id}/edit`));
+  el.querySelector('[data-share]')?.addEventListener('click', () => shareModal(post));
 
   // ── 영상으로 내보내기 (그림 포함 녹화) ──
   el.querySelector('[data-export]').onclick = async () => {
@@ -1587,6 +1600,7 @@ export async function studio(el, { id, mode }) {
       a.download = `${post.title || 'analysis'}.webm`;
       a.click();
       render();
+      if (canEdit && post.video.local) setTimeout(() => shareModal(post), 600); // 내보낸 영상을 유튜브에 올려 공유하도록 안내
     };
     recording = rec;
     sel = null;
@@ -1599,6 +1613,66 @@ export async function studio(el, { id, mode }) {
 
   if (edit) setTool('select'); else drawSide();
 
+}
+
+// ───────── 내 컴퓨터 영상 분석: 파일 다시 열기 · 공유 영상 ─────────
+const fmtSize = (b) => (b > 1e9 ? `${(b / 1e9).toFixed(1)}GB` : `${Math.round(b / 1e6)}MB`);
+function localGate(el, post, canEdit, mode) {
+  if (!canEdit) {
+    // 선수 · 보기: 코치가 올린 유튜브 영상
+    if (post.shareUrl && youtubeId(post.shareUrl)) return youtubeView(el, { ...post, videoUrl: post.shareUrl });
+    el.innerHTML = `<div class="studio"><header class="studio-top"><a href="#/analysis" class="icon-btn">‹</a><div class="st-title"><strong>${esc(post.title)}</strong></div></header>
+      ${empty('코치님이 아직 이 분석 영상을 공유하지 않았어요.')}</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="studio"><header class="studio-top"><a href="#/analysis" class="icon-btn">‹</a>
+      <div class="st-title"><strong>${esc(post.title)}</strong><small>${esc([post.opponent && `vs ${post.opponent}`, post.date].filter(Boolean).join(' · '))}</small></div>
+      <div class="st-actions"><button class="btn ghost sm" data-del>삭제</button></div></header>
+    <div class="local-gate">
+      <section class="card">
+        <h3>영상 파일 열기</h3>
+        <p class="muted">이 분석의 영상은 서버에 올리지 않고 <b>코치님 컴퓨터</b>에 있어요. 같은 파일을 열면 분석(트래킹 · 그림)을 이어서 하거나 볼 수 있어요.</p>
+        <div class="kv"><span>원본 파일</span><strong>${esc(post.video.name || '')} · ${fmtSize(post.video.size || 0)}</strong></div>
+        <label class="btn full file-btn">영상 파일 선택<input type="file" accept="video/*" hidden data-file></label>
+      </section>
+      <section class="card">
+        <h3>선수 공유 영상</h3>
+        ${post.shareUrl && youtubeId(post.shareUrl) ? `<div class="video"><iframe src="https://www.youtube.com/embed/${youtubeId(post.shareUrl)}" allowfullscreen></iframe></div><p class="muted small">선수들은 이 영상을 봐요.</p>`
+          : '<p class="muted">아직 공유 전이에요. 분석을 마치고 <b>영상으로 내보내기</b> → 유튜브에 올린 뒤 링크를 넣으면 선수들이 볼 수 있어요.</p>'}
+        <button class="btn ghost" data-share>🔗 ${post.shareUrl ? '공유 링크 바꾸기' : '공유 링크 넣기'}</button>
+      </section>
+    </div></div>`;
+  el.querySelector('[data-file]').onchange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    if (post.video.name && (f.name !== post.video.name || f.size !== post.video.size)
+      && !(await confirmBox(`처음 분석한 파일(${post.video.name})과 다른 파일 같아요. 그래도 열까요? 영상이 다르면 그림 위치가 안 맞아요.`))) return;
+    localFiles.set(post.id, f);
+    studio(el, { id: post.id, mode });
+  };
+  el.querySelector('[data-share]').onclick = () => shareModal(post);
+  el.querySelector('[data-del]').onclick = async () => {
+    if (!(await confirmBox('이 분석을 삭제할까요?'))) return;
+    try { await deleteDoc(doc(col(), post.id)); go('/analysis'); } catch (err) { fail(err); }
+  };
+}
+
+function shareModal(post) {
+  const m = modal(`<span class="eyebrow">SHARE</span><h2>선수에게 공유하기</h2>
+    <ol class="guide-steps">
+      <li><b>영상으로 내보내기</b>로 그림이 들어간 영상을 저장해요<small>파일이 다운로드 폴더에 생겨요 (.webm)</small></li>
+      <li>유튜브에 올려요 → 공개 범위는 <b>일부 공개</b><small>링크를 아는 사람만 볼 수 있어요. 검색에 안 나와요.</small></li>
+      <li>유튜브 링크를 아래에 붙여 넣고 저장하면 끝!<small>선수들은 분석실에서 이 영상을 봐요.</small></li>
+    </ol>
+    <form class="stack"><label>유튜브 링크<input name="url" type="url" required placeholder="https://youtu.be/…" value="${esc(post.shareUrl || '')}"></label>
+      <div class="row end"><button type="button" class="btn ghost" data-close>나중에</button><button class="btn">저장</button></div></form>`);
+  m.el.querySelector('[data-close]').onclick = m.close;
+  m.el.querySelector('form').onsubmit = async (e) => {
+    e.preventDefault();
+    const url = e.target.url.value.trim();
+    if (!youtubeId(url)) return toast('유튜브 영상 링크를 넣어 주세요.');
+    try { await updateDoc(doc(col(), post.id), { shareUrl: url }); post.shareUrl = url; m.close(); toast('선수들에게 공유됐어요.'); } catch (err) { fail(err); }
+  };
 }
 
 // ───────── YouTube (재생 + 타임라인) ─────────

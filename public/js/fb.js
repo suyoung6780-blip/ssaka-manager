@@ -14,7 +14,7 @@ export const functions = getFunctions(app, FUNCTIONS_REGION);
 
 export {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
-  signOut, sendPasswordResetEmail, updateProfile, verifyPasswordResetCode, confirmPasswordReset, sendEmailVerification, applyActionCode,
+  signOut, sendPasswordResetEmail, updateProfile, verifyPasswordResetCode, confirmPasswordReset, sendEmailVerification, applyActionCode, reauthenticateWithCredential, EmailAuthProvider, deleteUser,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 
 export {

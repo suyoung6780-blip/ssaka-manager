@@ -168,6 +168,8 @@ export function joinTeam(el) {
         try {
           await setDoc(doc(db, 'teams', teamId, 'members', state.user.uid), {
             ...publicProfile(state.profile), role: state.profile.role, code, joinedAt: serverTimestamp(),
+            approved: false, // 팀 대표가 승인해야 팀 내용을 볼 수 있음
+            ...(state.profile.under14 ? { under14: true, consentToken: state.profile.consentToken } : {}),
           });
           await updateDoc(doc(db, 'users', state.user.uid), { teamId });
           m.close();

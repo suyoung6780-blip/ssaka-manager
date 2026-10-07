@@ -9,15 +9,12 @@ import { state, go, hooks, compActive } from '../store.js';
 const tabs = (cur) => `<div class="tabs admin-tabs">${[['/admin', '전체 공지'], ['/admin/teams', '전체 팀']].map(([h, l]) => `<a href="#${h}" class="${h === cur ? 'active' : ''}">${l}</a>`).join('')}</div>`;
 
 const ref = () => doc(db, 'system', 'notice');
-const CLOSED_KEY = 'ssaka.sysNotice.closed';
-const closedVer = () => { try { return localStorage.getItem(CLOSED_KEY) || ''; } catch { return ''; } };
 const text = (s) => esc(s).replace(/\n/g, '<br>');
 
 const bannerHtml = (n, { preview = false } = {}) => `
   <div class="sys-notice ${n.level === 'important' ? 'important' : ''}">
     <span class="sys-tag">${n.level === 'important' ? '중요' : '공지'}</span>
     <div class="sys-body"><strong>${esc(n.title || '')}</strong>${n.body ? `<p>${text(n.body)}</p>` : ''}</div>
-    ${preview ? '' : '<button class="icon-btn sm" data-close aria-label="닫기" title="닫기">✕</button>'}
   </div>`;
 
 // 화면 맨 위 배너 — 닫으면 이 공지(버전)는 다시 안 뜸, 운영자가 새로 저장하면 다시 뜸
@@ -25,12 +22,9 @@ export async function loadBanner(box) {
   if (!box) return;
   let n = null;
   try { const s = await getDoc(ref()); n = s.exists() ? s.data() : null; } catch { /* 읽기 실패 시 배너 없음 */ }
-  if (!n?.on || !n.title || String(n.ver) === closedVer()) { box.innerHTML = ''; return; }
+  // 운영자가 내릴 때까지 모두에게 계속 보임 (사용자가 닫을 수 없음)
+  if (!n?.on || !n.title) { box.innerHTML = ''; return; }
   box.innerHTML = bannerHtml(n);
-  box.querySelector('[data-close]').onclick = () => {
-    try { localStorage.setItem(CLOSED_KEY, String(n.ver)); } catch { /* */ }
-    box.innerHTML = '';
-  };
 }
 
 export async function page(el) {
@@ -40,7 +34,7 @@ export async function page(el) {
   const free = teams.filter((t) => t.free).length;
 
   el.innerHTML = `${pageHead('ADMIN', '운영자')}${tabs('/admin')}
-    <p class="lead">여기서 쓴 공지는 <strong>모든 팀 · 모든 사용자</strong>(지도자 · 선수, 팀 없는 사람 포함)의 화면 맨 위에 뜹니다. 팀 공지사항과는 별개예요.</p>
+    <p class="lead">여기서 쓴 공지는 <strong>모든 팀 · 모든 사용자</strong>(지도자 · 선수, 팀 없는 사람 포함)의 화면 맨 위에 뜹니다. 사용자는 닫을 수 없고, 여기서 <b>공지 내리기</b>를 눌러야 사라져요.</p>
     <div class="admin-stats">
       <div><span>전체 팀</span><strong>${teams.length}</strong></div>
       <div><span>무료(시범) 팀</span><strong>${free}</strong></div>
@@ -70,7 +64,6 @@ export async function page(el) {
   preview();
   const save = async (on) => {
     try {
-      // ver 가 바뀌면 전에 닫았던 사람에게도 다시 뜸
       await setDoc(ref(), { ...val(), on, ver: Date.now(), by: state.profile.name, updatedAt: serverTimestamp() });
       toast(on ? '모든 사용자 화면에 공지를 띄웠습니다.' : '공지를 내렸습니다.');
       await loadBanner(document.getElementById('sys-notice'));

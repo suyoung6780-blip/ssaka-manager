@@ -7,7 +7,9 @@ export const state = { user: null, profile: null, team: null, member: null, clea
 export const role = () => state.profile?.role;
 export const inTeam = () => !!(state.team && state.member);
 export const isCoach = () => inTeam() && state.member.role === 'coach';
-export const isSquad = () => inTeam(); // 팀원 = 코치 · 선수
+// 팀원 = 코치 · 선수 (팀 코드로 들어온 사람은 팀 대표가 승인한 뒤부터)
+export const isSquad = () => inTeam() && state.member.approved !== false;
+export const waitApproval = () => inTeam() && state.member.approved === false;
 // 서비스 운영자 — 운영자 이메일 + 이메일 인증 완료
 export const isAdminEmail = () => ADMIN_EMAILS.includes((state.user?.email || '').toLowerCase());
 export const isAdmin = () => isAdminEmail() && !!state.user?.emailVerified;

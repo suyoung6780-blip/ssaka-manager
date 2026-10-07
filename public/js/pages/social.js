@@ -67,7 +67,7 @@ export async function teamView(el, { id }) {
   }
 
   const ms = await getDocs(collection(db, 'teams', id, 'members'));
-  const list = ms.docs.map((d) => ({ id: d.id, ...d.data(), teamName: team.name }))
+  const list = ms.docs.map((d) => ({ id: d.id, ...d.data(), teamName: team.name })).filter((x) => x.approved !== false)
     .sort((a, b) => (a.role === b.role ? (+a.number || 99) - (+b.number || 99) : a.role === 'coach' ? -1 : 1));
   // 찜: 우리 팀 코치만, 바로 아래 연령 팀 선수만. 상대에게는 알림 없음
   const canScout = !mine && isCoach() && scoutTarget() && team.category === scoutTarget();
@@ -195,7 +195,7 @@ export function startTeamChat(team) {
 export async function chatList(el) {
   const me = state.user.uid;
   const members = state.team
-    ? (await getDocs(collection(db, 'teams', state.team.id, 'members'))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => m.id !== me)
+    ? (await getDocs(collection(db, 'teams', state.team.id, 'members'))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => m.id !== me && m.approved !== false)
     : [];
   el.innerHTML = `${pageHead('MESSAGES', '대화')}
     <p class="lead">우리 팀 선수 · 코치와 대화할 수 있어요.${isCoach() ? ' 다른 팀과는 팀 페이지의 <strong>팀에 연락하기</strong>로 그 팀 계정과 대화합니다.' : ''}</p>

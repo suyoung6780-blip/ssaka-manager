@@ -2,11 +2,12 @@ import { isConfigured, FREE_MODE } from './config.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
 import { $, $$, esc, avatar, ROLES, toast } from './ui.js';
 import {
-  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive,
+  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, waitApproval,
 } from './store.js';
 import * as authPages from './pages/auth.js';
 import * as admin from './pages/admin.js';
 import * as support from './pages/support.js';
+import * as privacy from './pages/privacy.js';
 import * as home from './pages/home.js';
 import * as onboard from './pages/onboard.js';
 import * as team from './pages/team.js';
@@ -56,6 +57,8 @@ const routes = [
   ['/admin/inbox', support.inbox, 'admin'],
   ['/admin/inbox/qna', support.inbox, 'admin'],
   ['/admin/inbox/:id', support.inbox, 'admin'],
+  ['/privacy', privacy.page, 'any'],
+  ['/consent/:token', privacy.consentPage, 'any'],
   ['/support', support.page],
   ['/support/qna', support.qna],
 ];
@@ -77,6 +80,7 @@ function allowed(guard) {
     case 'member': return inTeam();
     case 'coachRole': return role() === 'coach';
     case 'owner': return isOwner();
+    case 'any': return true;
     case 'admin': return isAdmin();
     case 'adminEmail': return isAdminEmail();
     default: return true;
@@ -94,10 +98,30 @@ async function route() {
     app.innerHTML = '<div class="bare" id="view"></div>';
     return r.fn($('#view'), r.params);
   }
+  // 로그인 없이도 보는 화면 (처리방침 · 보호자 동의 링크)
+  if (r.guard === 'any' && (!state.user || !state.profile || privacy.needGuardian())) {
+    app.innerHTML = '<div class="bare" id="view"></div>';
+    return r.fn($('#view'), r.params);
+  }
   if (!state.user) return go('/login');
   if (!state.profile) {
     app.innerHTML = '<div class="bare" id="view"></div>';
     return authPages.completeProfile($('#view'));
+  }
+  // 처리방침이 생기기 전에 가입한 회원: 한 번 동의 받기
+  if (privacy.needAgree() && r.guard !== 'any') {
+    app.innerHTML = '<div class="bare" id="view"></div>';
+    return privacy.agreeGate($('#view'));
+  }
+  // 만 14세 미만: 보호자 동의 전에는 동의 안내 화면만
+  if (privacy.needGuardian()) {
+    app.innerHTML = '<div class="bare" id="view"></div>';
+    return privacy.guardianWait($('#view'));
+  }
+  // 팀 코드로 들어온 뒤 팀 대표 승인 전
+  if (waitApproval() && r.guard !== 'any') {
+    app.innerHTML = '<div class="bare" id="view"></div>';
+    return privacy.approvalWait($('#view'));
   }
   if (!allowed(r.guard)) return go('/');
 

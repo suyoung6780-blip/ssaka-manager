@@ -1195,3 +1195,53 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
 .pdf-foot { margin-top: 26px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 11px; color: #999; text-align: right; }
 .pdf-page [data-view-pad] { max-width: 270px; margin: 6px auto 0; }
 .pdf-page .mj-scene { break-inside: avoid; }
+
+/* 개인정보 처리방침 · 동의 */
+.policy-card { max-width: 860px; }
+.policy h3 { font-size: 15px; margin: 22px 0 8px; }
+.policy p, .policy li { font-size: 14px; line-height: 1.75; color: var(--sub); }
+.policy ul { padding-left: 18px; margin: 6px 0; }
+.policy .tbl th { white-space: normal; width: 30%; color: var(--text); font-weight: 600; vertical-align: top; }
+.policy .tbl td { font-size: 13px; color: var(--sub); vertical-align: top; }
+.modal .policy { max-height: 62vh; overflow-y: auto; padding-right: 6px; }
+.agree { border: 1px solid var(--line2); border-radius: var(--r-sm); padding: 12px 14px; margin: 14px 0; display: grid; gap: 8px; }
+.agree legend { padding: 0 6px; font-weight: 700; font-size: 13px; }
+.agree .chk { display: flex; gap: 8px; align-items: center; margin: 0; font-size: 13px; font-weight: 500; flex-wrap: wrap; }
+.agree .chk input { width: 18px; height: 18px; margin: 0; accent-color: var(--text); flex: none; }
+.agree .chk.all { border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.agree .birth { margin: 6px 0 0; }
+.agree [data-for] { display: grid; gap: 8px; }
+.agree [data-for][hidden] { display: none; }
+.consent-link { display: flex; gap: 6px; margin: 12px 0; }
+.consent-link input { margin: 0; font-size: 12px; }
+.consent-sum { display: grid; gap: 8px; margin: 14px 0; }
+.consent-sum div { background: var(--surface2); border-radius: var(--r-sm); padding: 10px 12px; }
+.consent-sum span { font-size: 11px; font-weight: 700; color: var(--muted); }
+.consent-sum p { margin: 2px 0 0; font-size: 13px; line-height: 1.6; }
+.me-foot { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+.danger-link { color: #ff6b5e; }
+.btn.danger { background: #d92d20; border-color: #d92d20; color: #fff; }
+
+/* 미팅룸 자료 링크 */
+.links-box { border: 1px solid var(--line2); border-radius: var(--r-sm); padding: 10px 12px; display: grid; gap: 6px; }
+.links-box legend { padding: 0 6px; font-weight: 700; font-size: 13px; }
+.link-row { display: grid; grid-template-columns: 1fr 2fr; gap: 6px; }
+.link-row input { margin: 0; }
+@media (max-width: 720px) { .link-row { grid-template-columns: 1fr; } }
+.local-gate { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 1000px; }
+.local-gate h3 { margin-top: 0; }
+.file-btn { margin-top: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+@media (max-width: 860px) { .local-gate { grid-template-columns: 1fr; } }
+.wait-box { border-color: #ff9f0a; margin-bottom: 18px; }
+.wait-box h3 { margin-top: 0; }
+.wait-box li { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wait-box li > div { display: flex; flex-direction: column; }
+.wait-banner { display: block; text-decoration: none; margin-bottom: 14px; border-color: #ff9f0a; }
+
+/* 기록실 필터 · 표 */
+.rec-filters { display: grid; gap: 6px; margin-bottom: 18px; }
+.rec-filters .chips { margin: 0; align-items: center; flex-wrap: wrap; }
+.chip-label { font-size: 12px; font-weight: 700; color: var(--muted); width: 34px; flex: none; }
+.rec-tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin: 14px 0; }
+.rec-tables .tbl th, .rec-tables .tbl td { white-space: nowrap; }
+.rec-tables .card { overflow-x: auto; }
