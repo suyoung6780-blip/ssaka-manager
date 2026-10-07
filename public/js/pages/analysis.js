@@ -1586,7 +1586,9 @@ export async function studio(el, { id, mode }) {
     if (busy) return;
     if (!comp.captureStream || typeof MediaRecorder === 'undefined') return toast('이 브라우저는 녹화를 지원하지 않습니다.');
     if (!(await prepTracks())) return; // 녹화 전에 트래킹을 먼저 다 계산 (녹화 중에 멈추지 않게)
-    const type = ['video/webm;codecs=vp9', 'video/webm'].find((x) => MediaRecorder.isTypeSupported(x));
+    // mp4 를 먼저 (휴대폰 · 카톡에서 잘 열림), 안 되는 브라우저는 webm
+    const type = ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find((x) => MediaRecorder.isTypeSupported(x));
+    const isMp4 = !!type && type.startsWith('video/mp4');
     composite();
     const rec = new MediaRecorder(comp.captureStream(30), type ? { mimeType: type, videoBitsPerSecond: 16e6 } : undefined);
     const chunks = [];
@@ -1596,8 +1598,8 @@ export async function studio(el, { id, mode }) {
       el.querySelector('.st-rec').hidden = true;
       el.querySelector('[data-export]').textContent = '⏺ 영상으로 내보내기';
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }));
-      a.download = `${post.title || 'analysis'}.webm`;
+      a.href = URL.createObjectURL(new Blob(chunks, { type: isMp4 ? 'video/mp4' : 'video/webm' }));
+      a.download = `${post.title || 'analysis'}.${isMp4 ? 'mp4' : 'webm'}`;
       a.click();
       render();
       if (canEdit && post.video.local) setTimeout(() => shareModal(post), 600); // 내보낸 영상을 유튜브에 올려 공유하도록 안내
@@ -1660,8 +1662,8 @@ function localGate(el, post, canEdit, mode) {
 function shareModal(post) {
   const m = modal(`<span class="eyebrow">SHARE</span><h2>선수에게 공유하기</h2>
     <ol class="guide-steps">
-      <li><b>영상으로 내보내기</b>로 그림이 들어간 영상을 저장해요<small>파일이 다운로드 폴더에 생겨요 (.webm)</small></li>
-      <li>유튜브에 올려요 → 공개 범위는 <b>일부 공개</b><small>링크를 아는 사람만 볼 수 있어요. 검색에 안 나와요.</small></li>
+      <li><b>영상으로 내보내기</b>로 그림이 들어간 영상을 저장해요<small>파일이 다운로드 폴더에 생겨요 (.mp4). 이 파일을 카톡방에 바로 보내도 돼요.</small></li>
+      <li>사이트 안에서 보게 하려면 유튜브에 올려요 → 공개 범위는 <b>일부 공개</b><small>링크를 아는 사람만 볼 수 있어요. 검색에 안 나와요.</small></li>
       <li>유튜브 링크를 아래에 붙여 넣고 저장하면 끝!<small>선수들은 분석실에서 이 영상을 봐요.</small></li>
     </ol>
     <form class="stack"><label>유튜브 링크<input name="url" type="url" required placeholder="https://youtu.be/…" value="${esc(post.shareUrl || '')}"></label>
