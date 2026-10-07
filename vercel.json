@@ -1,0 +1,11 @@
+{
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": "public",
+  "functions": {
+    "api/feeds.py": { "includeFiles": "feedbot/**", "maxDuration": 30 }
+  },
+  "headers": [
+    { "source": "/(.*)\\.(js|css)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+  ]
+}

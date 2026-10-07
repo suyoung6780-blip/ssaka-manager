@@ -1,0 +1,205 @@
+rules_version = '2';
+
+// 권한 요약
+//  - 코치: 팀 콘텐츠 작성/수정, 일지검사, 상담 답변
+//  - 선수: 팀 콘텐츠 열람, 본인 기록·목표·상담
+//  - 다른 팀: 공개 팀의 선수단(members)만 열람, 비공개 팀은 팀 이름 외 열람 불가
+//  - 스카우터: 우리 팀 코치끼리만 보는 찜 목록. U15→U12, U18→U15, U22→U18 선수만 (상대는 모름)
+//  - 대화: 같은 팀원끼리, 또는 코치가 다른 팀 '팀 계정'(ownerUid)과만
+//  - [무료 모드] 지도자가 팀을 만들 때 팀 · 팀 코드 · 대표 입장을 한 번에(같은 배치) 만들 수 있음
+//    유료로 바꿀 때는 아래 '무료 모드' 표시된 줄을 지우면 결제(Cloud Functions)로만 활성화됨
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function teamDoc(t) { return get(/databases/$(database)/documents/teams/$(t)).data; }
+    function memberPath(t) { return /databases/$(database)/documents/teams/$(t)/members/$(request.auth.uid); }
+    function isMember(t) { return signedIn() && exists(memberPath(t)); }
+    function myRole(t) { return get(memberPath(t)).data.role; }
+    function isCoach(t) { return isMember(t) && myRole(t) == 'coach'; }
+    function isSquad(t) { return isMember(t) && myRole(t) in ['coach', 'player']; }
+    function isOwner(t) { return signedIn() && teamDoc(t).ownerUid == uid(); }
+    function scoutTarget(cat) { return {'U15': 'U12', 'U18': 'U15', 'U22': 'U18'}.get(cat, 'none'); }
+    function otherOf(p) { return p[0] == uid() ? p[1] : p[0]; }
+    function teamPathOf(t) { return /databases/$(database)/documents/teams/$(t); }
+    // 팀을 '지금 이 배치에서' 새로 만드는 대표 지도자인지
+    function creatingTeam(t) { return !exists(teamPathOf(t)) && getAfter(teamPathOf(t)).data.ownerUid == uid(); }
+    // 이용 가능: 무료(시범) · 운영자 무료 제공(기간 안, compUntil 없으면 평생) · 결제 기간 안
+    function teamUsable(t) { return teamDoc(t).get('free', false) == true
+      || (teamDoc(t).get('comp', false) == true && (teamDoc(t).get('compUntil', null) == null || teamDoc(t).compUntil > request.time))
+      || teamDoc(t).paidUntil > request.time; }
+    // 서비스 운영자 — public/js/config.js 의 ADMIN_EMAILS 와 같아야 함. 이메일 인증까지 마친 계정만
+    function isAdmin() { return signedIn() && request.auth.token.email in ['suyoung6780@gmail.com']
+      && request.auth.token.email_verified == true; }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+    match /users/{userId} {
+      allow read: if (signedIn() && uid() == userId) || isAdmin(); // 운영자: 가입자 수 확인
+      allow create: if signedIn() && uid() == userId;
+      // 계정 유형(role)은 가입 후 변경 불가
+      allow update: if signedIn() && uid() == userId && !changed().hasAny(['role']);
+
+      // 홈 '오늘 할 일' 메모장 (본인만)
+      match /todos/{todoId} {
+        allow read, write: if signedIn() && uid() == userId;
+      }
+    }
+
+    // 팀 코드 → teamId. 코드를 정확히 알 때만 조회 가능 (목록 조회 불가)
+    match /teamCodes/{code} {
+      allow get: if signedIn();
+      // 무료 모드: 새 팀을 만드는 지도자만, 10자리 영문 · 숫자, 이미 있는 코드는 덮어쓸 수 없음(create만)
+      allow create: if signedIn() && code.matches('^[A-Za-z0-9]{10}$')
+        && request.resource.data.keys().hasOnly(['teamId', 'createdAt'])
+        && (creatingTeam(request.resource.data.teamId) || isAdmin());
+    }
+
+    match /teams/{t} {
+      allow read: if signedIn();
+
+      // 스카우터 찜 · 메모 — 우리 팀 코치만 읽고 씀. 대상 선수 · 팀에는 아무것도 기록되지 않음
+      match /scouts/{playerId} {
+        allow read, update, delete: if isCoach(t);
+        allow create: if isCoach(t)
+          && teamDoc(request.resource.data.teamId).category == scoutTarget(teamDoc(t).category)
+          && get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)/members/$(playerId)).data.role == 'player';
+      }
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == uid()
+        && !request.resource.data.keys().hasAny(['paidUntil'])
+        && (request.resource.data.status == 'pending'
+          // 무료 모드
+          || (request.resource.data.status == 'active' && request.resource.data.free == true));
+      allow update: if isOwner(t) && changed().hasOnly(['name', 'category', 'isPublic', 'intro']);
+      // 운영자: 홍보용 무료 제공(comp) 지정 · 해제 — 결제와 상관없이 계속 이용
+      allow update: if isAdmin() && changed().hasOnly(['comp', 'compMonths', 'compUntil', 'compBy', 'compAt', 'status']);
+
+      match /members/{m} {
+        allow read: if isMember(t) || (signedIn() && teamDoc(t).isPublic == true) || isAdmin();
+        allow create: if signedIn() && m == uid()
+          && request.resource.data.role == get(/databases/$(database)/documents/users/$(uid())).data.role
+          && (
+            // 무료 모드: 팀을 만드는 대표 지도자
+            (creatingTeam(t) && request.resource.data.role == 'coach')
+            || (teamUsable(t) && (isOwner(t)
+              || get(/databases/$(database)/documents/teamCodes/$(request.resource.data.code)).data.teamId == t))
+          );
+        allow update: if (signedIn() && m == uid() && !changed().hasAny(['role', 'code'])) || isOwner(t);
+        allow delete: if (signedIn() && m == uid()) || isOwner(t);
+      }
+
+      match /private/{d} {
+        allow read: if (d == 'gameModel' && isSquad(t)) || (d == 'billing' && (isCoach(t) || isAdmin()));
+        // 운영자: 코드가 없는 팀(유료 모드의 결제 대기 팀)에 무료 제공하면서 코드 발급
+        allow create: if d == 'billing' && isAdmin() && !exists(/databases/$(database)/documents/teams/$(t)/private/billing);
+        allow write: if d == 'gameModel' && isCoach(t);
+        // 무료 모드: 팀 만들 때 팀 코드 보관
+        allow create: if d == 'billing' && creatingTeam(t)
+          && getAfter(/databases/$(database)/documents/teamCodes/$(request.resource.data.code)).data.teamId == t;
+      }
+
+      match /posts/{p} {
+        allow read: if isSquad(t);
+        allow create, update: if isCoach(t)
+          && request.resource.data.type in ['training', 'daily', 'meeting', 'analysis', 'notice', 'schedule'];
+        allow delete: if isCoach(t);
+      }
+
+      // 훈련장 > 코치 훈련 정리 (코치만)
+      match /coachNotes/{n} {
+        allow read, write: if isCoach(t);
+      }
+
+      match /matches/{x} {
+        allow read: if isSquad(t);
+        allow write: if isCoach(t);
+      }
+
+      match /goals/{g} {
+        allow read: if isSquad(t);
+        allow create: if isSquad(t) && request.resource.data.ownerUid == uid() && (
+          (request.resource.data.scope == 'team' && isCoach(t)) || request.resource.data.scope == 'personal');
+        allow update, delete: if isCoach(t) || (isSquad(t) && resource.data.ownerUid == uid());
+      }
+
+      // 일일 기록: 문서 ID = {uid}_{YYYY-MM-DD}
+      match /logs/{l} {
+        allow get: if isCoach(t) || (isMember(t) && l.split('_')[0] == uid());
+        allow list: if isCoach(t) || (isMember(t) && resource.data.uid == uid());
+        allow create: if isSquad(t) && request.resource.data.uid == uid()
+          && l == uid() + '_' + request.resource.data.date;
+        allow update: if (isSquad(t) && resource.data.uid == uid() && request.resource.data.uid == uid()
+            && !changed().hasAny(['checked', 'coachComment', 'checkedBy', 'checkedAt']))
+          || (isCoach(t) && changed().hasOnly(['checked', 'coachComment', 'checkedBy', 'checkedAt']));
+      }
+
+      match /counsel/{c} {
+        allow read: if isCoach(t) || (isMember(t) && resource.data.authorUid == uid());
+        allow create: if isSquad(t) && request.resource.data.authorUid == uid();
+        allow update: if (isCoach(t) || (isMember(t) && resource.data.authorUid == uid()))
+          && changed().hasOnly(['status', 'updatedAt']);
+        allow delete: if isMember(t) && resource.data.authorUid == uid();
+
+        match /replies/{r} {
+          allow read: if isCoach(t) || (isMember(t) && get(/databases/$(database)/documents/teams/$(t)/counsel/$(c)).data.authorUid == uid());
+          allow create: if request.resource.data.uid == uid() && (isCoach(t)
+            || (isMember(t) && get(/databases/$(database)/documents/teams/$(t)/counsel/$(c)).data.authorUid == uid()));
+        }
+      }
+    }
+
+    match /chats/{c} {
+      allow read: if signedIn() && uid() in resource.data.participants;
+      allow update: if signedIn() && uid() in resource.data.participants
+        && request.resource.data.participants == resource.data.participants;
+      allow create: if signedIn() && uid() in request.resource.data.participants
+        && request.resource.data.participants.size() == 2
+        && c == request.resource.data.participants[0] + '_' + request.resource.data.participants[1]
+        && (
+          // 같은 팀원끼리
+          (request.resource.data.kind == 'member' && isMember(request.resource.data.teamId)
+            && exists(/databases/$(database)/documents/teams/$(request.resource.data.teamId)/members/$(otherOf(request.resource.data.participants))))
+          // 코치 → 다른 팀의 팀 계정
+          || (request.resource.data.kind == 'team' && isCoach(request.resource.data.fromTeamId)
+            && teamDoc(request.resource.data.teamId).ownerUid == otherOf(request.resource.data.participants))
+        );
+
+      match /messages/{msg} {
+        allow read: if signedIn() && uid() in get(/databases/$(database)/documents/chats/$(c)).data.participants;
+        allow create: if signedIn() && request.resource.data.uid == uid()
+          && uid() in get(/databases/$(database)/documents/chats/$(c)).data.participants;
+      }
+    }
+
+    // 운영자 문의 ① 팀 ↔ 운영자 대화방 (문서 id = 팀 id) — 그 팀 지도자와 운영자만
+    match /support/{t} {
+      allow read: if isCoach(t) || isAdmin();
+      allow create, update: if (isCoach(t) || isAdmin()) && request.resource.data.teamId == t;
+      match /messages/{m} {
+        allow read: if isCoach(t) || isAdmin();
+        allow create: if (isCoach(t) || isAdmin()) && request.resource.data.uid == uid()
+          && request.resource.data.from == (isAdmin() ? 'admin' : 'team');
+      }
+    }
+    // 운영자 문의 ② Q&A · 개선 제안 · 오류 신고 — 쓴 사람과 운영자만 봄, 답변 · 상태는 운영자만
+    match /feedback/{f} {
+      allow create: if signedIn() && request.resource.data.uid == uid()
+        && request.resource.data.status == '접수' && !request.resource.data.keys().hasAny(['reply', 'repliedAt']);
+      allow read: if isAdmin() || (signedIn() && resource.data.uid == uid());
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || (signedIn() && resource.data.uid == uid() && resource.data.status == '접수');
+    }
+
+    // 운영자 전체 공지 — 로그인한 모두가 읽고, 운영자만 씀
+    match /system/{d} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // 결제 기록은 서버 전용
+    match /payments/{id} {
+      allow read, write: if false;
+    }
+  }
+}

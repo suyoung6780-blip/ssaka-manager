@@ -1,0 +1,22 @@
+rules_version = '2';
+
+// 팀 파일: 팀원만 열람, 코치만 업로드
+//  - 미팅룸 첨부 등: 50MB 이하
+//  - 분석실 경기 영상(analysis/): 동영상 1GB 이하
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /teams/{teamId}/{allPaths=**} {
+      allow read: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/teams/$(teamId)/members/$(request.auth.uid));
+      allow write: if request.auth != null
+        && firestore.get(/databases/(default)/documents/teams/$(teamId)/members/$(request.auth.uid)).data.role == 'coach'
+        && request.resource.size < 50 * 1024 * 1024;
+    }
+    match /teams/{teamId}/analysis/{file} {
+      allow write: if request.auth != null
+        && firestore.get(/databases/(default)/documents/teams/$(teamId)/members/$(request.auth.uid)).data.role == 'coach'
+        && request.resource.contentType.matches('video/.*')
+        && request.resource.size < 1024 * 1024 * 1024;
+    }
+  }
+}

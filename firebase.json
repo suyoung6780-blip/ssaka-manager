@@ -1,0 +1,13 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": ["**/.*"],
+    "rewrites": [{ "source": "/api/feeds", "function": { "functionId": "feeds", "region": "asia-northeast3" } }],
+    "headers": [
+      { "source": "**/*.@(js|css)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    ]
+  },
+  "firestore": { "rules": "firestore.rules", "indexes": "firestore.indexes.json" },
+  "storage": { "rules": "storage.rules" },
+  "functions": [{ "source": "functions", "runtime": "nodejs20", "ignore": ["node_modules", ".git", "*.local"] }]
+}

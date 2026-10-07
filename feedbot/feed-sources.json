@@ -1,0 +1,130 @@
+{
+  "news": [
+    {
+      "id": "interfootball",
+      "name": "인터풋볼",
+      "lang": "ko",
+      "url": "https://www.interfootball.co.kr/rss/allArticle.xml"
+    },
+    {
+      "id": "footballist",
+      "name": "풋볼리스트",
+      "lang": "ko",
+      "url": "https://www.footballist.co.kr/rss/allArticle.xml"
+    },
+    {
+      "id": "besteleven",
+      "name": "베스트일레븐",
+      "lang": "ko",
+      "url": "https://www.besteleven.com/rss/allArticle.xml"
+    },
+    {
+      "id": "sportalkorea",
+      "name": "스포탈코리아",
+      "lang": "ko",
+      "url": "https://www.sportalkorea.com/rss/allArticle.xml"
+    },
+    {
+      "id": "yna",
+      "name": "연합뉴스",
+      "lang": "ko",
+      "url": "https://www.yna.co.kr/rss/sports.xml",
+      "soccerOnly": true
+    },
+    {
+      "id": "bbc",
+      "name": "BBC Sport",
+      "lang": "en",
+      "url": "https://feeds.bbci.co.uk/sport/football/rss.xml"
+    },
+    {
+      "id": "sky",
+      "name": "Sky Sports",
+      "lang": "en",
+      "url": "https://www.skysports.com/rss/11095"
+    },
+    {
+      "id": "guardian",
+      "name": "The Guardian",
+      "lang": "en",
+      "url": "https://www.theguardian.com/football/rss"
+    }
+  ],
+  "youtube": [
+    {
+      "id": "kleague",
+      "name": "K LEAGUE",
+      "channelId": "UCak5ZEX4BjijJcf7fdppuIQ"
+    },
+    {
+      "id": "kfa",
+      "name": "KFATV 국가대표팀",
+      "channelId": "UCpjOmwiy88a9EV3Rv8ukJgw"
+    },
+    {
+      "id": "coupang",
+      "name": "쿠팡플레이 스포츠",
+      "channelId": "UCnBht7BrOx-A328KFXgysqQ"
+    },
+    {
+      "id": "spotv",
+      "name": "SPOTV",
+      "channelId": "UCtm_QoN2SIxwCE-59shX7Qg"
+    },
+    {
+      "id": "s4l",
+      "name": "슛포러브",
+      "channelId": "UC4EP1dxFDPup_aFLt0ElsDw"
+    },
+    {
+      "id": "epl",
+      "name": "Premier League",
+      "channelId": "UCG5qGWdu8nIRZqJ_GgDwQ-w"
+    },
+    {
+      "id": "laliga",
+      "name": "LALIGA",
+      "channelId": "UCTv-XvfzLX3i4IGWAm4sbmA"
+    },
+    {
+      "id": "bundesliga",
+      "name": "Bundesliga",
+      "channelId": "UC6UL29enLNe4mqwTfAyeNuw"
+    },
+    {
+      "id": "seriea",
+      "name": "Serie A",
+      "channelId": "UCBJeMCIeLQos7wacox4hmLQ"
+    },
+    {
+      "id": "fifa",
+      "name": "FIFA",
+      "channelId": "UCpcTrCXblq78GZrTUTLWeBw"
+    }
+  ],
+  "soccerKeywords": [
+    "축구",
+    "K리그",
+    "월드컵",
+    "대표팀",
+    "EPL",
+    "프리미어리그",
+    "챔피언스리그",
+    "분데스리가",
+    "라리가",
+    "세리에",
+    "손흥민",
+    "이강인",
+    "김민재",
+    "황희찬",
+    "황인범",
+    "이재성",
+    "골키퍼",
+    "FC",
+    "유나이티드",
+    "AFC",
+    "FIFA",
+    "KFA"
+  ],
+  "blogs": []
+}
