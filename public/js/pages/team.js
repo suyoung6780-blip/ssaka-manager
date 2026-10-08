@@ -43,7 +43,7 @@ export async function gameModel(el) {
       <section class="card">
         <h3>주장단</h3>
         <div class="captains">
-          ${[['captain', '주장', 'C'], ['viceCaptain', '부주장', 'VC']].map(([k, l, b]) => {
+          ${[['captain', '주장', 'C'], ['viceCaptain', '부주장', 'VC'], ['viceCaptain2', '부주장', 'VC']].map(([k, l, b]) => {
             const m = list.find((x) => x.id === gm[k]);
             return `<div class="captain">${m ? avatar(m.photo, m.name, 'lg') : '<span class="avatar lg">-</span>'}<span class="badge">${b}</span><strong>${esc(m?.name || '미지정')}</strong><small>${l}</small></div>`;
           }).join('')}
@@ -63,7 +63,8 @@ export async function gameModel(el) {
       <section class="card">
         <div class="grid2">
           <label>주장<select name="captain"><option value="">-</option>${options(players.map((p) => [p.id, p.name]), gm.captain)}</select></label>
-          <label>부주장<select name="viceCaptain"><option value="">-</option>${options(players.map((p) => [p.id, p.name]), gm.viceCaptain)}</select></label>
+          <label>부주장 1<select name="viceCaptain"><option value="">-</option>${options(players.map((p) => [p.id, p.name]), gm.viceCaptain)}</select></label>
+          <label>부주장 2<select name="viceCaptain2"><option value="">-</option>${options(players.map((p) => [p.id, p.name]), gm.viceCaptain2)}</select></label>
         </div>
         ${MODEL_FIELDS.map(([k, l]) => `<label>${l}<textarea name="${k}" rows="3">${esc(gm[k] || '')}</textarea></label>`).join('')}
         <div class="row end"><button type="button" class="btn ghost" data-cancel>취소</button><button class="btn">저장</button></div>

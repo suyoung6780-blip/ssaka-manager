@@ -2,7 +2,7 @@ import { db, doc, getDoc } from './fb.js';
 import { ADMIN_EMAILS } from './config.js';
 
 // 전역 상태: 로그인 사용자, 내 프로필, 소속 팀, 팀 내 내 멤버 문서
-export const state = { user: null, profile: null, team: null, member: null, cleanup: [] };
+export const state = { user: null, profile: null, team: null, member: null, features: {}, cleanup: [] };
 
 export const role = () => state.profile?.role;
 export const inTeam = () => !!(state.team && state.member);
@@ -31,6 +31,7 @@ export const go = (path) => {
 export async function loadContext() {
   const u = state.user;
   state.profile = state.team = state.member = null;
+  state.features = {};
   if (!u) return;
   const p = await getDoc(doc(db, 'users', u.uid));
   state.profile = p.exists() ? { id: p.id, ...p.data() } : null;
@@ -43,7 +44,10 @@ export async function loadContext() {
     const m = await getDoc(doc(db, 'teams', teamId, 'members', u.uid));
     state.member = m.exists() ? { id: m.id, ...m.data() } : null;
   } catch { state.member = null; }
+  // 운영자가 이 팀에만 켜 준 추가 기능 (system/features)
+  try { state.features = (await getDoc(doc(db, 'system', 'features'))).data()?.teams?.[teamId] || {}; } catch { state.features = {}; }
 }
+export const hasFeature = (k) => !!state.features?.[k];
 
 // 프로필 변경 시 팀 멤버 문서(공개 프로필)에도 반영할 필드
 export const publicProfile = (p) => ({

@@ -74,6 +74,11 @@ export async function page(el) {
   el.querySelector('[data-off]')?.addEventListener('click', () => save(false));
 }
 
+// 팀별로 켤 수 있는 추가 기능 목록 — 새 기능을 만들면 여기에 추가
+const TEAM_FEATURES = [
+  ['wellness', '컨디션 엑셀', '오늘 기록에 훈련 시간 · 수면 질 칸 추가 + 일지검사에서 자각도 · 훈련 시간 · 훈련 부하 · 수면 시간 · 수면 질 엑셀 받기'],
+];
+
 // ───────── 전체 팀 목록 (운영자) ─────────
 function usage(t) {
   if (t.comp) {
@@ -92,6 +97,8 @@ export async function teams(el) {
     getDocs(collection(db, 'teams')),
     getDocs(collection(db, 'users')).catch(() => null),
   ]);
+  let feats = {};
+  try { feats = (await getDoc(doc(db, 'system', 'features'))).data()?.teams || {}; } catch { /* */ }
   const list = await Promise.all(ts.docs.map(async (d) => {
     const t = { id: d.id, ...d.data() };
     try { t.code = (await getDoc(doc(db, 'teams', d.id, 'private', 'billing'))).data()?.code || ''; } catch { t.code = ''; }
@@ -142,10 +149,28 @@ export async function teams(el) {
         <td data-l="팀 코드"><code class="tcode">${esc(t.code || '-')}</code></td>
         <td data-l="이용"><span class="tag ${cls}">${u}</span></td>
         <td data-l="만든 날">${fmtDate(t.createdAt) || '-'}</td>
-        <td data-l=""><button class="btn ${t.comp ? 'ghost' : ''} sm" data-comp="${t.id}">${t.comp ? '무료 제공 변경' : '무료 제공'}</button></td></tr>`;
+        <td data-l=""><button class="btn ghost sm" data-feat="${t.id}">기능${Object.values(feats[t.id] || {}).filter(Boolean).length ? ` <b class="dot-n">${Object.values(feats[t.id]).filter(Boolean).length}</b>` : ''}</button>
+          <button class="btn ${t.comp ? 'ghost' : ''} sm" data-comp="${t.id}">${t.comp ? '무료 제공 변경' : '무료 제공'}</button></td></tr>`;
     }).join('') || '<tr><td colspan="9" class="muted center">조건에 맞는 팀이 없습니다.</td></tr>';
     el.querySelectorAll('[data-comp]').forEach((b) => (b.onclick = () => toggleComp(list.find((t) => t.id === b.dataset.comp))));
+    el.querySelectorAll('[data-feat]').forEach((b) => (b.onclick = () => featModal(list.find((t) => t.id === b.dataset.feat))));
   };
+
+  // 팀별 추가 기능 켜기 · 끄기 (system/features — 이 팀 사람들에게만 보임)
+  function featModal(t) {
+    const cur = feats[t.id] || {};
+    const m = modal(`<span class="eyebrow">TEAM FEATURES</span><h2>${esc(t.name)} 추가 기능</h2>
+      <p class="muted">켠 기능은 이 팀 사람들에게만 보여요. 다른 팀은 바뀌지 않아요.</p>
+      <div class="stack">${TEAM_FEATURES.map(([k, l, d]) => `<label class="feat-row"><input type="checkbox" data-k="${k}" ${cur[k] ? 'checked' : ''}><span><b>${l}</b><small>${d}</small></span></label>`).join('')}</div>
+      <div class="row end"><button class="btn" data-save>저장</button></div>`);
+    m.el.querySelector('[data-save]').onclick = async () => {
+      const next = Object.fromEntries([...m.el.querySelectorAll('[data-k]')].map((c) => [c.dataset.k, c.checked]));
+      try {
+        await setDoc(doc(db, 'system', 'features'), { teams: { [t.id]: next } }, { merge: true });
+        feats[t.id] = next; m.close(); toast(`${t.name}: 기능을 저장했어요.`); draw();
+      } catch (err) { fail(err); }
+    };
+  }
 
   // 홍보용 무료 제공: 1 · 3 · 5 · 12개월 / 평생 (오늘부터), 해제
   const PERIODS = [[1, '1개월'], [3, '3개월'], [5, '5개월'], [12, '12개월'], [0, '평생']];

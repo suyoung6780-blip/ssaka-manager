@@ -25,6 +25,7 @@ seed('teams/T4/members/r1', { name: '한유망', role: 'player', affiliation: '�
 seed('teams/T4/members/r2', { name: '오수비', role: 'player', position: 'CB', number: '4', height: '152', weight: '41', birthYear: '2014' });
 seed('teams/T1/private/billing', { code: 'Xk7mQ2pR9a', paidUntil: later });
 seed('teamCodes/Xk7mQ2pR9a', { teamId: 'T1' });
+seed('system/features', { teams: { T1: { wellness: true } } }); // 데모: FC 블랙에 '컨디션 엑셀' 켜 둠
 [['T2', 'Wp4nHs8eKd'], ['T3', 'Gr7tYb2mQx'], ['T4', 'Rd5uNc9vJa']].forEach(([t, c]) => { seed(`teamCodes/${c}`, { teamId: t }); seed(`teams/${t}/private/billing`, { code: c }); });
 seed('teams/T1/private/gameModel', { philosophy: '점유', captain: 'p1', formation: '4-3-3' });
 seed('teams/T1/posts/a', { type: 'notice', title: '10월 리그 일정 및 원정 버스 안내', body: '토요일 원정 경기 버스는 7시 30분 출발합니다.', createdAt: now(), pinned: true });
@@ -78,7 +79,7 @@ seed('teams/T1/goals/g5', { scope: 'team', title: '훈련 지각 0명', category
 seed('teams/T1/goals/g2', { scope: 'personal', title: '왼발 패스 정확하게', category: '기술', why: '왼쪽에서 받으면 자꾸 오른발로 바꿔서 늦어요', how: '매일 벽 패스 왼발 50개', due: '2026-10-31', progress: 40, status: 'doing', ownerUid: 'p1', ownerName: '박선수', coachComment: '좋은 목표야! 훈련 끝나고 같이 해보자', coachChecked: true, createdAt: now() });
 seed('teams/T1/goals/g6', { scope: 'personal', title: '공중볼 캐칭 자신감', category: '마음가짐', why: '크로스 올 때 무서워요', how: '매일 하이볼 캐칭 20개', progress: 20, status: 'doing', ownerUid: 'p2', ownerName: '이선수', createdAt: now() });
 seed(`teams/T1/logs/p1_${today}`, {
-  uid: 'p1', name: '박선수', date: today, condition: 2, sleep: 5.5, rpe: 7, injury: 6, injuryPart: '발목', bedtime: '01:00', wakeTime: '06:30',
+  uid: 'p1', name: '박선수', date: today, condition: 2, sleep: 5.5, rpe: 7, trainMin: 90, sleepQ: 2, injury: 6, injuryPart: '발목', bedtime: '01:00', wakeTime: '06:30',
   kind: 'match', submitted: true, submittedAt: now(),
   sessions: {
     'dl1-0': { name: '웜업 · 동적 스트레칭', plan: '화요일 오후 훈련', focus: 4, good: '몸이 빨리 풀렸어요', hard: '', next: '' },
@@ -97,10 +98,10 @@ seed(`teams/T1/logs/p1_${today}`, {
   },
 });
 { const d2 = (() => { const d = new Date(); d.setDate(d.getDate() - 2); return ymd(d); })();
-  seed(`teams/T1/logs/p1_${d2}`, { uid: 'p1', name: '박선수', date: d2, kind: 'train', condition: 4, sleep: 8, rpe: 3, injury: 0, submitted: true, submittedAt: now(), checked: true, coachComment: '회복 훈련도 성실하게 잘했어!',
+  seed(`teams/T1/logs/p1_${d2}`, { uid: 'p1', name: '박선수', date: d2, kind: 'train', condition: 4, sleep: 8, rpe: 3, trainMin: 60, sleepQ: 4, injury: 0, submitted: true, submittedAt: now(), checked: true, coachComment: '회복 훈련도 성실하게 잘했어!',
     sessions: { 'dl2-0': { name: '회복 조깅', focus: 4, good: '천천히 끝까지 뛰었어요', hard: '', next: '' }, 'dl2-1': { name: '스트레칭', focus: 3, good: '', hard: '햄스트링이 뻣뻣해요', next: '집에서도 스트레칭' } },
     learned: '회복도 훈련이다', tomorrow: '압박 탈출 연습' }); }
-seed(`teams/T1/logs/p2_${today}`, { uid: 'p2', name: '이선수', date: today, condition: 4, sleep: 8, rpe: 4, injury: 0 }); // 작성 중(미제출) 예시
+seed(`teams/T1/logs/p2_${today}`, { uid: 'p2', name: '이선수', date: today, condition: 4, sleep: 8, rpe: 4, trainMin: 90, sleepQ: 4, injury: 0 }); // 작성 중(미제출) 예시
 seed('teams/T1/counsel/k1', { title: '진로', body: '고민', authorUid: 'p1', authorName: '박선수', createdAt: now(), status: 'open' });
 seed('teams/T1/scouts/r1', { name: '한유망', uid: 'r1', position: 'LW', number: '11', height: '148', weight: '38', birthYear: '2014', affiliation: '레드초 6학년', teamId: 'T4', teamName: '레드 유소년', category: 'U12', note: '왼발 드리블 좋음, 1v1 자신감. 수비 가담 보완 필요', by: '김코치', createdAt: now() });
 const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return ymd(d); };
@@ -241,7 +242,7 @@ function run(q) {
   const depth = q.path.split('/').length + 1;
   let rows = [...store.keys()].filter((k) => k.startsWith(q.path + '/') && k.split('/').length === depth);
   for (const c of q.cs || []) {
-    if (c.t === 'w') rows = rows.filter((k) => { const x = store.get(k)[c.f]; return { '==': x === c.v, '>=': x >= c.v, 'array-contains': (x || []).includes(c.v), in: c.v.includes(x) }[c.op]; });
+    if (c.t === 'w') rows = rows.filter((k) => { const x = store.get(k)[c.f]; return { '==': x === c.v, '>=': x >= c.v, '<=': x <= c.v, '>': x > c.v, '<': x < c.v, 'array-contains': (x || []).includes(c.v), in: c.v.includes(x) }[c.op]; });
     if (c.t === 'o') rows.sort((a, b) => { const x = val(store.get(a)[c.f]); const y = val(store.get(b)[c.f]); return (x > y ? 1 : x < y ? -1 : 0) * (c.dir === 'desc' ? -1 : 1); });
     if (c.t === 'l') rows = rows.slice(0, c.n);
   }

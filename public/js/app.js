@@ -1,5 +1,6 @@
 import { isConfigured, FREE_MODE } from './config.js';
 import { installButton, bindInstall } from './install.js';
+import { attachHelp } from './help.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
 import { $, $$, esc, avatar, ROLES, toast } from './ui.js';
 import {
@@ -134,6 +135,7 @@ async function route() {
   $('.shell').classList.remove('nav-open', 'search-open');
   try {
     await r.fn(view, r.params);
+    if (view.isConnected) attachHelp(view, path);
   } catch (e) {
     console.error(e);
     view.innerHTML = `<div class="empty">페이지를 불러오지 못했습니다.<br><small>${esc(e.message)}</small></div>`;

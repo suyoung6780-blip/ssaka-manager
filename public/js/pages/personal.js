@@ -4,7 +4,8 @@ import {
 import {
   esc, text, toast, fail, formData, modal, confirmBox, todayStr, pageHead, empty, avatar, ROLES, MATCH_TYPES, options,
 } from '../ui.js';
-import { state, inTeam, isOwner, loadContext, publicProfile, go, hooks } from '../store.js';
+import { state, inTeam, isOwner, loadContext, publicProfile, go, hooks, hasFeature, isCoach } from '../store.js';
+import { exportModal, dailyFields, SLEEP_Q } from '../wellness.js';
 import { profileFields, bindPhoto, profileData } from './auth.js';
 import { withdraw } from './privacy.js';
 import { installButton, bindInstall } from '../install.js';
@@ -150,6 +151,7 @@ export async function daily(el, _p, date = todayStr()) {
           <label>기상 시간<input type="time" name="wakeTime" value="${esc(l.wakeTime || '')}"></label>
         </div>
         <p class="muted small" data-sleep></p>
+        ${hasFeature('wellness') ? `${dailyFields(l, plans.reduce((a, p) => a + (p.blocks || []).reduce((x, b) => x + (+b.min || 0), 0), 0))}${scale('sleepQ', 5, l.sleepQ, SLEEP_Q)}` : ''}
         <h4>자각도 <small class="muted">운동 강도를 스스로 느낀 정도 (RPE · 1 매우 쉬움 ~ 10 최대)</small></h4>
         ${scale('rpe', 10, l.rpe)}
         <h4>부상도 <small class="muted">0 없음 ~ 10 출전 불가</small></h4>
@@ -327,6 +329,7 @@ export async function daily(el, _p, date = todayStr()) {
       ...d, date, uid: state.user.uid, name: state.profile.name,
       condition: +d.condition || null, rpe: +d.rpe || null, injury: +d.injury || 0, goalScore: +d.goalScore || null,
       sleep: sleepHours(d.bedtime, d.wakeTime), updatedAt: serverTimestamp(),
+      ...(hasFeature('wellness') ? { trainMin: d.trainMin === '' || d.trainMin == null ? null : +d.trainMin, sleepQ: +d.sleepQ || null } : {}),
       ...(hasPlan ? { sessions: sess } : {}),
       match,
       ...(submit ? { submitted: true, submittedAt: serverTimestamp() } : {}),
@@ -404,7 +407,7 @@ export async function journalCheck(el, _p, date = todayStr()) {
   const alerts = players.filter((p) => logs[p.id]).filter((p) => logs[p.id].injury >= 5 || logs[p.id].condition <= 2 || (logs[p.id].sleep && logs[p.id].sleep < 6));
   const all = Object.values(logs);
 
-  el.innerHTML = `${pageHead('JOURNAL CHECK', '일지검사', `<input type="date" value="${date}" max="${todayStr()}" data-date>`)}
+  el.innerHTML = `${pageHead('JOURNAL CHECK', '일지검사', `${hasFeature('wellness') && isCoach() ? '<button class="btn ghost sm" data-xlsx>📊 엑셀로 받기</button>' : ''}<input type="date" value="${date}" max="${todayStr()}" data-date>`)}
   <section class="stat-board small">
     <div><small>제출 · 검사 대기</small><strong>${done.length}<i>/${players.length}</i></strong><small>검사 대기 ${waiting} · 작성 중 ${drafting.length}</small></div>
     <div><small>평균 컨디션</small><strong>${avg(all, 'condition')}</strong></div>
@@ -440,6 +443,7 @@ export async function journalCheck(el, _p, date = todayStr()) {
   ${players.length ? '' : empty('선수가 없습니다.')}`;
 
   el.querySelector('[data-date]').onchange = (e) => journalCheck(el, _p, e.target.value);
+  el.querySelector('[data-xlsx]')?.addEventListener('click', exportModal);
   el.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => {
     const l = logs[b.closest('[data-uid]').dataset.uid];
     const m = modal(`<span class="eyebrow">JOURNAL · ${esc(l.date)}</span><h2>${esc(l.name)}</h2>
