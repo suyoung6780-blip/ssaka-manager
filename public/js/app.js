@@ -53,6 +53,7 @@ const routes = [
   ['/chat/:id', social.chatRoom],
   ['/admin', admin.page, 'admin'],
   ['/admin/teams', admin.teams, 'admin'],
+  ['/admin/users', admin.users, 'admin'],
   ['/admin/verify', admin.verify, 'adminEmail'],
   ['/admin/inbox', support.inbox, 'admin'],
   ['/admin/inbox/qna', support.inbox, 'admin'],
@@ -153,7 +154,7 @@ function navItems() {
   ]);
   sec('NOTICE', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄']] : []);
   sec('NETWORK', [...(isCoach() ? [['/scout', '스카우터']] : []), ['/chat', '대화'], ['/support', '운영자 문의']]);
-  if (isAdmin()) sec('운영자', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/inbox', '문의함']]);
+  if (isAdmin()) sec('운영자', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '문의함']]);
   else if (isAdminEmail()) sec('운영자', [['/admin/verify', '운영자 인증']]);
   if (isOwner()) sec('ADMIN', [['/settings', FREE_MODE ? '팀 설정' : '팀 설정 · 결제']]);
   return items;

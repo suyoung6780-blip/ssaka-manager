@@ -1,12 +1,12 @@
 // 운영자 — 모든 팀 · 모든 사용자 화면 맨 위에 띄우는 '전체 공지' (system/notice 문서 하나)
 import {
-  auth, db, doc, getDoc, setDoc, getDocs, collection, serverTimestamp, writeBatch, Timestamp, sendEmailVerification,
+  auth, db, doc, getDoc, setDoc, getDocs, collection, query, where, serverTimestamp, writeBatch, Timestamp, sendEmailVerification,
 } from '../fb.js';
 import { esc, toast, fail, pageHead, fmtDate, CATEGORIES, confirmBox, modal } from '../ui.js';
 import { genTeamCode } from './onboard.js';
 import { state, go, hooks, compActive } from '../store.js';
 
-const tabs = (cur) => `<div class="tabs admin-tabs">${[['/admin', '전체 공지'], ['/admin/teams', '전체 팀']].map(([h, l]) => `<a href="#${h}" class="${h === cur ? 'active' : ''}">${l}</a>`).join('')}</div>`;
+const tabs = (cur) => `<div class="tabs admin-tabs">${[['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원']].map(([h, l]) => `<a href="#${h}" class="${h === cur ? 'active' : ''}">${l}</a>`).join('')}</div>`;
 
 const ref = () => doc(db, 'system', 'notice');
 const text = (s) => esc(s).replace(/\n/g, '<br>');
@@ -223,4 +223,58 @@ export function verify(el) {
       go('/admin');
     } catch (err) { fail(err); }
   };
+}
+
+// ───────── 전체 인원: 가입한 지도자 (선수는 빼고) ─────────
+export async function users(el) {
+  el.innerHTML = `${pageHead('ADMIN', '운영자')}${tabs('/admin/users')}<div class="loading">LOADING</div>`;
+  const [us, ts] = await Promise.all([
+    getDocs(query(collection(db, 'users'), where('role', '==', 'coach'))),
+    getDocs(collection(db, 'teams')),
+  ]);
+  const teamName = Object.fromEntries(ts.docs.map((d) => [d.id, d.data().name]));
+  const ownerOf = new Set(ts.docs.map((d) => d.data().ownerUid));
+  const list = us.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+  let q = '';
+  let only = '전체';
+
+  el.innerHTML = `${pageHead('ADMIN', '운영자')}${tabs('/admin/users')}
+    <div class="admin-stats" data-stats></div>
+    <div class="row admin-filter">
+      <input type="search" placeholder="이름 · 이메일 · 팀 이름 검색" data-q>
+      <select data-only>${['전체', '팀 대표', '팀 소속', '팀 없음'].map((o) => `<option>${o}</option>`).join('')}</select>
+    </div>
+    <p class="muted small">가입한 <b>지도자</b>만 보여요. 선수는 나오지 않아요.</p>
+    <div class="card admin-table-wrap"><table class="tbl admin-table">
+      <thead><tr><th>이름</th><th>이메일</th><th>직책 · 담당</th><th>소속 팀</th><th>자격증</th><th>가입일</th></tr></thead>
+      <tbody data-rows></tbody></table></div>`;
+
+  const draw = () => {
+    el.querySelector('[data-stats]').innerHTML = `
+      <div><span>가입한 지도자</span><strong>${list.length}</strong></div>
+      <div><span>팀 대표</span><strong>${list.filter((u) => ownerOf.has(u.id)).length}</strong></div>
+      <div><span>팀 소속</span><strong>${list.filter((u) => u.teamId && teamName[u.teamId]).length}</strong></div>
+      <div><span>팀 없음</span><strong>${list.filter((u) => !u.teamId || !teamName[u.teamId]).length}</strong></div>`;
+    const rows = list.filter((u) => {
+      const tn = teamName[u.teamId] || '';
+      if (only === '팀 대표' && !ownerOf.has(u.id)) return false;
+      if (only === '팀 소속' && !tn) return false;
+      if (only === '팀 없음' && tn) return false;
+      return !q || `${u.name} ${u.email} ${tn}`.toLowerCase().includes(q);
+    });
+    el.querySelector('[data-rows]').innerHTML = rows.map((u) => {
+      const tn = teamName[u.teamId];
+      return `<tr>
+        <td data-l="이름"><strong>${esc(u.name || '-')}</strong>${ownerOf.has(u.id) ? ' <span class="tag comp">대표</span>' : ''}</td>
+        <td data-l="이메일">${esc(u.email || '-')}</td>
+        <td data-l="직책 · 담당">${esc([u.coachTitle, u.duty].filter(Boolean).join(' · ') || '-')}</td>
+        <td data-l="소속 팀">${tn ? `<a href="#/teams/${u.teamId}">${esc(tn)}</a>` : '<span class="muted">없음</span>'}</td>
+        <td data-l="자격증">${esc([u.licenses, u.licenseEtc].filter(Boolean).join(', ') || '-')}</td>
+        <td data-l="가입일">${fmtDate(u.createdAt) || '-'}</td></tr>`;
+    }).join('') || '<tr><td colspan="6" class="muted center">조건에 맞는 지도자가 없습니다.</td></tr>';
+  };
+  el.querySelector('[data-q]').oninput = (e) => { q = e.target.value.trim().toLowerCase(); draw(); };
+  el.querySelector('[data-only]').onchange = (e) => { only = e.target.value; draw(); };
+  draw();
 }
