@@ -1,4 +1,5 @@
 import { isConfigured, FREE_MODE } from './config.js';
+import { installButton, bindInstall } from './install.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
 import { $, $$, esc, avatar, ROLES, toast } from './ui.js';
 import {
@@ -202,8 +203,9 @@ function updateShell(path = location.hash.slice(1) || '/') {
   const p = state.profile;
   $('.me-box').innerHTML = `
     <a href="#/me" class="me">${avatar(p.photo, p.name)}<span><strong>${esc(p.name)}</strong><small>${ROLES[p.role]}</small></span></a>
-    <button class="link-btn" data-logout>로그아웃</button>`;
+    <span class="me-acts">${installButton('link-btn')}<button class="link-btn" data-logout>로그아웃</button></span>`;
   $('[data-logout]').onclick = () => signOut(auth);
+  bindInstall($('.me-box'));
 }
 
 hooks.route = route;

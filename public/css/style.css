@@ -1245,3 +1245,5 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
 .rec-tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin: 14px 0; }
 .rec-tables .tbl th, .rec-tables .tbl td { white-space: nowrap; }
 .rec-tables .card { overflow-x: auto; }
+.me-acts { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.install-line { margin-top: 14px; }

@@ -7,6 +7,7 @@ import {
 import { state, inTeam, isOwner, loadContext, publicProfile, go, hooks } from '../store.js';
 import { profileFields, bindPhoto, profileData } from './auth.js';
 import { withdraw } from './privacy.js';
+import { installButton, bindInstall } from '../install.js';
 import { loadPrograms, present } from './training.js';
 import { createPad, blank } from '../tactic.js';
 
@@ -20,8 +21,9 @@ export function profile(el) {
     ${profileFields(p)}
     <button class="btn full">저장</button>
     ${inTeam() && !isOwner() ? '<button type="button" class="link-btn small" data-leave>팀 나가기</button>' : ''}
-    <div class="row between small me-foot"><a href="#/privacy" class="muted">개인정보 처리방침</a><button type="button" class="link-btn small danger-link" data-withdraw>회원 탈퇴</button></div>
+    <div class="row between small me-foot"><a href="#/privacy" class="muted">개인정보 처리방침</a>${installButton()}<button type="button" class="link-btn small danger-link" data-withdraw>회원 탈퇴</button></div>
   </form>`;
+  bindInstall(el);
   el.querySelector('[data-withdraw]').onclick = withdraw;
   const form = el.querySelector('form');
   bindPhoto(form);

@@ -7,6 +7,7 @@ import { esc, toast, fail, formData, options, POSITIONS, ROLES, resizeImage, ava
 import { state, loadContext, go } from '../store.js';
 import { FREE_MODE } from '../config.js';
 import { agreeFields, bindAgree, agreeData } from './privacy.js';
+import { installButton, bindInstall } from '../install.js';
 
 // 회원가입 안내: 계정 유형 · 팀이 만들어지는 방식 · 역할별 권한
 const Y = '<span class="ok">✔</span>', N = '<span class="no">—</span>';
@@ -60,7 +61,9 @@ export function login(el) {
       <a href="#/signup">회원가입 →</a>
     </div>
     <p class="center small"><a href="#/privacy" class="muted">개인정보 처리방침</a></p>
-  </form>`;
+  </form>
+  <p class="center install-line">${installButton('btn ghost sm')}</p>`;
+  bindInstall(el);
   const form = el.querySelector('form');
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -87,7 +90,9 @@ export function signup(el) {
     <button class="btn full">다음 — 개인계정 만들기</button>
     <div class="row between small"><button type="button" class="link-btn" data-guide>계정 유형 · 권한 안내</button><a href="#/login">이미 계정이 있어요</a></div>
     <p class="center small"><a href="#/privacy" class="muted">개인정보 처리방침</a></p>
-  </form>`;
+  </form>
+  <p class="center install-line">${installButton('btn ghost sm')}</p>`;
+  bindInstall(el);
   const form = el.querySelector('form');
   el.querySelector('[data-guide]').onclick = accountGuide;
   form.onsubmit = async (e) => {
