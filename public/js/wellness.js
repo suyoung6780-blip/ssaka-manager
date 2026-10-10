@@ -3,6 +3,7 @@
 import { db, collection, query, where, orderBy, getDocs } from './fb.js';
 import { esc, toast, fail, modal, todayStr } from './ui.js';
 import { state } from './store.js';
+import { sleepOf } from './sleep.js';
 
 export const SLEEP_Q = ['', '매우 나쁨', '나쁨', '보통', '좋음', '매우 좋음'];
 const XLSX_JS = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
@@ -61,18 +62,18 @@ async function makeExcel(from, to) {
   // 1) 기록: 날짜별 한 줄
   const nameOf = (uid) => players.find((p) => p.id === uid);
   sheet('기록', [
-    ['날짜', '이름', '등번호', '포지션', '자각도(RPE 1~10)', '훈련 시간(분)', '훈련 부하(RPE×분)', '취침', '기상', '수면 시간(시간)', '수면 질(1~5)', '컨디션(1~5)', '통증(0~10)', '통증 부위', '제출'],
-    ...logs.map((l) => { const p = nameOf(l.uid); return [l.date, p?.name || l.name, p?.number || '', p?.position || '', l.rpe || '', l.trainMin ?? '', load(l), l.bedtime || '', l.wakeTime || '', l.sleep ?? '', l.sleepQ || '', l.condition || '', l.injury ?? '', l.injuryPart || '', l.submitted ? 'O' : '작성 중']; }),
+    ['날짜', '이름', '등번호', '포지션', '자각도(RPE 1~10)', '훈련 시간(분)', '훈련 부하(RPE×분)', '취침', '기상', '수면 시간(분)', '수면 질(1~5)', '컨디션(1~5)', '통증(0~10)', '통증 부위', '제출'],
+    ...logs.map((l) => { const p = nameOf(l.uid); return [l.date, p?.name || l.name, p?.number || '', p?.position || '', l.rpe || '', l.trainMin ?? '', load(l), l.bedtime || '', l.wakeTime || '', sleepOf(l) ?? '', l.sleepQ || '', l.condition || '', l.injury ?? '', l.injuryPart || '', l.submitted ? 'O' : '작성 중']; }),
   ], [11, 10, 7, 8, 15, 13, 17, 7, 7, 14, 12, 11, 11, 12, 8]);
 
   // 2) 선수별 평균 (기록이 없는 선수도 포함)
   sheet('선수별 평균', [
-    ['이름', '등번호', '포지션', '기록한 날', '평균 자각도', '총 훈련 시간(분)', '총 훈련 부하', '평균 수면 시간', '평균 수면 질', '평균 컨디션'],
+    ['이름', '등번호', '포지션', '기록한 날', '평균 자각도', '총 훈련 시간(분)', '총 훈련 부하', '평균 수면 시간(분)', '평균 수면 질', '평균 컨디션'],
     ...players.map((p) => {
       const mine = logs.filter((l) => l.uid === p.id);
       const nums = (k) => mine.map((l) => l[k]).filter((v) => typeof v === 'number' && !Number.isNaN(v));
       return [p.name, p.number || '', p.position || '', mine.length, avg(nums('rpe')), nums('trainMin').reduce((a, b) => a + b, 0) || '',
-        mine.map(load).filter(Boolean).reduce((a, b) => a + b, 0) || '', avg(nums('sleep')), avg(nums('sleepQ')), avg(nums('condition'))];
+        mine.map(load).filter(Boolean).reduce((a, b) => a + b, 0) || '', avg(mine.map(sleepOf).filter((v) => v != null)), avg(nums('sleepQ')), avg(nums('condition'))];
     }),
   ], [10, 7, 8, 10, 11, 15, 13, 14, 12, 11]);
 
@@ -85,7 +86,7 @@ async function makeExcel(from, to) {
   grid('자각도', (l) => l.rpe || '');
   grid('훈련시간', (l) => l.trainMin ?? '');
   grid('훈련부하', load);
-  grid('수면시간', (l) => l.sleep ?? '');
+  grid('수면시간(분)', (l) => sleepOf(l) ?? '');
   grid('수면질', (l) => l.sleepQ || '');
 
   const file = `${(state.team.name || 'team').replace(/[\\/:*?"<>|]/g, '')}_컨디션_${from}~${to}.xlsx`;

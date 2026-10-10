@@ -15,6 +15,7 @@ import * as onboard from './pages/onboard.js';
 import * as team from './pages/team.js';
 import * as board from './pages/board.js';
 import * as training from './pages/training.js';
+import * as data from './pages/data.js';
 import * as trainingDaily from './pages/trainingDaily.js';
 import * as analysis from './pages/analysis.js';
 import * as goals from './pages/goals.js';
@@ -36,6 +37,7 @@ const routes = [
   ['/locker', team.locker, 'squad'],
   ['/goals', goals.page, 'squad'],
   ['/records', team.records, 'squad'],
+  ['/data', data.page, 'squad'],
   ['/counsel', team.counsel, 'squad'],
   ['/training', trainingDaily.daily, 'squad'],
   ['/training/notes', trainingDaily.notes, 'coach'],
@@ -148,7 +150,7 @@ function navItems() {
   const sec = (title, list) => list.length && items.push({ title, list });
   sec('TEAM', isSquad() ? [
     ['/', '홈'], ['/gamemodel', '게임모델'], ['/locker', '락커룸'], ['/training', '훈련장'],
-    ['/meeting', '미팅룸'], ['/analysis', '분석실'], ['/counsel', '상담실'], ['/goals', '목표'], ['/records', '기록실'],
+    ['/meeting', '미팅룸'], ['/analysis', '분석실'], ['/counsel', '상담실'], ['/goals', '목표'], ['/records', '기록실'], ['/data', '데이터실'],
   ] : [['/', '홈']]);
   sec('MY', [
     ['/me', '프로필'],

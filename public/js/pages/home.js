@@ -6,6 +6,7 @@ import { esc, fmtDate, todayStr, empty, fail } from '../ui.js';
 import { state, inTeam, isSquad, isCoach, isOwner, teamActive, role } from '../store.js';
 import { calcStats } from './team.js';
 import { renderBriefing } from './briefing.js';
+import { sleepOf, SHORT_SLEEP } from '../sleep.js';
 
 const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const DOW_KO = ['일', '월', '화', '수', '목', '금', '토'];
@@ -147,7 +148,7 @@ export async function render(el) {
   const players = allMembers.filter((x) => x.role === 'player' && x.approved !== false);
   const logs = logsToday ? logsToday.docs.map((d) => d.data()) : [];
   const submitted = logs.filter((l) => l.submitted);
-  const alertLogs = logs.filter((l) => l.injury >= 5 || l.condition <= 2 || (l.sleep && l.sleep < 6));
+  const alertLogs = logs.filter((l) => l.injury >= 5 || l.condition <= 2 || (sleepOf(l) != null && sleepOf(l) < SHORT_SLEEP));
 
   const stats = [
     ['오늘 일정', todays.length ? `${todays.length}건` : '없음', '/schedule'],
@@ -173,7 +174,7 @@ export async function render(el) {
     </section>`
     : isSquad() ? `<section class="card hcard">
       <div class="card-head"><h3>내 오늘 기록</h3></div>
-      ${l ? `<div class="hbig"><strong>${l.checked ? '검사 완료' : l.submitted ? '제출함' : '작성 중'}</strong><small>컨디션 ${'●'.repeat(l.condition || 0)}${'○'.repeat(5 - (l.condition || 0))} · 수면 ${l.sleep ?? '-'}h</small></div>
+      ${l ? `<div class="hbig"><strong>${l.checked ? '검사 완료' : l.submitted ? '제출함' : '작성 중'}</strong><small>컨디션 ${'●'.repeat(l.condition || 0)}${'○'.repeat(5 - (l.condition || 0))} · 수면 ${sleepOf(l) ?? '-'}분</small></div>
         ${l.coachComment ? `<div class="coach-note"><span class="tag solid">코치 한마디</span><p>${esc(l.coachComment)}</p></div>` : ''}`
         : '<p class="muted">아직 오늘 기록을 쓰지 않았어요.</p>'}
       <a href="#/daily" class="btn full">${l ? '오늘 기록 열기' : '오늘 기록 쓰기'}</a>

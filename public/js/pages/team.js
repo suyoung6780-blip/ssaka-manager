@@ -19,6 +19,8 @@ async function members(all = false) {
 const nameOf = (list, id) => list.find((m) => m.id === id)?.name || '';
 
 // ───────── 게임모델 ─────────
+const PATTERN_CATS = ['빌드업', '공격', '수비', '전환', '세트피스', '기타'];
+let patCat = '전체';
 const MODEL_FIELDS = [
   ['philosophy', '팀 철학 · 스타일'],
   ['inPossession', '공격 원칙 (In Possession)'],
@@ -51,10 +53,69 @@ export async function gameModel(el) {
         ${MODEL_FIELDS.map(([k, l]) => gm[k] ? `<h4>${l}</h4><div class="prose">${text(gm[k])}</div>` : '').join('')}
         ${!MODEL_FIELDS.some(([k]) => gm[k]) ? empty('아직 게임모델이 작성되지 않았습니다.') : ''}
       </section>
-    </div>`;
+    </div>
+    <section class="gm-pats">
+      <div class="card-head"><h2>패턴 · 작전판 <small class="muted">${(gm.patterns || []).length}개</small></h2>${isCoach() ? '<button class="btn sm" data-padd>+ 패턴 만들기</button>' : ''}</div>
+      <div class="chips wrap">${['전체', ...PATTERN_CATS].map((c) => `<button class="chip ${c === patCat ? 'on' : ''}" data-pcat="${c}">${c}${c !== '전체' ? ` <small>${(gm.patterns || []).filter((x) => x.cat === c).length}</small>` : ''}</button>`).join('')}</div>
+      <div class="pat-grid" data-pats></div>
+    </section>`;
     createPad(el.querySelector('[data-pad]'), gm.pad || formationData(gm.formation || '4-3-3', false), { editable: false });
     el.querySelector('[data-edit]')?.addEventListener('click', edit);
+    drawPats();
+    el.querySelectorAll('[data-pcat]').forEach((b) => (b.onclick = () => { patCat = b.dataset.pcat; view(); }));
+    el.querySelector('[data-padd]')?.addEventListener('click', () => patEditor(null));
   };
+
+  // ───────── 패턴 (세트피스 · 빌드업 등 작전판 여러 개) ─────────
+  const savePats = async (patterns) => {
+    await setDoc(tdoc('private', 'gameModel'), { patterns, updatedAt: serverTimestamp() }, { merge: true });
+    gm.patterns = patterns;
+  };
+  function drawPats() {
+    const box = el.querySelector('[data-pats]');
+    const list = (gm.patterns || []).filter((x) => patCat === '전체' || x.cat === patCat);
+    box.innerHTML = list.length ? list.map((x) => `<article class="pat-card" data-pid="${x.id}">
+        <div data-pthumb></div>
+        <div class="pat-body"><span class="tag">${esc(x.cat)}</span>${x.pad?.steps?.length ? ' <span class="tag">🎬 움직임</span>' : ''}<strong>${esc(x.title)}</strong></div></article>`).join('')
+      : empty(isCoach() ? '아직 패턴이 없어요. [+ 패턴 만들기]로 코너킥 · 프리킥 · 빌드업 같은 약속을 작전판으로 남겨 보세요.' : '아직 등록된 패턴이 없어요.');
+    box.querySelectorAll('[data-pid]').forEach((c) => {
+      const x = gm.patterns.find((p) => p.id === c.dataset.pid);
+      createPad(c.querySelector('[data-pthumb]'), x.pad, { editable: false, play: false });
+      c.onclick = () => patView(x);
+    });
+  }
+  function patView(x) {
+    const m = modal(`<span class="eyebrow">${esc(x.cat)}</span><h2>${esc(x.title)}</h2>
+      <div data-vpad></div>
+      ${x.note ? `<div class="prose">${text(x.note)}</div>` : ''}
+      ${isCoach() ? '<div class="row end"><button class="btn ghost sm" data-pdel>삭제</button><button class="btn sm" data-pedit>수정</button></div>' : ''}`, { wide: true });
+    createPad(m.el.querySelector('[data-vpad]'), x.pad, { editable: false });
+    m.el.querySelector('[data-pedit]')?.addEventListener('click', () => { m.close(); patEditor(x); });
+    m.el.querySelector('[data-pdel]')?.addEventListener('click', async () => {
+      if (!(await confirmBox(`'${x.title}' 패턴을 삭제할까요?`))) return;
+      try { await savePats(gm.patterns.filter((p) => p.id !== x.id)); m.close(); toast('삭제했어요.'); view(); } catch (err) { fail(err); }
+    });
+  }
+  function patEditor(x) {
+    const m = modal(`<span class="eyebrow">PATTERN</span><h2>${x ? '패턴 수정' : '패턴 만들기'}</h2>
+      <form class="stack">
+        <div class="grid2"><label>제목<input name="title" required maxlength="40" value="${esc(x?.title || '')}" placeholder="예) 오른쪽 코너킥 — 니어 포스트 런"></label>
+          <label>종류<select name="cat">${PATTERN_CATS.map((c) => `<option ${c === (x?.cat || patCat) ? 'selected' : ''}>${c}</option>`).join('')}</select></label></div>
+        <div data-epad></div>
+        <label>설명 <small class="muted">누가 · 언제 · 어떻게 (선수들이 함께 봐요)</small><textarea name="note" rows="3" maxlength="1500">${esc(x?.note || '')}</textarea></label>
+        <div class="row end"><button type="button" class="btn ghost" data-cancel>취소</button><button class="btn">저장</button></div>
+      </form>`, { wide: true });
+    const pad = createPad(m.el.querySelector('[data-epad]'), x?.pad || formationData('4-3-3', true), { motion: true });
+    m.el.querySelector('[data-cancel]').onclick = m.close;
+    m.el.querySelector('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const d = formData(e.target);
+      const item = { id: x?.id || `p${Date.now().toString(36)}`, title: d.title.trim(), cat: d.cat, note: d.note.trim(), pad: pad.getData() };
+      const all = gm.patterns || [];
+      const next = x ? all.map((p) => (p.id === x.id ? item : p)) : [...all, item];
+      try { await savePats(next); m.close(); toast('저장했어요.'); view(); } catch (err) { fail(err); }
+    };
+  }
 
   const edit = () => {
     el.innerHTML = `${pageHead('GAME MODEL', '게임모델 편집')}
@@ -70,13 +131,13 @@ export async function gameModel(el) {
         <div class="row end"><button type="button" class="btn ghost" data-cancel>취소</button><button class="btn">저장</button></div>
       </section>
     </form>`;
-    const pad = createPad(el.querySelector('[data-pad]'), gm.pad || formationData('4-3-3', false));
+    const pad = createPad(el.querySelector('[data-pad]'), gm.pad || formationData('4-3-3', false), { motion: true });
     el.querySelector('[data-cancel]').onclick = view;
     el.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
       const d = formData(e.target);
       const padData = pad.getData();
-      const next = { ...d, pad: padData, formation: padData.formation || '', updatedAt: serverTimestamp() };
+      const next = { ...d, pad: padData, formation: padData.formation || '', patterns: gm.patterns || [], updatedAt: serverTimestamp() };
       try {
         await setDoc(tdoc('private', 'gameModel'), next);
         Object.assign(gm, next);

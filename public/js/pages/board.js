@@ -53,7 +53,7 @@ export const page = (type) => async (el) => {
   body.querySelectorAll('.post-card').forEach((card) => {
     const p = posts.find((x) => x.id === card.dataset.id);
     const thumb = card.querySelector('[data-thumb]');
-    if (thumb) createPad(thumb, p.pad, { editable: false });
+    if (thumb) createPad(thumb, p.pad, { editable: false, play: false });
     card.onclick = () => detail(type, p, refresh);
   });
 };

@@ -95,7 +95,7 @@ export async function library(el) {
     box.querySelectorAll('[data-id]').forEach((c) => {
       const p = all.find((x) => x.id === c.dataset.id);
       const pad = c.querySelector('[data-thumb-pad]');
-      if (pad) createPad(pad, p.pad, { editable: false });
+      if (pad) createPad(pad, p.pad, { editable: false, play: false });
       c.onclick = () => detail(p, refresh);
     });
   };
@@ -233,7 +233,7 @@ export function editor(p, refresh) {
   const padBox = form.querySelector('[data-pad]');
   const usePad = form.querySelector('[data-use-pad]');
   const syncPad = () => {
-    if (usePad.checked && !pad) pad = createPad(padBox, p.pad || { ...blank('custom'), grid: { preset: 'none', cols: 0, rows: 0 } });
+    if (usePad.checked && !pad) pad = createPad(padBox, p.pad || { ...blank('custom'), grid: { preset: 'none', cols: 0, rows: 0 } }, { motion: true });
     padBox.hidden = !usePad.checked;
   };
   usePad.onchange = syncPad;

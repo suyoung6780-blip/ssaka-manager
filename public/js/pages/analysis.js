@@ -12,6 +12,7 @@ import {
 } from '../telestrator.js';
 import { ai, loadAI, detectAround, scanFrame, pickNear } from '../detector.js';
 import { STORAGE_ENABLED } from '../config.js';
+import { matchStudio, sampleMatch, computeReport } from './matchAnalysis.js';
 
 // 무료(파일 저장소 없음): 영상은 코치 컴퓨터에서 바로 열어 분석 — 이 창을 닫기 전까지만 기억
 const localFiles = new Map(); // 분석 id → File
@@ -21,29 +22,127 @@ const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart
 const fmtT1 = (s) => `${fmtT(s)}.${Math.floor((s * 10) % 10)}`; // 0:12.5
 
 // ───────── 목록 ─────────
+// 코치: 움직이는 소개 카드(부분분석 · 경기분석) + 내 분석 목록 · 선수: 경기분석만
+let listTab = 'match';
 export async function list(el) {
   const snap = await getDocs(query(col(), where('type', '==', 'analysis'), orderBy('createdAt', 'desc'), limit(100)));
-  const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  el.innerHTML = `${pageHead('ANALYSIS ROOM', '분석실', isCoach() ? '<button class="btn" data-new>+ 영상 분석 만들기</button>' : '')}
-    <p class="lead">경기 영상을 올리고 트래킹 · 크로마키 · 그리드 · 화살표로 분석합니다.</p>
-    ${rows.length ? `<div class="lib-grid">${rows.map((p) => `
+  const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const coach = isCoach();
+  const isMatch = (p) => p.mode === 'match';
+  if (!coach) listTab = 'match';
+  const rows = all.filter((p) => (listTab === 'match' ? isMatch(p) : !isMatch(p)));
+  el.innerHTML = coach ? `${pageHead('ANALYSIS ROOM', '분석실', '<button class="btn" data-new>+ 새 분석</button>')}
+    ${heroHtml(all.length > 0)}
+    ${all.length ? `<h2 class="an-libh">내 분석</h2>
+      <nav class="tabs admin-tabs">${[['match', '📊 경기분석'], ['clip', '✏️ 부분분석']].map(([k, l]) => `<a href="javascript:void 0" class="${k === listTab ? 'active' : ''}" data-ltab="${k}">${l} <small>${all.filter((p) => (k === 'match' ? isMatch(p) : !isMatch(p))).length}</small></a>`).join('')}</nav>
+      ${rows.length ? libGrid(rows) : empty(listTab === 'match' ? '아직 경기분석이 없어요. 위에서 영상을 넣고 시작해 보세요.' : '아직 부분분석이 없어요.')}` : ''}`
+    : `${pageHead('ANALYSIS ROOM', '분석실')}
+    <p class="lead">코치님이 만든 <b>경기분석</b>이에요. 상대 팀의 <b>체크 포인트 → 포메이션 → 리포트</b> 순서로 보면 돼요.</p>
+    ${rows.length ? libGrid(rows) : `${empty('아직 올라온 경기분석이 없어요.')}
+      <div class="row center"><button class="btn ghost sm" data-sample>📊 경기분석은 이렇게 생겼어요 (예시)</button></div>`}`;
+  el.querySelectorAll('[data-id]').forEach((c) => (c.onclick = () => go(`/analysis/${c.dataset.id}`)));
+  el.querySelectorAll('[data-ltab]').forEach((a) => (a.onclick = () => { listTab = a.dataset.ltab; list(el); }));
+  el.querySelector('[data-sample]')?.addEventListener('click', () => go('/analysis/sample'));
+  el.querySelector('[data-new]')?.addEventListener('click', () => chooseMode(null));
+}
+
+// 분석 카드 — 경기분석은 공격 방향 막대 · 포메이션 · 기록 수를 미리 보여 줌
+function libGrid(rows) {
+  return `<div class="lib-grid">${rows.map((p) => `
       <article class="lib-card" data-id="${p.id}">
-        <div class="lib-thumb">${p.thumb ? `<img src="${esc(p.thumb)}" alt="">` : youtubeId(p.videoUrl) ? `<img src="https://img.youtube.com/vi/${youtubeId(p.videoUrl)}/hqdefault.jpg" alt="">` : '<div class="thumb-link"><span>▶</span><b>경기 영상</b></div>'}
-          ${p.tele?.items?.length ? `<span class="thumb-badge">그림 ${p.tele.items.length}</span>` : ''}</div>
+        ${p.mode === 'match' ? matchThumb(p) : `<div class="lib-thumb">${p.thumb ? `<img src="${esc(p.thumb)}" alt="">` : youtubeId(p.videoUrl) ? `<img src="https://img.youtube.com/vi/${youtubeId(p.videoUrl)}/hqdefault.jpg" alt="">` : '<div class="thumb-link"><span>▶</span><b>경기 영상</b></div>'}
+          ${p.tele?.items?.length ? `<span class="thumb-badge">그림 ${p.tele.items.length}</span>` : ''}</div>`}
         <div class="lib-body">
           <h3>${esc(p.title)}</h3>
           <div class="lib-tags">${p.opponent ? `<span class="ttag">vs ${esc(p.opponent)}</span>` : ''}<span class="lib-meta">${esc(p.date || fmtDate(p.createdAt))}</span></div>
-          <div class="lib-foot"><span>${esc(p.authorName || '')}</span><span>${p.video?.local ? (p.shareUrl ? '유튜브 공유됨' : '공유 전') : p.video ? '업로드 영상' : p.videoUrl ? 'YouTube' : ''}</span></div>
+          <div class="lib-foot"><span>${esc(p.authorName || '')}</span><span>${p.mode === 'match' ? '' : p.video?.local ? (p.shareUrl ? '유튜브 공유됨' : '공유 전') : p.video ? '업로드 영상' : p.videoUrl ? 'YouTube' : ''}</span></div>
         </div>
-      </article>`).join('')}</div>` : empty('아직 분석한 영상이 없습니다.')}`;
-  el.querySelectorAll('[data-id]').forEach((c) => (c.onclick = () => go(`/analysis/${c.dataset.id}`)));
-  el.querySelector('[data-new]')?.addEventListener('click', createModal);
+      </article>`).join('')}</div>`;
+}
+function matchThumb(p) {
+  const r = computeReport(p.events || [], 'opp');
+  const f = (p.formations || []).find((x) => x.team !== 'us');
+  return `<div class="lib-thumb ma-thumb">
+    <div class="ma-thumb-top"><span>📊 경기분석 · 기록 ${(p.events || []).length}</span>${f?.name ? `<b>${esc(f.name)}</b>` : ''}</div>
+    ${r.atk.length ? ['왼쪽', '가운데', '오른쪽'].map((l) => `<div class="ma-tbar"><span>${l}</span><i style="width:${r.pct(r.ch[l])}%"></i><b>${r.pct(r.ch[l])}%</b></div>`).join('') : '<p class="muted small">아직 기록 전이에요</p>'}
+</div>`;
 }
 
-function createModal() {
+// 코치 첫 화면: 움직이는 두 카드 — 무엇을 하는지 보자마자 알 수 있게
+function heroHtml(compact) {
+  const pitch = '<rect width="160" height="90" rx="6" fill="#2f6b31"/><g fill="none" stroke="rgba(255,255,255,.5)" stroke-width=".8"><rect x="4" y="4" width="152" height="82"/><line x1="80" y1="4" x2="80" y2="86"/><circle cx="80" cy="45" r="12"/><rect x="4" y="25" width="18" height="40"/><rect x="138" y="25" width="18" height="40"/></g>';
+  const run = 'M40 62 C 60 58, 70 50, 92 46';
+  return `<section class="an-hero ${compact ? 'compact' : ''}">
+    <div class="an-hcard">
+      <div class="an-hill"><svg viewBox="0 0 160 90">${pitch}
+        <circle cx="118" cy="30" r="3.2" fill="#ff3b30"/><circle cx="112" cy="60" r="3.2" fill="#ff3b30"/><circle cx="30" cy="28" r="3.2" fill="#fff"/>
+        <g><animateMotion dur="4s" repeatCount="indefinite" path="${run}" keyPoints="0;1;1" keyTimes="0;.55;1" calcMode="linear"/>
+          <ellipse cx="0" cy="3.6" rx="6" ry="2" fill="none" stroke="#ffd400" stroke-width=".8"/><circle r="3.2" fill="#fff"/><path d="M-4 -12 L4 -12 L0 -6 Z" fill="#ffd400" class="an-bob"/>
+          <text y="-14" class="an-tag">AI</text></g>
+        <path class="an-draw" d="M96 44 C 110 38, 122 36, 136 40" fill="none" stroke="#ffd400" stroke-width="2"/><path class="an-draw-head" d="M136 40 l-6 -3.5 l.5 6.5 z" fill="#ffd400"/>
+        <path class="an-zone" d="M100 52 L146 52 L150 80 L96 80 Z" fill="rgba(78,161,255,.25)" stroke="#4ea1ff" stroke-width=".6" stroke-dasharray="2 1.5"/></svg></div>
+      <div class="an-htext"><span class="eyebrow">✏️ 부분분석</span><h3>장면 하나를 그림으로 설명</h3>
+        <p>선수를 누르면 <b>AI가 끝까지 따라가고</b>, 화살표 · 영역 · 거리를 그려서 <b>mp4 영상</b>으로 카톡에 보내요.</p>
+</div>
+    </div>
+    <div class="an-hcard">
+      <div class="an-hill two"><svg viewBox="0 0 160 90">${pitch}
+        ${[[120, 70], [132, 62], [126, 78], [140, 55], [104, 66], [146, 46], [96, 30]].map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="2.6" fill="${i % 3 === 2 ? '#ff9f0a' : '#4ea1ff'}" stroke="#fff" stroke-width=".5" class="an-tap" style="animation-delay:${i * 0.45}s"/>`).join('')}
+        <text x="80" y="11" class="an-dir">상대 공격 →</text></svg>
+        <div class="an-hbars">${[['왼쪽', 18], ['가운데', 27], ['오른쪽', 55]].map(([l, v], i) => `<div><span>${l}</span><i style="--w:${v}%;animation-delay:${i * 0.2}s"></i><b>${v}%</b></div>`).join('')}
+          <p class="an-type">“상대는 오른쪽 55% → 우리 왼쪽 수비 대비”</p></div></div>
+      <div class="an-htext"><span class="eyebrow">📊 경기분석</span><h3>경기 하나로 상대 팀 리포트</h3>
+        <p>영상을 보며 <b>경기장을 탭</b>만 하면 공격 방향 · 위험 지역 · 슈팅 지도 · <b>AI 포메이션</b>까지 자동으로 완성돼요. 선수들은 <b>체크 포인트</b>로 봐요.</p>
+        <button class="link-btn small" data-sample>완성된 예시 리포트 보기 ›</button></div>
+    </div>
+  </section>`;
+}
+// 영상을 넣으면(또는 + 새 분석): 부분분석 / 경기분석 고르기
+function chooseMode(file) {
+  const m = modal(`<span class="eyebrow">NEW ANALYSIS</span><h2>어떤 분석을 할까요?</h2>
+    ${file ? `<p class="muted">${esc(file.name)} · ${Math.round(file.size / 1e6)}MB — 서버에 올리지 않아요</p>` : ''}
+    <div class="an-choose">
+      <button data-m="clip"><b>✏️ 부분분석</b><span>장면을 골라 트래킹 · 화살표로 설명하고 mp4로 공유</span></button>
+      <button data-m="match"><b>📊 경기분석</b><span>경기를 보며 기록해서 상대 팀 리포트 · 포메이션 만들기</span></button>
+    </div>`);
+  m.el.querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => { m.close(); listTab = b.dataset.m; if (b.dataset.m === 'match') createMatchModal(file); else createModal(file); }));
+}
+
+// 경기분석 만들기: 상대 · 날짜 · 영상(내 컴퓨터) · 전반에 상대가 공격하는 방향
+function createMatchModal(preset = null) {
+  const m = modal(`<span class="eyebrow">MATCH ANALYSIS</span><h2>경기 분석 만들기</h2>
+    <form class="stack">
+      <div class="grid2"><label>상대팀<input name="opponent" required maxlength="30" placeholder="예) 성남FC U15"></label>
+        <label>경기일<input type="date" name="date" value="${todayStr()}"></label></div>
+      <label>제목<input name="title" maxlength="80" placeholder="비우면 'vs 상대팀 경기분석'"></label>
+      ${preset ? `<p class="muted small">영상: <b>${esc(preset.name)}</b></p>` : '<label>경기 영상 <small class="muted">내 컴퓨터에서 열어요 (서버에 안 올림) · 나중에 열어도 돼요</small><input type="file" name="file" accept="video/*"></label>'}
+      <label>전반에 영상에서 <b>상대</b>가 공격하는 방향<select name="oppDir"><option value="right">오른쪽 →</option><option value="left">← 왼쪽</option></select></label>
+      <div class="row end"><button class="btn">만들기</button></div>
+    </form>`);
+  const form = m.el.querySelector('form');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const d = formData(form);
+    const file = preset || form.file?.files[0];
+    try {
+      const ref = await addDoc(col(), {
+        type: 'analysis', mode: 'match', title: (d.title || `vs ${d.opponent} 경기분석`).trim(), opponent: d.opponent.trim(), date: d.date,
+        oppDir: d.oppDir, events: [], formations: [], videoUrl: '',
+        ...(file ? { video: { local: true, name: file.name, size: file.size, type: file.type } } : {}),
+        authorUid: state.user.uid, authorName: state.profile.name, createdAt: serverTimestamp(),
+      });
+      if (file) localFiles.set(ref.id, file);
+      m.close();
+      go(`/analysis/${ref.id}`);
+    } catch (err) { fail(err); }
+  };
+}
+
+function createModal(preset = null) {
   const m = modal(`
     <span class="eyebrow">NEW ANALYSIS</span><h2>영상 분석 만들기</h2>
     <form class="stack">
+      ${preset ? `<p class="muted small">영상: <b>${esc(preset.name)}</b></p>` : ''}
       <label>제목<input name="title" required maxlength="80" placeholder="예) 27R vs 화성FC 전반 빌드업"></label>
       <div class="grid2">
         <label>상대팀<input name="opponent" maxlength="30"></label>
@@ -61,7 +160,7 @@ function createModal() {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const d = formData(form);
-    const file = form.file.files[0];
+    const file = form.file.files[0] || preset;
     if (!file && !d.videoUrl) return toast('영상 파일이나 YouTube 링크를 넣어주세요.');
     if (file && STORAGE_ENABLED && file.size > 1024 * 1024 * 1024) return toast('1GB 이하 영상만 올릴 수 있습니다.');
     const btn = form.querySelector('.btn');
@@ -122,6 +221,12 @@ const HINT = {
 // 보기: #/analysis/:id  ·  수정(코치만): #/analysis/:id/edit — 처음 만든(아직 저장 안 한) 분석은 바로 수정 화면
 export const studioEdit = (el, p) => studio(el, { ...p, mode: 'edit' });
 export async function studio(el, { id, mode }) {
+  if (id === 'sample') { // 소개용 예시 리포트 (저장 안 됨)
+    const shell = document.querySelector('.shell');
+    shell?.classList.add('wide');
+    state.cleanup.push(() => shell?.classList.remove('wide'));
+    return matchStudio(el, sampleMatch(), { canEdit: false, files: localFiles, sample: true });
+  }
   const ds = await getDoc(doc(col(), id));
   if (!ds.exists()) { el.innerHTML = empty('분석을 찾을 수 없습니다.'); return; }
   const post = { id, ...ds.data() };
@@ -131,6 +236,10 @@ export async function studio(el, { id, mode }) {
   shell?.classList.add('wide');
   state.cleanup.push(() => shell?.classList.remove('wide'));
 
+  // 경기분석 (장면 기록 · 리포트 · 포메이션)
+  if (post.mode === 'match') return matchStudio(el, post, { canEdit, files: localFiles });
+  // 선수 화면엔 경기분석만
+  if (!canEdit) { el.innerHTML = `${empty('선수 화면에서는 경기분석만 볼 수 있어요.')}<div class="row center"><a class="btn ghost sm" href="#/analysis">분석실로</a></div>`; return; }
   // YouTube 는 픽셀 분석이 불가 → 재생 + 타임라인만
   if (!post.video) return youtubeView(el, post);
   // 내 컴퓨터 영상: 코치는 파일을 다시 열어야 함 · 선수는 코치가 공유한 유튜브 영상을 봄

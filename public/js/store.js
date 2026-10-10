@@ -48,6 +48,11 @@ export async function loadContext() {
   try { state.features = (await getDoc(doc(db, 'system', 'features'))).data()?.teams?.[teamId] || {}; } catch { state.features = {}; }
 }
 export const hasFeature = (k) => !!state.features?.[k];
+// 운영자가 방금 켠 기능도 바로 보이도록 (오늘 기록 · 일지검사 들어갈 때 다시 읽음)
+export async function refreshFeatures() {
+  if (!state.team) return;
+  try { state.features = (await getDoc(doc(db, 'system', 'features'))).data()?.teams?.[state.team.id] || {}; } catch { /* 그대로 */ }
+}
 
 // 프로필 변경 시 팀 멤버 문서(공개 프로필)에도 반영할 필드
 export const publicProfile = (p) => ({
