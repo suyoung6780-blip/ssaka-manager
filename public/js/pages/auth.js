@@ -150,6 +150,7 @@ export function profileFields(p = {}, { withRole = false } = {}) {
     <div class="photo-pick">
       <span data-preview>${avatar(p.photo, p.name || '?', 'xl')}</span>
       <label class="btn ghost sm">사진 선택<input type="file" accept="image/*" hidden data-photo></label>
+      <button type="button" class="link-btn small" data-nophoto ${p.photo ? '' : 'hidden'}>기본 이미지로</button>
       <input type="hidden" name="photo" value="${esc(p.photo || '')}">
     </div>
     ${withRole ? `
@@ -195,6 +196,14 @@ export function bindPhoto(form) {
     const url = await resizeImage(f);
     form.photo.value = url;
     form.querySelector('[data-preview]').innerHTML = avatar(url, '', 'xl');
+    form.querySelector('[data-nophoto]').hidden = false;
+    e.target.value = '';
+  };
+  // 사진 지우고 기본 이미지(이름 첫 글자)로 — 저장을 눌러야 반영
+  form.querySelector('[data-nophoto]').onclick = (e) => {
+    form.photo.value = '';
+    form.querySelector('[data-preview]').innerHTML = avatar('', form.name?.value || state.profile?.name || '?', 'xl');
+    e.target.hidden = true;
   };
 }
 

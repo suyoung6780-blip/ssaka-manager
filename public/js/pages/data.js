@@ -39,6 +39,9 @@ let custom = null; // [from, to]
 let mode = 'team';
 let metric = 'condition';
 let who = '';
+const FOLD_KEY = 'ssaka.dr.aifold';
+const folded = () => { try { return localStorage.getItem(FOLD_KEY) === '1'; } catch { return false; } };
+let allPlayers = false; // 선수 상태 카드 전체 보기
 
 export async function page(el) {
   const coach = isCoach();
@@ -191,16 +194,18 @@ function aiCard(players, report, to, coach) {
   const cnt = (k) => players.filter((p) => lv[p.id] === k).length;
   const good = players.filter((p) => lv[p.id] === 'good');
   const head = cnt('high') ? `<b>${cnt('high')}명</b>은 부상 위험 신호가 있어요.` : cnt('mid') ? `부상 위험 신호는 없지만 <b>${cnt('mid')}명</b>은 관리가 필요해요.` : '팀 전체 컨디션이 안정적이에요.';
-  return `<section class="card dr-ai">
-    <div class="dr-ai-head"><div><span class="eyebrow">AI CONDITION REPORT</span><h3>🤖 AI 컨디션 리포트</h3>
+  return `<section class="card dr-ai ${folded() ? 'folded' : ''}">
+    <div class="dr-ai-head"><div><span class="eyebrow">AI CONDITION REPORT</span><h3>🤖 AI 컨디션 리포트 <button type="button" class="chip dr-fold" data-fold>${folded() ? '펼치기 ▾' : '접기 ▴'}</button></h3>
       <p class="muted small">${md(to)} 기준 · 최근 7일을 4주 평균과 비교해서 바로 분석해요</p></div>
       <div class="dr-ai-sum">${['high', 'mid', 'good'].map((k) => `<span style="--c:${LEVEL[k][1]}"><b>${cnt(k)}</b>${LEVEL[k][0]}</span>`).join('')}</div></div>
     <p class="dr-ai-lead">${head} ${good.length && good.length < total ? `<span class="muted">좋음: ${good.map((p) => esc(p.name)).join(', ')}</span>` : ''}</p>
     <div class="dr-ai-groups">${GROUPS.map(([g, title, l]) => {
       const rows = players.flatMap((p) => report[p.id].filter((x) => x.g === g).map((x) => ({ p, x })));
       if (!rows.length) return '';
+      // 그룹마다 3개까지만 보이고 나머지는 '더 보기'
       return `<div class="dr-ai-g ${l}"><h4>${title} <small>${new Set(rows.map((r) => r.p.id)).size}명</small></h4>
-        <ul>${rows.map(({ p, x }) => `<li ${coach ? `data-pl="${p.id}"` : ''}><strong>${esc(p.name)}</strong><span>${x.text}</span><em>→ ${x.tip}</em></li>`).join('')}</ul></div>`;
+        <ul>${rows.map(({ p, x }, i) => `<li ${coach ? `data-pl="${p.id}"` : ''} ${i >= 3 ? 'class="more" hidden' : ''}><strong>${esc(p.name)}</strong><span>${x.text}</span><em>→ ${x.tip}</em></li>`).join('')}</ul>
+        ${rows.length > 3 ? `<button type="button" class="link-btn small" data-more>+ ${rows.length - 3}개 더 보기</button>` : ''}</div>`;
     }).join('') || '<p class="muted">특별히 살펴볼 선수가 없어요. 👍</p>'}</div>
     <p class="muted small dr-ai-note">훈련 부하(자각도 × 훈련 시간)의 급변(최근 7일 ÷ 4주 평균), 자각도 · 부상도 · 수면(청소년 권장 480분 이상) · 컨디션 흐름을 기준으로 자동 분석해요. 최종 판단은 코치님이 선수와 이야기해서 정해 주세요.</p>
   </section>`;
@@ -213,10 +218,14 @@ function teamView(box, ctx) {
   const daily = dates.map((d) => avg(logs.filter((l) => l.date === d).map((l) => val(l, metric)).filter((v) => v != null)));
   const last7 = dayList(addDays(to, -6), to);
 
+  // 선수 상태: 위험 → 주의 → 기록 부족 → 좋음 순, 처음엔 8명까지
+  const rank = { high: 0, mid: 1, info: 2, good: 3 };
+  const sorted = [...players].sort((a, b) => rank[levelOf(report[a.id])] - rank[levelOf(report[b.id])]);
+  const shown = allPlayers ? sorted : sorted.slice(0, 8);
   box.innerHTML = `
     ${aiCard(players, report, to, coach)}
-    <h3 class="dr-h">선수 상태 <small class="muted">최근 7일 평균 · 누르면 자세히</small></h3>
-    <div class="dr-players">${players.map((p) => {
+    <h3 class="dr-h">선수 상태 <small class="muted">최근 7일 평균 · 위험한 선수부터 · 누르면 자세히</small></h3>
+    <div class="dr-players">${shown.map((p) => {
       const l7 = last7.map((d) => byKey[`${p.id}_${d}`]).filter(Boolean);
       const a = (k) => avg(l7.map((l) => val(l, k)).filter((v) => v != null));
       const lv = levelOf(report[p.id]);
@@ -229,6 +238,7 @@ function teamView(box, ctx) {
         ${report[p.id][0] ? `<p class="dr-pc-why">${report[p.id][0].text}</p>` : '<p class="dr-pc-why ok">특이사항 없음</p>'}
       </article>`;
     }).join('')}</div>
+    ${sorted.length > 8 ? `<div class="row center"><button type="button" class="btn ghost sm" data-allp>${allPlayers ? '접기 ▴' : `선수 ${sorted.length - 8}명 더 보기 ▾`}</button></div>` : ''}
     <h3 class="dr-h">항목별 그래프</h3>
     <div class="chips wrap">${mets.map(([k, l]) => `<button class="chip ${k === metric ? 'on' : ''}" data-met="${k}">${l}</button>`).join('')}</div>
     <section class="card"><h3>${label} <small class="muted">날짜별 팀 평균</small></h3>
@@ -237,7 +247,28 @@ function teamView(box, ctx) {
       ${heatTable(players, dates, byKey, metric, max, tone, unit)}
       <p class="muted small">${tone === 'good' ? '초록 = 좋음 · 빨강 = 나쁨' : tone === 'bad' ? '빨강이 진할수록 아파요' : '파랑이 진할수록 높아요'} · 빈칸 = 기록 없음 · 이름을 누르면 그 선수 그래프</p></section>`;
   box.querySelectorAll('[data-met]').forEach((b) => (b.onclick = () => { metric = b.dataset.met; teamView(box, ctx); }));
+  box.querySelector('[data-allp]')?.addEventListener('click', () => { allPlayers = !allPlayers; teamView(box, ctx); });
+  bindAi(box);
   box.querySelectorAll('[data-pl]').forEach((c) => (c.onclick = () => { who = c.dataset.pl; mode = 'player'; page(ctx.el); }));
+}
+
+// AI 리포트 접기 · 펼치기(기억) · 그룹별 더 보기
+function bindAi(box) {
+  const card = box.querySelector('.dr-ai');
+  card.querySelector('[data-fold]').onclick = (e) => {
+    e.stopPropagation();
+    const f = !card.classList.contains('folded');
+    card.classList.toggle('folded', f);
+    e.target.textContent = f ? '펼치기 ▾' : '접기 ▴';
+    try { localStorage.setItem(FOLD_KEY, f ? '1' : '0'); } catch { /* */ }
+  };
+  card.querySelectorAll('[data-more]').forEach((b) => (b.onclick = () => {
+    const g = b.closest('.dr-ai-g');
+    const open = b.dataset.open !== '1';
+    g.querySelectorAll('li.more').forEach((li) => { li.hidden = !open; });
+    b.dataset.open = open ? '1' : '';
+    b.textContent = open ? '접기' : `+ ${g.querySelectorAll('li.more').length}개 더 보기`;
+  }));
 }
 
 // ───────── 선수별 ─────────

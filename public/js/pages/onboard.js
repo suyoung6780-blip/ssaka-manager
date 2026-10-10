@@ -1,9 +1,9 @@
 import {
-  db, functions, httpsCallable, collection, doc, getDoc, addDoc, setDoc, updateDoc, serverTimestamp, writeBatch,
+  db, functions, httpsCallable, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, serverTimestamp, writeBatch,
 } from '../fb.js';
 import { PLAN, TOSS_CLIENT_KEY, FREE_MODE } from '../config.js';
 import {
-  esc, toast, fail, formData, options, pageHead, modal, fmtDate, CATEGORIES, ROLES,
+  esc, toast, fail, formData, options, pageHead, modal, confirmBox, fmtDate, CATEGORIES, ROLES,
 } from '../ui.js';
 import { state, loadContext, go, publicProfile, teamActive, hooks, compActive } from '../store.js';
 
@@ -212,7 +212,31 @@ export async function settings(el) {
       <label class="switch"><input type="checkbox" name="isPublic" ${t.isPublic ? 'checked' : ''}><span>팀 공개 (비공개면 다른 팀은 아무것도 볼 수 없어요)</span></label>
       <button class="btn">저장</button>
     </form>
+    <section class="card">
+      <h3>대표 넘기기</h3>
+      <p class="muted small">팀 대표(입장 승인 · 팀 설정 · 내보내기)를 우리 팀의 다른 지도자에게 넘겨요. 넘기면 나는 일반 지도자가 되고, 되돌리려면 새 대표가 다시 넘겨줘야 해요.</p>
+      <div data-owner><p class="muted small">지도자 목록 불러오는 중…</p></div>
+    </section>
   </div>`;
+  // 대표 넘기기: 승인된 우리 팀 지도자에게만
+  getDocs(collection(db, 'teams', t.id, 'members')).then((ms) => {
+    const coaches = ms.docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => m.role === 'coach' && m.approved !== false && m.id !== state.user.uid);
+    const box = el.querySelector('[data-owner]');
+    if (!box) return;
+    if (!coaches.length) { box.innerHTML = '<p class="muted small">넘겨줄 지도자가 없어요. 다른 지도자가 팀 코드로 들어와 승인되면 여기서 고를 수 있어요.</p>'; return; }
+    box.innerHTML = `<div class="row"><select data-newowner>${coaches.map((c) => `<option value="${c.id}">${esc(c.name)}${c.coachTitle ? ` · ${esc(c.coachTitle)}` : ''}</option>`).join('')}</select>
+      <button type="button" class="btn ghost" data-transfer>대표 넘기기</button></div>`;
+    box.querySelector('[data-transfer]').onclick = async () => {
+      const c = coaches.find((x) => x.id === box.querySelector('[data-newowner]').value);
+      if (!c || !(await confirmBox(`${c.name} 지도자에게 팀 대표를 넘길까요? 넘긴 뒤에는 나는 팀 설정 · 입장 승인을 할 수 없어요.`))) return;
+      try {
+        await updateDoc(doc(db, 'teams', t.id), { ownerUid: c.id, ownerName: c.name || '' });
+        toast(`${c.name} 지도자가 이제 팀 대표예요.`);
+        await loadContext();
+        go('/');
+      } catch (err) { fail(err); }
+    };
+  }).catch(() => {});
   el.querySelector('[data-copy]')?.addEventListener('click', () => {
     navigator.clipboard.writeText(billing.code).then(() => toast('팀 코드를 복사했습니다.'));
   });

@@ -1515,3 +1515,9 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
 .dr-pc-why.ok { color: var(--muted); }
 .dr-heat.wide td { min-width: 40px; font-size: 11px; }
 @media (max-width: 600px) { .dr-ai-list li { grid-template-columns: 1fr; } .dr-ai-sum span { min-width: 54px; } }
+
+.dr-fold { font-size: 12px; padding: 3px 10px; }
+.dr-ai.folded .dr-ai-groups, .dr-ai.folded .dr-ai-note { display: none; }
+.dr-ai.folded .dr-ai-lead { margin-bottom: 0; }
+.dr-ai-g li[hidden] { display: none; }
+.dr-ai-g [data-more] { margin-top: 6px; }

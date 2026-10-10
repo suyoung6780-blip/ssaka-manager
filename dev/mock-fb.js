@@ -16,6 +16,7 @@ seed('teams/T2', { name: '화이트 유나이티드', category: 'K7', isPublic: 
 seed('teams/T3', { name: '그레이 FC', category: 'U15', isPublic: true, ownerUid: 'y', ownerName: '최감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 5 * 864e5), status: 'active', paidUntil: later });
 seed(`teams/T1/members/${U}`, { name: '김코치', role: 'coach', coachTitle: '수석코치', duty: 'U15 담당', licenses: 'KFA B급, GK 3급', school: '성남중 - 풍생고 - 용인대', career: '2019~2022 FC 블랙 U12 코치\n2023~ FC 블랙 U15 수석코치' });
 seed('users/p1', { name: '박선수', role: 'player', agree: { ver: 'demo' }, email: 'p@x.com', teamId: 'T1', position: 'ST', number: '9', height: '175', weight: '65', affiliation: '블랙중 3학년' });
+seed('teams/T1/members/c2', { name: '최코치', role: 'coach', coachTitle: 'GK 코치' });
 seed('teams/T1/members/p1', { name: '박선수', role: 'player', affiliation: '블랙중 3학년', position: 'ST', number: '9', height: '175', weight: '65' });
 seed('teams/T1/members/p2', { name: '이선수', role: 'player', position: 'GK', number: '1' });
 seed('teams/T3/members/q1', { name: '최상대', role: 'player', position: 'CM', number: '8' });

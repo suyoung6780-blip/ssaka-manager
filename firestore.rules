@@ -79,6 +79,10 @@ service cloud.firestore {
           // 무료 모드
           || (request.resource.data.status == 'active' && request.resource.data.free == true));
       allow update: if isOwner(t) && changed().hasOnly(['name', 'category', 'isPublic', 'intro']);
+      // 대표 넘기기: 지금 대표가 우리 팀의 승인된 지도자에게만
+      allow update: if isOwner(t) && changed().hasOnly(['ownerUid', 'ownerName'])
+        && get(/databases/$(database)/documents/teams/$(t)/members/$(request.resource.data.ownerUid)).data.role == 'coach'
+        && get(/databases/$(database)/documents/teams/$(t)/members/$(request.resource.data.ownerUid)).data.get('approved', true) != false;
       // 운영자: 홍보용 무료 제공(comp) 지정 · 해제 — 결제와 상관없이 계속 이용
       allow update: if isAdmin() && changed().hasOnly(['comp', 'compMonths', 'compUntil', 'compBy', 'compAt', 'status']);
 
