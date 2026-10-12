@@ -1682,3 +1682,31 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
 .pad-grp .chip[hidden] { display: none; }
 .pad-num { border-right: 0; }
 .pad-acts .pad-teams, .pad-acts .pad-colors { border-right: 0; padding-right: 0; }
+
+/* 맨 밑 회사 정보 */
+.site-foot { margin: 0 36px; padding: 36px 0 calc(40px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
+.bare + .site-foot { margin: 0; padding-left: 24px; padding-right: 24px; background: var(--bg); }
+.bare + .site-foot > * { max-width: 1080px; margin-left: auto; margin-right: auto; }
+.sf-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
+.sf-brand { display: flex; flex-direction: column; gap: 4px; }
+.sf-brand strong { color: var(--text); font-size: 15px; font-weight: 900; letter-spacing: .16em; }
+.sf-brand span { color: var(--muted); }
+.sf-links { display: flex; gap: 18px; }
+.sf-links a { text-decoration: none; color: var(--sub); }
+.sf-links a:hover { color: var(--text); }
+.sf-links b { color: var(--text); font-weight: 700; }
+.sf-info { display: flex; flex-wrap: wrap; gap: 6px 0; margin: 22px 0 0; }
+.sf-info div { display: flex; gap: 8px; }
+.sf-info div + div::before { content: ''; width: 1px; height: 10px; background: var(--line2); align-self: center; margin: 0 14px; }
+.sf-info dt { color: var(--muted); font-weight: 600; }
+.sf-info dd { margin: 0; color: var(--sub); }
+.sf-bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.sf-mark { font-size: 34px; font-weight: 900; letter-spacing: .02em; line-height: .8; color: transparent; -webkit-text-stroke: 1px var(--line2); user-select: none; }
+@media (max-width: 860px) {
+  .site-foot { margin: 0 16px; }
+  .bare + .site-foot { padding-left: 16px; padding-right: 16px; }
+  .sf-info { flex-direction: column; }
+  .sf-info div + div::before { display: none; }
+  .sf-info dt { min-width: 28px; }
+  .sf-mark { font-size: 26px; }
+}

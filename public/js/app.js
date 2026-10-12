@@ -93,6 +93,30 @@ function allowed(guard) {
   }
 }
 
+// 맨 밑 회사 정보 (사업자등록번호 · 통신판매업 신고번호는 나오면 여기에 추가)
+const FOOTER = `
+<footer class="site-foot">
+  <div class="sf-top">
+    <div class="sf-brand">
+      <strong>SSAKA MANAGER</strong>
+      <span>축구팀을 위한 매니지먼트 플랫폼</span>
+    </div>
+    <nav class="sf-links">
+      <a href="#/privacy"><b>개인정보처리방침</b></a>
+      <a href="#/support">운영자 문의</a>
+    </nav>
+  </div>
+  <dl class="sf-info">
+    <div><dt>상호</dt><dd>KEEPER LAB</dd></div>
+    <div><dt>대표</dt><dd>유수영</dd></div>
+    <div><dt>주소</dt><dd>경기도 안산시 단원구 사세충열로4길 6</dd></div>
+  </dl>
+  <div class="sf-bottom">
+    <span>© ${new Date().getFullYear()} KEEPER LAB. All rights reserved.</span>
+    <span class="sf-mark">KEEPER LAB</span>
+  </div>
+</footer>`;
+
 async function route() {
   state.cleanup.forEach((f) => f());
   state.cleanup = [];
@@ -101,37 +125,37 @@ async function route() {
 
   if (r.guard === 'public') {
     if (state.user) return go('/');
-    app.innerHTML = '<div class="bare" id="view"></div>';
+    app.innerHTML = '<div class="bare" id="view"></div>' + FOOTER;
     return r.fn($('#view'), r.params);
   }
   // 로그인 없이도 보는 화면 (처리방침 · 보호자 동의 링크)
   if (r.guard === 'any' && (!state.user || !state.profile || privacy.needGuardian())) {
-    app.innerHTML = '<div class="bare" id="view"></div>';
+    app.innerHTML = '<div class="bare" id="view"></div>' + FOOTER;
     return r.fn($('#view'), r.params);
   }
   if (!state.user) return go('/login');
   // 새 가입자: 이메일 인증 먼저
   if (authPages.needVerify() && r.guard !== 'any') {
-    app.innerHTML = '<div class="bare" id="view"></div>';
+    app.innerHTML = '<div class="bare" id="view"></div>' + FOOTER;
     return authPages.verifyGate($('#view'));
   }
   if (!state.profile) {
-    app.innerHTML = '<div class="bare" id="view"></div>';
+    app.innerHTML = '<div class="bare" id="view"></div>' + FOOTER;
     return authPages.completeProfile($('#view'));
   }
   // 처리방침이 생기기 전에 가입한 회원: 한 번 동의 받기
   if (privacy.needAgree() && r.guard !== 'any') {
-    app.innerHTML = '<div class="bare" id="view"></div>';
+    app.innerHTML = '<div class="bare" id="view"></div>' + FOOTER;
     return privacy.agreeGate($('#view'));
   }
   // 만 14세 미만: 보호자 동의 전에는 동의 안내 화면만
   if (privacy.needGuardian()) {
-    app.innerHTML = '<div class="bare" id="view"></div>';
+    app.innerHTML = '<div class="bare" id="view"></div>' + FOOTER;
     return privacy.guardianWait($('#view'));
   }
   // 팀 코드로 들어온 뒤 팀 대표 승인 전
   if (waitApproval() && r.guard !== 'any') {
-    app.innerHTML = '<div class="bare" id="view"></div>';
+    app.innerHTML = '<div class="bare" id="view"></div>' + FOOTER;
     return privacy.approvalWait($('#view'));
   }
   if (!allowed(r.guard)) return go('/');
@@ -187,7 +211,7 @@ function renderShell() {
       <nav class="nav-list"></nav>
       <div class="me-box"></div>
     </aside>
-    <main class="main-col"><div id="sys-notice"></div><div id="view"></div></main>
+    <main class="main-col"><div id="sys-notice"></div><div id="view"></div>${FOOTER}</main>
     <aside class="search-panel" id="search-panel"></aside>
     <div class="scrim"></div>
   </div>`;
@@ -247,7 +271,7 @@ if (!isConfigured) {
 } else if (['resetPassword', 'verifyEmail'].includes(new URLSearchParams(location.search).get('mode'))) {
   // 인증 메일의 링크로 들어온 경우 — 비밀번호 재설정 / 이메일 인증
   const q = new URLSearchParams(location.search);
-  app.innerHTML = '<div class="bare" id="view"></div>';
+  app.innerHTML = '<div class="bare" id="view"></div>' + FOOTER;
   (q.get('mode') === 'resetPassword' ? authPages.resetPage : authPages.verifyEmailPage)($('#view'), q.get('oobCode') || '');
 } else {
   let first = true;
