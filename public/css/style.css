@@ -1707,6 +1707,6 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
   .bare + .site-foot { padding-left: 16px; padding-right: 16px; }
   .sf-info { flex-direction: column; }
   .sf-info div + div::before { display: none; }
-  .sf-info dt { min-width: 28px; }
+  .sf-info dt { min-width: 84px; }
   .sf-mark { font-size: 26px; }
 }

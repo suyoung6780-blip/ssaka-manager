@@ -93,7 +93,7 @@ function allowed(guard) {
   }
 }
 
-// 맨 밑 회사 정보 (사업자등록번호 · 통신판매업 신고번호는 나오면 여기에 추가)
+// 맨 밑 회사 정보 (통신판매업 신고번호는 나오면 여기에 추가)
 const FOOTER = `
 <footer class="site-foot">
   <div class="sf-top">
@@ -109,6 +109,7 @@ const FOOTER = `
   <dl class="sf-info">
     <div><dt>상호</dt><dd>KEEPER LAB</dd></div>
     <div><dt>대표</dt><dd>유수영</dd></div>
+    <div><dt>사업자등록번호</dt><dd>451-15-03077</dd></div>
     <div><dt>주소</dt><dd>경기도 안산시 단원구 사세충열로4길 6</dd></div>
   </dl>
   <div class="sf-bottom">
