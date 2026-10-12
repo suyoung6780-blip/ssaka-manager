@@ -278,8 +278,8 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
       el('path', { d: ptsD(bezPts(it)), stroke: 'transparent', 'stroke-width': 2.4 * u, fill: 'none' }, g);
       if (o.badge) { // 순서 번호
         const m = bez(it, 0.5);
-        el('circle', { cx: m.x, cy: m.y, r: 1 * u, fill: col, stroke: '#000', 'stroke-width': 0.15 * u }, g);
-        const t = el('text', { x: m.x, y: m.y + 0.42 * u, 'text-anchor': 'middle', 'font-size': 1.2 * u, 'font-weight': 900, fill: '#000', transform: upright(m.x, m.y) }, g);
+        el('circle', { cx: m.x, cy: m.y, r: 1.2 * u, fill: col, stroke: '#000', 'stroke-width': 0.18 * u }, g);
+        const t = el('text', { x: m.x, y: m.y + 0.5 * u, 'text-anchor': 'middle', 'font-size': 1.45 * u, 'font-weight': 900, fill: '#000', transform: upright(m.x, m.y) }, g);
         t.textContent = it.order || 1;
       }
       if (selected) {
@@ -406,14 +406,16 @@ export function createPad(container, initial, { editable = true, motion = false,
       <button type="button" class="chip" data-act="undo">되돌리기</button>
       <button type="button" class="chip" data-act="clear">모두 지우기</button>
       <span class="pad-sz" data-size>크기 <button type="button" class="chip" data-sz="-1" title="작게 (- 키)">−</button><input type="number" min="1" max="300" data-szin title="1~300 적고 Enter"><i>%</i><button type="button" class="chip" data-sz="1" title="크게 (+ 키)">+</button></span>
-    <span class="pad-teams" data-teams>${Object.entries(TEAMS).map(([k, t]) => `<button type="button" class="pteam" data-team="${k}" style="--c:${t.fill};--t:${t.text}">${t.label}</button>`).join('')}</span>
-    <span class="pad-colors" data-colors>${TOOL_COLORS.map((c) => `<button type="button" class="pcol ${c ? '' : 'def'}" data-col="${c}" style="--c:${c || 'transparent'}" title="${c || '기본색'}"></button>`).join('')}</span>
-      <button type="button" class="chip" data-straight>직선으로</button>
-      <span class="pad-opt" data-spread>시야 ${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="chip" data-sp="${v}">${l}</button>`).join('')}</span>
-      <button type="button" class="chip" data-act="rotate">회전</button>
-      <button type="button" class="chip" data-act="delete">선택 삭제</button>
-      <button type="button" class="chip" data-act="delall">모든 장면에서 삭제</button>
       <span class="pad-ord" data-order title="같은 번호끼리 한꺼번에 움직여요 · 기본 1">순서 <input type="number" min="1" max="20" data-ordin> <small>번째</small></span>
+    </div>
+    <div class="pad-acts pad-sel" data-selbar>
+      <span class="pad-num" data-pnum>번호 <input data-pnin maxlength="4" title="선수 번호 (또는 짧은 이름) 적고 Enter"></span>
+      <span class="pad-teams" data-teams>${Object.entries(TEAMS).map(([k, t]) => `<button type="button" class="pteam" data-team="${k}" style="--c:${t.fill};--t:${t.text}">${t.label}</button>`).join('')}</span>
+      <span class="pad-colors" data-colors>${TOOL_COLORS.map((c) => `<button type="button" class="pcol ${c ? '' : 'def'}" data-col="${c}" style="--c:${c || 'transparent'}" title="${c || '기본색'}"></button>`).join('')}</span>
+      <span class="pad-opt" data-spread>시야 ${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="chip" data-sp="${v}">${l}</button>`).join('')}</span>
+      <button type="button" class="chip" data-straight>직선으로</button>
+      <span class="pad-grp"><button type="button" class="chip" data-act="front" title="맨 앞으로 (Ctrl+])">⬆ 맨 앞으로</button><button type="button" class="chip" data-act="back" title="맨 뒤로 (Ctrl+[)">⬇ 맨 뒤로</button><button type="button" class="chip" data-act="rotate">회전</button></span>
+      <span class="pad-grp"><button type="button" class="chip" data-act="delete">선택 삭제</button><button type="button" class="chip" data-act="delall">모든 장면 삭제</button><button type="button" class="chip" data-act="unmove">움직임 취소</button></span>
     </div>
     <small class="muted pad-hint" data-hint></small>` : '';
 
@@ -498,12 +500,12 @@ export function createPad(container, initial, { editable = true, motion = false,
         const st = data.steps[scene - 1]?.[id];
         const c = st && st.length > 2 ? { x: st[2], y: st[3] } : { x: (q[0] + x) / 2, y: (q[1] + y) / 2 };
         el('path', { d: `M ${q[0]} ${q[1]} Q ${c.x} ${c.y} ${x} ${y}`, fill: 'none', stroke: '#ffd400', 'stroke-width': 0.35 * u, 'stroke-dasharray': `${u} ${u * 0.7}`, opacity: 0.7 }, gl);
-        el('circle', { cx: q[0], cy: q[1], r: 1.4 * u, fill: 'none', stroke: '#ffd400', 'stroke-width': 0.3 * u, opacity: 0.7 }, gl);
+        el('circle', { cx: q[0], cy: q[1], r: 1.4 * u, fill: editable ? 'rgba(255,212,0,.12)' : 'none', stroke: '#ffd400', 'stroke-width': 0.3 * u, opacity: 0.8, ...(editable ? { 'data-gs': id, class: 'ghost-s' } : {}) }, gl);
         if (editable) {
           const m = { x: 0.25 * q[0] + 0.5 * c.x + 0.25 * x, y: 0.25 * q[1] + 0.5 * c.y + 0.25 * y };
           const on = ordOf(scene - 1, id);
-          el('circle', { cx: m.x, cy: m.y, r: (orderUsed ? 1.05 : 0.85) * u, fill: '#fff', stroke: '#ffd400', 'stroke-width': 0.35 * u, 'data-gh': id, class: 'ghost-h' }, gl);
-          if (orderUsed) { const t = el('text', { x: m.x, y: m.y + 0.45 * u, 'text-anchor': 'middle', 'font-size': 1.25 * u, 'font-weight': 900, fill: '#000', 'pointer-events': 'none', transform: upright(m.x, m.y) }, gl); t.textContent = on; }
+          el('circle', { cx: m.x, cy: m.y, r: (orderUsed ? 1.2 : 0.85) * u, fill: '#fff', stroke: '#ffd400', 'stroke-width': 0.35 * u, 'data-gh': id, class: 'ghost-h' }, gl);
+          if (orderUsed) { const t = el('text', { x: m.x, y: m.y + 0.5 * u, 'text-anchor': 'middle', 'font-size': 1.45 * u, 'font-weight': 900, fill: '#000', 'pointer-events': 'none', transform: upright(m.x, m.y) }, gl); t.textContent = on; }
         }
       });
     }
@@ -511,7 +513,8 @@ export function createPad(container, initial, { editable = true, motion = false,
     // 그리는 순서: 영역 → 화살표 → 장비 → 선수 → 공 → 글자
     const order = { zone: 0, ladder: 0.5, vision: 0.8, arrow: 1, cone: 2, marker: 2, gmarker: 2, pole: 2, hurdle: 2, gymball: 2, bosu: 2, minigoal: 2, goal: 2, player: 3, ball: 4, text: 5 };
     const badges = editable && data.items.some((x) => x.k === 'arrow' && (x.order || 1) > 1);
-    list.map((it, i) => [it, i]).sort((a, b) => (order[a[0].k] ?? 2) - (order[b[0].k] ?? 2))
+    const zOf = (x) => (x.z != null ? x.z : order[x.k] ?? 2);
+    list.map((it, i) => [it, i]).sort((a, b) => zOf(a[0]) - zOf(b[0]))
       .forEach(([it, i]) => {
         const op = anim?.vis?.[it.id] ?? (visIn(data.items[i], sc) ? 1 : 0);
         if (op <= 0) return;
@@ -567,37 +570,49 @@ export function createPad(container, initial, { editable = true, motion = false,
   function playAll() {
     const N = data.steps.length;
     const P = Array.from({ length: N + 1 }, (_, k) => posAt(k));
-    // 시간표: 장면마다 순서 1 → 2 → 3 차례로 — 그 순서의 화살표가 그어지고, 그 순서로 정한 선수 · 공 · 기구가 다음 장면 자리로 움직임
+    // 시간표: 장면마다 ① 화살표가 순서대로 끝까지 그어지고 → ② 옮긴 선수 · 공 · 기구가 순서대로 움직이고 → ③ 다음 장면으로 바뀜
     const segs = [];
     for (let s0 = 0; s0 <= N; s0++) {
+      const arrO = [...new Set(arrowsIn(s0).map((x) => x.order || 1))].sort((a, b) => a - b);
       const moved = s0 < N ? movedIn(s0) : [];
-      const orders = [...new Set([...arrowsIn(s0).map((x) => x.order || 1), ...moved.map((id) => ordOf(s0, id))])].sort((a, b) => a - b);
-      orders.forEach((o, i) => segs.push({ s: s0, o, last: i === orders.length - 1, moved, dur: 1150 }, { s: s0, o, hold: true, moved, dur: 220 }));
+      const movO = [...new Set(moved.map((id) => ordOf(s0, id)))].sort((a, b) => a - b);
+      arrO.forEach((o) => segs.push({ s: s0, kind: 'draw', o, moved, dur: 1000 }, { s: s0, kind: 'draw', o, hold: true, moved, dur: 250 }));
+      movO.forEach((o) => segs.push({ s: s0, kind: 'move', o, moved, dur: 1150 }, { s: s0, kind: 'move', o, hold: true, moved, dur: 200 }));
+      if (s0 < N) segs.push({ s: s0, kind: 'switch', moved, dur: 350 });
     }
     if (!segs.length) return;
     const total = segs.reduce((a, x) => a + x.dur, 0);
     const frameAt = (t) => {
       let acc = 0; let cur = segs[segs.length - 1]; let f = 1;
       for (const sg of segs) { if (t < acc + sg.dur) { cur = sg; f = (t - acc) / sg.dur; break; } acc += sg.dur; }
-      const { s: s0, o } = cur;
+      const { s: s0, kind, o } = cur;
       const e = cur.hold ? 1 : ease(Math.min(1, f));
       const pos = { ...P[s0] };
       const prog = {};
-      arrowsIn(s0).forEach((x) => { const xo = x.order || 1; prog[x.id] = xo < o ? 1 : xo === o ? e : 0; });
+      arrowsIn(s0).forEach((x) => {
+        const xo = x.order || 1;
+        prog[x.id] = kind !== 'draw' ? 1 : xo < o ? 1 : xo === o ? e : 0;
+      });
       cur.moved.forEach((id) => {
-        const mo = ordOf(s0, id);
         const a0 = P[s0][id]; const b0 = P[s0 + 1][id];
+        if (kind === 'draw') return; // 화살표가 다 그어지기 전엔 제자리
+        if (kind === 'switch') { pos[id] = b0; return; }
+        const mo = ordOf(s0, id);
         if (mo < o) { pos[id] = b0; return; }
         if (mo > o) return;
         const st = data.steps[s0]?.[id];
         if (st && st.length > 2) { const u2 = 1 - e; pos[id] = [u2 * u2 * a0[0] + 2 * u2 * e * st[2] + e * e * b0[0], u2 * u2 * a0[1] + 2 * u2 * e * st[3] + e * e * b0[1]]; } // 노란 점선을 휘어 둔 곡선
         else pos[id] = [a0[0] + (b0[0] - a0[0]) * e, a0[1] + (b0[1] - a0[1]) * e];
       });
-      // 다음 장면에서 생기거나 사라지는 것은 마지막 순서 동안 흐려지며 바뀜
+      // 다음 장면으로 바뀔 때: 이 장면에만 있던 화살표 등은 흐려지고, 다음 장면 것은 나타남
       let vis = null;
-      if (cur.last && s0 < N) {
+      if (kind === 'switch') {
         vis = {};
-        data.items.forEach((it) => { const va = visIn(it, s0); const vb = visIn(it, s0 + 1); vis[it.id] = va && vb ? 1 : va ? 1 - e : vb ? e : 0; });
+        data.items.forEach((it) => {
+          const va = visIn(it, s0); const vb = visIn(it, s0 + 1);
+          if (!va && it.k === 'arrow' && (it.from || 0) === s0 + 1) { vis[it.id] = 0; return; } // 다음 장면 화살표는 다음 장면에서 그어지며 나타남
+          vis[it.id] = va && vb ? 1 : va ? 1 - e : vb ? e : 0;
+        });
       }
       return { pos, prog, vis, scene: s0 };
     };
@@ -640,8 +655,10 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.querySelector('[data-act="rotate"]').hidden = !(s && ROTATABLE.includes(s.k));
     const multiScene = data.steps.length > 0;
     container.querySelector('[data-act="delete"]').hidden = !s;
-    container.querySelector('[data-act="delete"]').textContent = multiScene ? `장면 ${scene + 1}에서만 삭제` : '선택 삭제';
+    container.querySelector('[data-act="delete"]').textContent = multiScene ? `장면 ${scene + 1} 삭제` : '삭제';
     container.querySelector('[data-act="delall"]').hidden = !(s && multiScene);
+    ['front', 'back'].forEach((k) => { container.querySelector(`[data-act="${k}"]`).hidden = !s; });
+    container.querySelector('[data-act="unmove"]').hidden = !(s && scene > 0 && selected().some((x) => data.steps[scene - 1]?.[x.id]));
     const canSize = s && s.k !== 'zone';
     container.querySelector('[data-size]').hidden = !(canSize || (tool !== 'select' && !tool.startsWith('zone')));
     const szin = container.querySelector('[data-szin]');
@@ -655,11 +672,19 @@ export function createPad(container, initial, { editable = true, motion = false,
     const movedHere = s && scene > 0 && data.steps[scene - 1]?.[s.id];
     container.querySelector('[data-order]').hidden = !(s && (s.k === 'arrow' || movedHere));
     const curOrd = s?.k === 'arrow' ? (s.order || 1) : movedHere ? ordOf(scene - 1, s.id) : 0;
+    // 선수 번호 고치기 (선수 하나만 골랐을 때)
+    const onePlayer = s && s.k === 'player' && !extra.size;
+    container.querySelector('[data-pnum]').hidden = !onePlayer;
+    const pnin = container.querySelector('[data-pnin]');
+    if (onePlayer && document.activeElement !== pnin) pnin.value = s.n ?? '';
     const ordin = container.querySelector('[data-ordin]');
     if (document.activeElement !== ordin) ordin.value = curOrd || 1;
     container.querySelector('[data-straight]').hidden = !(s?.k === 'arrow' && s.cx != null);
     container.querySelector('[data-spread]').hidden = !(s && s.k === 'vision');
     container.querySelectorAll('[data-sp]').forEach((b) => b.classList.toggle('on', s?.k === 'vision' && +b.dataset.sp === (s.spread || 50)));
+    const selbar = container.querySelector('[data-selbar]');
+    selbar.querySelectorAll('.pad-grp').forEach((g) => { g.hidden = ![...g.children].some((c) => !c.hidden); });
+    selbar.hidden = ![...selbar.children].some((c) => !c.hidden);
     container.querySelector('[data-hint]').textContent = {
       select: '끌어서 이동 · Ctrl(⌘)+클릭 여러 개 · Ctrl+C/V 복사·붙여넣기 · Ctrl+Z 되돌리기 · Delete 삭제 · +/- 크기 · 더블클릭 번호 수정',
       player: '필드를 누르면 선수가 놓입니다 (번호 자동) · Enter 키로 선택·이동',
@@ -795,6 +820,28 @@ export function createPad(container, initial, { editable = true, motion = false,
     render();
   };
   container.querySelector('[data-act="delall"]').onclick = delAll;
+  // 맨 앞으로 · 맨 뒤로 (공과 선수가 겹칠 때 등)
+  const KIND_Z = { zone: 0, ladder: 0.5, vision: 0.8, arrow: 1, player: 3, ball: 4, text: 5 };
+  const zNow = (x) => (x.z != null ? x.z : KIND_Z[x.k] ?? 2);
+  const toZ = (front) => {
+    const list = selected();
+    if (!list.length) return;
+    snapshot();
+    const zs = data.items.map(zNow);
+    const top = Math.max(...zs); const bot = Math.min(...zs);
+    list.forEach((x, i) => { x.z = front ? top + 1 + i * 0.01 : bot - 1 - i * 0.01; });
+    render();
+  };
+  container.querySelector('[data-act="front"]').onclick = () => toZ(true);
+  container.querySelector('[data-act="back"]').onclick = () => toZ(false);
+  // 이 장면으로 옮긴 것을 되돌림 (앞 장면 자리 그대로)
+  container.querySelector('[data-act="unmove"]').onclick = () => {
+    const list = selected().filter((x) => data.steps[scene - 1]?.[x.id]);
+    if (!list.length) return;
+    snapshot();
+    list.forEach((x) => { delete data.steps[scene - 1][x.id]; if (data.stepOrder?.[scene - 1]) delete data.stepOrder[scene - 1][x.id]; });
+    render();
+  };
   // 색
   container.querySelectorAll('[data-col]').forEach((b) => (b.onclick = () => {
     ccol = b.dataset.col;
@@ -803,6 +850,16 @@ export function createPad(container, initial, { editable = true, motion = false,
     render();
   }));
   // 화살표 순서 · 직선으로 · 시야 넓이
+  // 선수 번호
+  const pnIn = container.querySelector('[data-pnin]');
+  pnIn.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); pnIn.blur(); } e.stopPropagation(); };
+  pnIn.onchange = () => {
+    const x = items()[sel];
+    if (x?.k !== 'player') return;
+    snapshot();
+    x.n = pnIn.value.trim().slice(0, 4);
+    render();
+  };
   // 순서: 숫자로 (기본 1 = 다 같이 · 2로 바꾸면 그것만 두 번째로 …)
   const ordIn = container.querySelector('[data-ordin]');
   ordIn.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ordIn.blur(); } e.stopPropagation(); };
@@ -916,6 +973,8 @@ export function createPad(container, initial, { editable = true, motion = false,
       if (key === 'x' && sel >= 0) { e.preventDefault(); copy(); del(); return; }
       if (key === 'v' && clipboard?.length) { e.preventDefault(); paste(); return; }
       if (key === 'd' && sel >= 0) { e.preventDefault(); copy(); paste(); return; }
+      if (e.key === ']' && sel >= 0) { e.preventDefault(); toZ(true); return; }
+      if (e.key === '[' && sel >= 0) { e.preventDefault(); toZ(false); return; }
       if (key === 'a' && items().length) { e.preventDefault(); tool = 'select'; const vis = items().filter((x) => visIn(x, scene)); sel = items().indexOf(vis[0]); extra.clear(); vis.slice(1).forEach((x) => extra.add(x)); render(); return; }
     }
     if (e.key === 'Escape' && container.classList.contains('pad-full') && sel < 0) { setFull(false); return; }
@@ -973,6 +1032,14 @@ export function createPad(container, initial, { editable = true, motion = false,
       svg.setPointerCapture(e.pointerId);
       return;
     }
+    // 노란 동그라미(이 장면으로 오기 전 시작 자리) 끌기 → 움직임을 더하지 않고 시작 자리만 바꿈
+    const gs = e.target.closest?.('[data-gs]');
+    if (gs && scene > 0) {
+      snapshot();
+      drag = { startPt: gs.dataset.gs, start: p };
+      svg.setPointerCapture(e.pointerId);
+      return;
+    }
     const g = e.target.closest('[data-i]');
     const handle = e.target.getAttribute('data-handle');
 
@@ -1003,7 +1070,7 @@ export function createPad(container, initial, { editable = true, motion = false,
         render();
         return;
       }
-      drag = { it, start: p, orig: clone(it), handle, group: group.map((m) => ({ m, o: clone(m) })) };
+      drag = { it, start: p, orig: clone(it), handle, group: group.map((m) => ({ m, o: clone(m) })), cow: scene > (it.from || 0) && (!MOVABLE.includes(it.k) || !!handle) };
       svg.setPointerCapture(e.pointerId);
       render();
       return;
@@ -1041,6 +1108,33 @@ export function createPad(container, initial, { editable = true, motion = false,
   svg.addEventListener('pointermove', (e) => {
     if (!drag) return;
     const p = pt(e);
+    if (drag.cow) {
+      // 처음 움직일 때 나눔: 앞 장면들은 원래 것, 이 장면부터는 복사본을 고침
+      drag.cow = false;
+      const old = drag.it;
+      const cp = clone(old);
+      cp.id = newId();
+      cp.from = scene;
+      cp.hide = (old.hide || []).filter((h) => h >= scene);
+      old.hide = (old.hide || []).filter((h) => h < scene);
+      if (!cp.hide.length) delete cp.hide;
+      if (!old.hide.length) delete old.hide;
+      old.until = scene - 1;
+      data.items.push(cp);
+      drag.it = cp;
+      sel = data.items.length - 1;
+      extra.clear(); drag.group = [];
+    }
+    if (drag.startPt) {
+      const id = drag.startPt;
+      const xy = [round(p.x), round(p.y)];
+      if (scene - 1 === 0) { const it0 = data.items.find((x) => x.id === id); if (it0) { it0.x = xy[0]; it0.y = xy[1]; } } else {
+        const old = data.steps[scene - 2][id];
+        data.steps[scene - 2][id] = old?.length > 2 ? [...xy, old[2], old[3]] : xy;
+      }
+      render();
+      return;
+    }
     if (drag.ghost) {
       // 끈 점을 곡선이 지나가도록 조절점 계산 (이전 장면 자리 → 이 장면 자리)
       const id = drag.ghost;
@@ -1084,7 +1178,7 @@ export function createPad(container, initial, { editable = true, motion = false,
 
   const end = () => {
     if (!drag) return;
-    if (drag.ghost) { drag = null; render(); return; }
+    if (drag.ghost || drag.startPt) { drag = null; render(); return; }
     const { it, creating } = drag;
     const u = unit();
     // 너무 작게 그려진 영역/화살표는 취소

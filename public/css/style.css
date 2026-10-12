@@ -1646,3 +1646,39 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
 .pad-ord input { width: 52px; padding: 4px 6px; font-size: 13px; font-weight: 800; text-align: center; }
 .pad-ord small { font-size: 11px; }
 .pad-acts [data-straight][hidden] { display: none; }
+.pad-svg .ghost-s { cursor: move; }
+
+/* 순서 칸: 예전 모양 그대로 조금만 크게 */
+.pad-ord { font-size: 13px; }
+.pad-ord input { width: 58px; height: 32px; font-size: 15px; font-weight: 800; }
+.pad-ord small { font-size: 12px; }
+.pad-num { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--text); }
+.pad-num[hidden] { display: none; }
+.pad-num input { width: 60px; height: 32px; font-size: 15px; font-weight: 800; text-align: center; padding: 2px 4px; }
+
+/* 상황 바: 한 줄로 깔끔하게 (순서는 늘 오른쪽 끝) */
+.pad-acts { flex-wrap: wrap; row-gap: 6px; }
+.pad-acts .chip { white-space: nowrap; }
+.pad-ord { margin-left: auto; border-left: 1px solid var(--line); padding-left: 10px; }
+.pad-num { padding-right: 6px; border-right: 1px solid var(--line); }
+/* 상황 바 한 줄에 맞추기 */
+.pad-acts { gap: 4px; }
+.pad-acts .chip { padding: 3px 8px; font-size: 12px; }
+.pad-acts .pad-sz input { width: 46px; }
+.pad-num { gap: 4px; font-size: 12px; }
+.pad-num input { width: 46px; height: 30px; font-size: 14px; }
+.pad-ord { gap: 4px; padding-left: 8px; font-size: 12px; }
+.pad-ord input { width: 48px; height: 30px; font-size: 14px; }
+.pad-ord small { font-size: 11px; }
+
+/* 상황 바 두 줄: 1줄 되돌리기 · 지우기 · 크기 … 순서 / 2줄 고른 것 (번호 · 색 · 앞뒤 · 삭제) */
+.pad-acts { gap: 6px; }
+.pad-acts .pad-sz { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--line); }
+.pad-sel { margin-top: 2px; gap: 10px; }
+.pad-sel[hidden], .pad-grp[hidden] { display: none; }
+.pad-sel > *:not(:last-child) { padding-right: 10px; border-right: 1px solid var(--line); }
+.pad-sel > [hidden] { display: none !important; }
+.pad-grp { display: inline-flex; gap: 6px; align-items: center; }
+.pad-grp .chip[hidden] { display: none; }
+.pad-num { border-right: 0; }
+.pad-acts .pad-teams, .pad-acts .pad-colors { border-right: 0; padding-right: 0; }
