@@ -425,7 +425,7 @@ export async function counsel(el) {
       e.preventDefault();
       try {
         await addDoc(tcol('counsel'), {
-          ...formData(e.target), authorUid: state.user.uid, authorName: state.profile.name, status: 'open', createdAt: serverTimestamp(),
+          ...formData(e.target), authorUid: state.user.uid, authorName: state.profile.name, status: 'open', lastBy: state.user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
         });
         m.close();
         counsel(el);
@@ -448,7 +448,7 @@ export async function counsel(el) {
         await addDoc(tcol('counsel', t.id, 'replies'), {
           body: e.target.body.value, uid: state.user.uid, name: state.profile.name, createdAt: serverTimestamp(),
         });
-        await updateDoc(tdoc('counsel', t.id), { status: isCoach() ? 'answered' : 'open', updatedAt: serverTimestamp() });
+        await updateDoc(tdoc('counsel', t.id), { status: isCoach() ? 'answered' : 'open', lastBy: state.user.uid, updatedAt: serverTimestamp() });
         m.close();
         toast('전송했습니다.');
         counsel(el);

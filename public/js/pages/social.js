@@ -254,7 +254,7 @@ export async function chatRoom(el, { id }) {
     form.text.value = '';
     try {
       await addDoc(collection(db, 'chats', id, 'messages'), { uid: me, text: t, createdAt: serverTimestamp() });
-      await updateDoc(doc(db, 'chats', id), { lastMessage: t.slice(0, 60), updatedAt: serverTimestamp() });
+      await updateDoc(doc(db, 'chats', id), { lastMessage: t.slice(0, 60), lastFrom: me, lastAt: serverTimestamp(), updatedAt: serverTimestamp() });
     } catch (err) { fail(err); }
   };
   form.text.focus();

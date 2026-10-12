@@ -1521,3 +1521,17 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
 .dr-ai.folded .dr-ai-lead { margin-bottom: 0; }
 .dr-ai-g li[hidden] { display: none; }
 .dr-ai-g [data-more] { margin-top: 6px; }
+
+/* 새 소식 점 */
+.nav-list a.has-new { position: relative; }
+.nav-list a.has-new::after { content: ''; position: absolute; right: 12px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: #ff9f0a; box-shadow: 0 0 0 3px rgba(255,159,10,.2); }
+[data-toggle="nav-open"].has-new { position: relative; }
+[data-toggle="nav-open"].has-new::after { content: ''; position: absolute; right: 4px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: #ff9f0a; }
+/* 모바일: 닫기(✕) 크게 · 화면 위에 붙어 있게 */
+@media (max-width: 700px) {
+  .modal-x { position: sticky; float: right; top: 0; margin: -6px -6px 4px 8px; width: 46px; height: 46px; font-size: 22px; color: var(--text); background: var(--surface3); border-radius: 50%; z-index: 5; }
+}
+
+.verify-card .verify-ic { font-size: 40px; }
+.guide-steps.left { text-align: left; }
+@media (max-width: 700px) { .present [data-close] { width: 46px; height: 46px; font-size: 22px; } }

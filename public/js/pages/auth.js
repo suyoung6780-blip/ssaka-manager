@@ -1,11 +1,11 @@
 import {
   auth, db, doc, setDoc, serverTimestamp, writeBatch,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, signOut,
-  verifyPasswordResetCode, confirmPasswordReset, applyActionCode,
+  verifyPasswordResetCode, confirmPasswordReset, applyActionCode, sendEmailVerification,
 } from '../fb.js';
 import { esc, toast, fail, formData, options, POSITIONS, ROLES, resizeImage, avatar, modal } from '../ui.js';
-import { state, loadContext, go } from '../store.js';
-import { FREE_MODE } from '../config.js';
+import { state, loadContext, go, hooks } from '../store.js';
+import { FREE_MODE, EMAIL_VERIFY_FROM } from '../config.js';
 import { agreeFields, bindAgree, agreeData } from './privacy.js';
 import { installButton, bindInstall } from '../install.js';
 
@@ -100,7 +100,10 @@ export function signup(el) {
     const { email, password, password2 } = formData(form);
     if (password !== password2) return toast('비밀번호가 일치하지 않습니다.');
     dup.hidden = true;
-    try { await createUserWithEmailAndPassword(auth, email, password); } catch (err) {
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+      sendVerify(true);
+    } catch (err) {
       // 같은 이메일로 이미 가입된 경우: 칸 바로 아래에 안내 + 로그인 / 재설정 바로가기
       if (err?.code === 'auth/email-already-in-use') { dup.hidden = false; form.email.focus(); return; }
       fail(err);
@@ -300,6 +303,58 @@ export async function resetPage(el, code) {
       el.querySelector('[data-login]').onclick = toLogin;
     } catch (err) { fail(err); }
   };
+}
+
+// ───────── 가입 이메일 인증 ─────────
+// 새로 가입한 계정(또는 아직 개인계정을 안 만든 계정)은 메일의 링크를 눌러 인증해야 시작
+export function needVerify() {
+  const u = state.user;
+  if (!u || u.emailVerified) return false;
+  if (!state.profile) return true;
+  const made = Date.parse(u.metadata?.creationTime || '');
+  return !Number.isNaN(made) && made >= Date.parse(EMAIL_VERIFY_FROM);
+}
+let lastSent = 0;
+async function sendVerify(silent = false) {
+  if (Date.now() - lastSent < 60000) { if (!silent) toast('잠시 후(1분 뒤) 다시 보낼 수 있어요.'); return; }
+  try {
+    await sendEmailVerification(auth.currentUser, { url: location.origin + location.pathname });
+    lastSent = Date.now();
+    if (!silent) toast('인증 메일을 다시 보냈어요.');
+  } catch (err) {
+    if (err?.code === 'auth/too-many-requests') toast('메일을 너무 자주 보냈어요. 몇 분 뒤에 다시 해 주세요.');
+    else if (!silent) fail(err);
+  }
+}
+async function checkVerified(show = true) {
+  const u = auth.currentUser;
+  if (!u) return;
+  try { await u.reload(); } catch { /* */ }
+  if (u.emailVerified) {
+    try { await u.getIdToken(true); } catch { /* */ } // 서버 권한에도 '인증됨'이 바로 반영되게
+    state.user = u;
+    toast('이메일 인증 완료!');
+    hooks.route();
+  } else if (show) toast('아직 인증되지 않았어요. 메일의 링크를 먼저 눌러 주세요.');
+}
+export function verifyGate(el) {
+  const email = state.user?.email || '';
+  el.innerHTML = `${brand}<div class="card auth-card center verify-card">
+    <div class="verify-ic">✉️</div>
+    <h2>이메일을 인증해 주세요</h2>
+    <p><b>${esc(email)}</b> 로 인증 메일을 보냈어요.</p>
+    <ol class="guide-steps left"><li>메일함에서 <b>싸카매니저 이메일 인증</b> 메일을 열어요 (안 보이면 <b>스팸함</b>도 확인)</li>
+      <li>메일 안의 <b>링크</b>를 눌러요</li><li>이 화면으로 돌아와 <b>인증했어요</b>를 눌러요</li></ol>
+    <button class="btn full" data-check>인증했어요</button>
+    <button type="button" class="btn ghost full" data-resend>인증 메일 다시 보내기</button>
+    <div class="row between small"><span class="muted">이메일을 잘못 적었나요?</span><button type="button" class="link-btn" data-out>다른 이메일로 가입하기</button></div>
+  </div>`;
+  el.querySelector('[data-check]').onclick = () => checkVerified(true);
+  el.querySelector('[data-resend]').onclick = () => sendVerify(false);
+  el.querySelector('[data-out]').onclick = () => signOut(auth);
+  // 메일 링크를 누르고 이 탭으로 돌아오면 자동으로 확인
+  const onBack = () => { if (!el.isConnected) { window.removeEventListener('focus', onBack); return; } if (document.visibilityState === 'visible') checkVerified(false); };
+  window.addEventListener('focus', onBack);
 }
 
 // 3) 이메일 인증 메일의 링크 (?mode=verifyEmail&oobCode=…)

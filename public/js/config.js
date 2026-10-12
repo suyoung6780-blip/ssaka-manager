@@ -22,6 +22,8 @@ export const PLAN = { name: '싸카매니저 팀 이용권 (30일)', price: 3000
 // ④ 무료 운영 모드 — 결제 없이 지도자가 팀을 만들면 바로 팀 코드 발급 (Cloud Functions 불필요)
 //    유료로 바꿀 때: false 로 바꾸고 firestore.rules 의 '무료 모드' 부분을 지우세요.
 export const FREE_MODE = true;
+// 이 날짜부터 새로 가입한 계정은 이메일 인증을 해야 시작할 수 있어요 (그 전 가입자는 그대로)
+export const EMAIL_VERIFY_FROM = '2026-10-12T00:00:00+09:00';
 
 // ⑤ 축구 브리핑 피드 주소 — GitHub Actions(feedbot/)가 30분마다 만드는 feeds.json (무료)
 //    예) 'https://raw.githubusercontent.com/<깃허브아이디>/ssaka-feeds/main/feeds.json'

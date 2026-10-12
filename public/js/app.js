@@ -1,6 +1,7 @@
 import { isConfigured, FREE_MODE } from './config.js';
 import { installButton, bindInstall } from './install.js';
 import { attachHelp } from './help.js';
+import { startNews, stopNews, markSeen, paint } from './news.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
 import { $, $$, esc, avatar, ROLES, toast } from './ui.js';
 import {
@@ -109,6 +110,11 @@ async function route() {
     return r.fn($('#view'), r.params);
   }
   if (!state.user) return go('/login');
+  // 새 가입자: 이메일 인증 먼저
+  if (authPages.needVerify() && r.guard !== 'any') {
+    app.innerHTML = '<div class="bare" id="view"></div>';
+    return authPages.verifyGate($('#view'));
+  }
   if (!state.profile) {
     app.innerHTML = '<div class="bare" id="view"></div>';
     return authPages.completeProfile($('#view'));
@@ -131,6 +137,8 @@ async function route() {
   if (!allowed(r.guard)) return go('/');
 
   if (!$('.shell')) renderShell();
+  startNews();
+  markSeen(path);
   updateShell(path);
   const view = $('#view');
   view.innerHTML = '<div class="loading">LOADING</div>';
@@ -210,6 +218,7 @@ function updateShell(path = location.hash.slice(1) || '/') {
     <span class="me-acts">${installButton('link-btn')}<button class="link-btn" data-logout>로그아웃</button></span>`;
   $('[data-logout]').onclick = () => signOut(auth);
   bindInstall($('.me-box'));
+  paint();
 }
 
 hooks.route = route;
@@ -244,6 +253,7 @@ if (!isConfigured) {
   let first = true;
   onAuthStateChanged(auth, async (u) => {
     state.user = u;
+    if (!u) stopNews();
     await loadContext();
     if (first && u) { first = false; await handlePaymentReturn(); }
     app.innerHTML = '';

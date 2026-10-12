@@ -38,7 +38,9 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if (signedIn() && uid() == userId) || isAdmin(); // 운영자: 가입자 수 확인
       // 가입: 보호자 동의 완료 상태로 스스로 만들 수 없음
-      allow create: if signedIn() && uid() == userId && request.resource.data.get('guardianOk', false) != true;
+      // 새 개인계정은 이메일 인증을 마친 뒤에만 (임의 이메일 가입 방지)
+      allow create: if signedIn() && uid() == userId && request.auth.token.email_verified == true
+        && request.resource.data.get('guardianOk', false) != true;
       // 계정 유형 · 나이 · 동의 링크는 가입 후 변경 불가. 보호자 동의(guardianOk)는 보호자가 링크에서 동의한 뒤에만 켤 수 있음
       allow update: if signedIn() && uid() == userId
         && !changed().hasAny(['role', 'under14', 'birth', 'consentToken'])
@@ -155,7 +157,7 @@ service cloud.firestore {
         allow read: if isCoach(t) || (isMember(t) && resource.data.authorUid == uid());
         allow create: if isSquad(t) && request.resource.data.authorUid == uid();
         allow update: if (isCoach(t) || (isMember(t) && resource.data.authorUid == uid()))
-          && changed().hasOnly(['status', 'updatedAt']);
+          && changed().hasOnly(['status', 'updatedAt', 'lastBy']);
         allow delete: if isMember(t) && resource.data.authorUid == uid();
 
         match /replies/{r} {

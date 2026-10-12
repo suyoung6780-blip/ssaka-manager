@@ -179,11 +179,12 @@ const FRESH = QS.has('new');
 // 데모 계정: 이메일 · 비밀번호 · 인증 여부를 이 브라우저에 기억 (새로고침해도 유지)
 // 김코치 c@x.com / coach123 · 박선수(선수) p@x.com / player123
 const ACC_KEY = 'ssaka.demo.accounts';
-const BASE_ACC = { 'c@x.com': { pw: 'coach123', uid: U, verified: true }, 'p@x.com': { pw: 'player123', uid: 'p1', verified: true } };
+const BASE_ACC = { 'c@x.com': { pw: 'coach123', uid: U, verified: true }, 'p@x.com': { pw: 'player123', uid: 'p1', verified: true }, 'new@example.com': { pw: 'new123', uid: 'uNew', verified: true } };
 const accounts = (() => { try { return { ...BASE_ACC, ...JSON.parse(localStorage.getItem(ACC_KEY) || '{}') }; } catch { return { ...BASE_ACC }; } })();
 const saveAcc = () => { try { localStorage.setItem(ACC_KEY, JSON.stringify(accounts)); } catch { /* */ } };
 const mkUser = (uid, email) => ({
   uid, email, emailVerified: !!accounts[email]?.verified,
+  metadata: { creationTime: new Date(accounts[email]?.at || '2026-01-01').toUTCString() },
   async reload() { this.emailVerified = !!accounts[this.email]?.verified; },
   async getIdToken() { return 'demo'; },
 });
@@ -203,7 +204,7 @@ export const createUserWithEmailAndPassword = async (_a, email, pw) => {
   email = email.trim().toLowerCase();
   if (accounts[email]) throw authErr('auth/email-already-in-use');
   if ((pw || '').length < 6) throw authErr('auth/weak-password');
-  accounts[email] = { pw, uid: 'u-' + email.replace(/[^a-z0-9]/g, '') };
+  accounts[email] = { pw, uid: 'u-' + email.replace(/[^a-z0-9]/g, ''), at: Date.now() };
   saveAcc();
   setUser(mkUser(accounts[email].uid, email));
 };
