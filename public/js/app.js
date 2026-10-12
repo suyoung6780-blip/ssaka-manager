@@ -121,6 +121,7 @@ const FOOTER = `
 async function route() {
   state.cleanup.forEach((f) => f());
   state.cleanup = [];
+  document.querySelectorAll('.modal-wrap').forEach((m) => m.remove()); // 이전 화면에서 열린 창은 닫기
   const path = location.hash.slice(1) || '/';
   const r = match(path) || match('/');
 
@@ -284,5 +285,17 @@ if (!isConfigured) {
     app.innerHTML = '';
     route();
   });
-  window.addEventListener('hashchange', route);
+  // 화면 이동(뒤로가기 포함) 전에, 저장 안 한 수정이 있는 화면이면 한 번 물어봄
+  let lastHash = location.hash;
+  let skipNext = false;
+  window.addEventListener('hashchange', () => {
+    if (skipNext) { skipNext = false; lastHash = location.hash; return; }
+    if (state.leaveGuard?.() && !window.confirm('저장하지 않은 수정 내용이 있어요. 이 화면을 나갈까요?\n\n(나가도 이 컴퓨터에 임시로 보관돼서, 다시 열면 이어서 할 수 있어요)')) {
+      skipNext = true;
+      location.hash = lastHash; // 원래 화면으로 되돌림
+      return;
+    }
+    lastHash = location.hash;
+    route();
+  });
 }

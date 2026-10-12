@@ -519,8 +519,9 @@ img.bthumb { aspect-ratio: 16/10; object-fit: cover; }
 .tl-empty { padding: 14px 10px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .tl-scroll { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
 .tl-inner { position: relative; min-width: 100%; cursor: text; }
-.tl-ruler { position: sticky; top: 0; height: 20px; border-bottom: 1px solid var(--line); background: var(--surface2); z-index: 2; }
+.tl-ruler { position: relative; top: 0; height: 20px; border-bottom: 1px solid var(--line); background: var(--surface2); z-index: 2; }
 .tl-ruler i { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line2); }
+.tl-ruler { z-index: 4; }
 .tl-ruler i span { position: absolute; left: 4px; top: 3px; font-size: 10px; color: var(--muted); font-style: normal; white-space: nowrap; font-weight: 600; }
 .tl-row { position: relative; height: 25px; border-bottom: 1px solid var(--line); }
 .tl-row.on { background: rgba(255,255,255,.035); }
