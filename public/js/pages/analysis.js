@@ -350,7 +350,9 @@ export async function studio(el, { id, mode }) {
     return false; // 장면이 바뀌어도 숨기지 않고 계속 따라감
   };
   // 트래킹 · 연결선은 재생 중에도 보이고, 나머지 그림은 그 장면에서 멈춰 있을 때만 보임
-  const isLive = (it) => it.k === 'spot' || it.k === 'link' || ((it.k === 'light' || it.k === 'offside') && !!it.p?.tr);
+  // 재생되면 선수를 따라가는 그림. still = 따라가지 않고 그 장면에서 멈춤 동안만 보여줌
+  const isLive = (it) => !it.still && (it.k === 'spot' || it.k === 'link' || ((it.k === 'light' || it.k === 'offside') && !!it.p?.tr));
+  let followPref = true; // 트래킹 · 스포트라이트를 새로 만들 때 '따라가기' 기본값 (마지막에 고른 값)
   const visible = (it) => (isLive(it)
     ? t() >= it.t0 - 0.02 && (it.t1 == null || t() <= it.t1 + 0.02) && !cutOff(it)
     : video.paused && Math.abs(t() - it.t0) < 0.06);
@@ -455,7 +457,7 @@ export async function studio(el, { id, mode }) {
     let until = -1;
     for (const it of tele.items) {
       if (!itemPoints(it).some((p) => p && p.tr === tr.id)) continue;
-      until = Math.max(until, it.t1 == null ? Infinity : it.t1);
+      until = Math.max(until, it.still ? it.t0 : it.t1 == null ? Infinity : it.t1);
     }
     return until < 0 ? Infinity : until;
   }
@@ -691,6 +693,10 @@ export async function studio(el, { id, mode }) {
         const dpr = w / canvas.clientWidth;
         const s = Math.max(9 * dpr, w / 150);
         for (const [x, y] of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) { ctx.fillRect(x - s / 2, y - s / 2, s, s); ctx.strokeRect(x - s / 2, y - s / 2, s, s); }
+        // 테두리 가운데 손잡이 (가로 · 세로 크기만 바꾸기)
+        const e1 = s * 0.55; const e2 = s * 1.6;
+        for (const [x, y, vw, vh] of [[x0, (y0 + y1) / 2, e1, e2], [x1, (y0 + y1) / 2, e1, e2], [(x0 + x1) / 2, y0, e2, e1]]) { ctx.fillRect(x - vw / 2, y - vh / 2, vw, vh); ctx.strokeRect(x - vw / 2, y - vh / 2, vw, vh); }
+        ctx.globalAlpha = 0.08; ctx.fillStyle = c; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); ctx.globalAlpha = 1; ctx.fillStyle = '#fff'; // 안쪽을 잡으면 옮겨진다는 표시
         if (y1 - y0 < 44 * dpr) { // 작은 선수: 잡을 곳을 동그랗게 표시
           ctx.globalAlpha = 0.55; ctx.setLineDash([3 * dpr, 3 * dpr]);
           ctx.beginPath(); ctx.arc((x0 + x1) / 2, (y0 + y1) / 2, Math.max(22 * dpr, (y1 - y0) * 0.7), 0, Math.PI * 2); ctx.stroke();
@@ -1103,12 +1109,13 @@ export async function studio(el, { id, mode }) {
       <div class="st-colors">${PALETTE.map((c) => `<button style="--c:${c}" data-pcolor="${c}" class="${(it.color || PALETTE[0]) === c ? 'on' : ''}" aria-label="색"></button>`).join('')}</div>
       <div class="st-num"><span>시작</span><b>${fmtT1(it.t0)}</b><button class="chip" data-t0>지금으로</button></div>
       <div class="st-num"><span>멈춰서 보여줄 시간</span><input type="number" min="0" max="30" step="0.5" value="${it.hold ?? 4}" data-phold><i>초</i></div>
+      ${it.k === 'spot' || (it.k === 'light' && it.p?.tr) ? `<label class="mini-switch st-follow"><input type="checkbox" data-pfollow ${it.still ? '' : 'checked'}> 재생되면 선수 따라가기 <small class="muted">(끄면 멈춤 ${it.hold ?? 4}초 동안만 보여줘요)</small></label>` : ''}
       ${isLive(it) ? `<div class="st-num"><span>따라가는 시간</span><input type="number" min="0.5" max="600" step="0.5" value="${it.t1 == null ? '' : +(it.t1 - it.t0).toFixed(1)}" placeholder="끝까지" data-pdur ${it.t1 == null ? 'disabled' : ''}><i>초</i>
         <label class="mini-switch"><input type="checkbox" data-pend ${it.t1 == null ? 'checked' : ''}> 끝까지</label></div>
       <p class="muted small">이 장면에서 멈췄다가, 재생되면 따라가는 시간 동안 선수를 따라갑니다.</p>`
       : '<p class="muted small">이 장면에서 영상을 멈추고 보여준 뒤, 재생되면 사라집니다.</p>'}
       ${it.k === 'arrow' ? `<div class="st-num"><span>그어지는 시간</span><input type="number" min="0.2" max="6" step="0.1" value="${animSec(it)}" data-panim><i>초</i></div>` : ''}
-      ${it.k === 'spot' ? '<p class="muted small">트래킹은 표시 시간 동안만 선수를 따라갑니다.</p>' : ''}
+      ${it.k === 'spot' && !it.still ? '<p class="muted small">트래킹은 표시 시간 동안만 선수를 따라갑니다.</p>' : ''}
       ${it.k === 'spot' && it.p?.tr && tele.trackers.find((x) => x.id === it.p.tr) ? `<ul class="st-items st-trs">${trRow(tele.trackers.find((x) => x.id === it.p.tr), false)}</ul>${aiLine()}` : ''}
       ${it.k === 'arrow' ? `<label class="mini-switch"><input type="checkbox" data-pdash ${it.style === 'dash' ? 'checked' : ''}> 점선</label>` : ''}
       ${it.k === 'arrow' || it.k === 'measure' ? `<div class="st-num"><span>거리 표시</span><input type="number" min="0" max="200" step="0.1" value="${it.m ?? ''}" placeholder="${it.k === 'arrow' ? '없음' : '?'}" data-pm><i>m</i></div>` : ''}
@@ -1147,6 +1154,10 @@ export async function studio(el, { id, mode }) {
     box.querySelector('[data-phold]').onchange = ch(() => { const v = box.querySelector('[data-phold]').value; it.hold = Math.max(0, Math.min(30, v === '' ? 4 : +v)); });
     box.querySelector('[data-pdel]').onclick = ch(() => { tele.items = tele.items.filter((x) => x !== it); sel = null; });
     box.querySelector('[data-pdup]').onclick = () => dupItem(it);
+    box.querySelector('[data-pfollow]')?.addEventListener('change', ch(() => {
+      followPref = box.querySelector('[data-pfollow]').checked;
+      if (followPref) { delete it.still; if (it.t1 != null && it.t1 <= it.t0) it.t1 = +(it.t0 + (+tele.set.dur || 5)).toFixed(2); } else it.still = true;
+    }));
     box.querySelector('[data-lsize]')?.addEventListener('input', (e) => { if (it.p?.tr) it.scale = e.target.value / 100; else it.r = e.target.value / 1000; dirty = true; render(); });
     box.querySelector('[data-ldim]')?.addEventListener('input', (e) => { it.dim = e.target.value / 100; dirty = true; render(); });
     box.querySelector('[data-lring]')?.addEventListener('change', ch(() => { it.ring = it.ring === false; }));
@@ -1214,7 +1225,7 @@ export async function studio(el, { id, mode }) {
     const t0 = +t().toFixed(2);
     const dur = +tele.set.dur || 5;
     // 모든 그림: 나타나는 장면에서 4초 멈춤 (그림마다 수정 가능). 트래킹 · 연결선은 멈춘 뒤 따라가는 시간 동안 따라감
-    return { id: uid(), k, color, t0, t1: tele.set.durEnd ? null : +(t0 + dur).toFixed(2), hold: 4, ...extra };
+    return { id: uid(), k, color, t0, t1: tele.set.durEnd ? null : +(t0 + dur).toFixed(2), hold: 4, ...((k === 'spot' || k === 'light') && !followPref ? { still: true } : {}), ...extra };
   };
   // 만든 뒤에는 바로 '선택'으로 돌아가서 끌어 옮길 수 있게
   const commit = (it) => { snapshot(); tele.items.push(it); draft = null; sel = it; setTool('select'); sel = it; drawSide(); render(); };
@@ -1324,20 +1335,30 @@ export async function studio(el, { id, mode }) {
   // 지금 장면에서 쓰이는 트래킹 선수들
   const activeTrackers = () => tele.trackers.filter((tr) => tele.items.some((it) => visible(it) && itemPoints(it).some((p) => p && p.tr === tr.id)));
   const boxesShown = () => edit && video.paused && !freeze && !recording; // 편집할 때만 (강조 멈춤 · 녹화 중엔 숨김)
+  // 트래킹 네모: 안쪽을 잡으면 통째로 옮기기, 모서리 · 테두리(바깥쪽 12px 까지)를 잡으면 크기 조절
   function boxAt(n) {
     if (!boxesShown()) return null;
+    const cw = canvas.clientWidth; const chh = canvas.clientHeight;
+    const px = n.x * cw; const py = n.y * chh;
+    let inBox = null;
     for (const tr of activeTrackers()) {
       const b = trBox(tr);
       if (!b) continue;
-      const cs = [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]];
-      const hpx = (b.y1 - b.y0) * canvas.clientHeight;
-      const cr = Math.max(7, Math.min(18, hpx * 0.3)); // 작은 네모는 모서리보다 몸통 잡기가 먼저
-      for (let i = 0; i < 4; i++) if (pxDist({ x: cs[i][0], y: cs[i][1] }, n) < cr) return { tr, mode: 'corner', i, b };
-      // 멀리 있는 선수(작은 네모)도 잡히게 둘레 14px 까지
-      const px = 14 / canvas.clientWidth; const py = 14 / canvas.clientHeight;
-      if (n.x > b.x0 - px && n.x < b.x1 + px && n.y > b.y0 - py && n.y < b.y1 + py) return { tr, mode: 'move', b };
+      const X0 = b.x0 * cw; const X1 = b.x1 * cw; const Y0 = b.y0 * chh; const Y1 = b.y1 * chh;
+      const m = X1 - X0 >= 40 ? 6 : 0; // 큰 네모는 테두리 안쪽 6px 도 크기 조절, 작은 네모는 바깥쪽만
+      const deep = px > X0 + m && px < X1 - m && py > Y0 + m && py < Y1 - m;
+      if (!deep) {
+        const cs = [[X0, Y0], [X1, Y0], [X1, Y1], [X0, Y1]];
+        for (let i = 0; i < 4; i++) if (Math.hypot(px - cs[i][0], py - cs[i][1]) < 16) return { tr, mode: 'corner', i, b };
+        const R = 12;
+        if (py > Y0 && py < Y1 && Math.abs(px - X0) < R) return { tr, mode: 'edge', side: 'l', b };
+        if (py > Y0 && py < Y1 && Math.abs(px - X1) < R) return { tr, mode: 'edge', side: 'r', b };
+        if (px > X0 && px < X1 && Math.abs(py - Y0) < R) return { tr, mode: 'edge', side: 't', b };
+        if (px > X0 && px < X1 && Math.abs(py - Y1) < R) return { tr, mode: 'edge', side: 'b', b };
+      }
+      if (!inBox && px > X0 && px < X1 && py > Y0 && py < Y1) inBox = { tr, mode: 'move', b };
     }
-    return null;
+    return inBox;
   }
   // 네모를 다시 맞추면 그 장면에서 선수 모습을 다시 익히고 그 지점부터 따라감
   function applyBox(tr, b) {
@@ -1811,10 +1832,8 @@ export async function studio(el, { id, mode }) {
     // 잘라낸 선수(선수 이동) · 지금 고른 그림은 트래킹 네모보다 먼저 잡힘
     if (!drawing) {
       const h0 = hit(n);
-      if (h0 && (h0.it.k === 'move' || h0.it === sel)) {
-        const p0 = h0.h != null ? itemPoints(h0.it)[h0.h] : null;
-        if (!p0?.tr) return { it: h0.it, h: h0.h };
-      }
+      const bound0 = h0 && itemPoints(h0.it).some((q) => q?.tr); // 선수에 붙은 그림은 네모로 움직임
+      if (h0 && !bound0 && (h0.it.k === 'move' || h0.it === sel)) return { it: h0.it, h: h0.h };
     }
     const bx = boxAt(n);
     if (bx) return drawing ? null : { box: bx }; // 그리기 도구일 때는 네모(안 · 모서리)를 누르면 그 선수에서 그리기 시작
@@ -1849,7 +1868,7 @@ export async function studio(el, { id, mode }) {
       if (cands) { pickCand(n); return; }
       if (man && !draft) {
         const bx = boxAt(n);
-        if (!(bx && bx.tr === man.tr && bx.mode === 'corner')) {
+        if (!(bx && bx.tr === man.tr && (bx.mode === 'corner' || bx.mode === 'edge'))) {
           // 앞뒤에 보이는 다른 점을 누르면 그 점의 시간으로 가서 그 점을 옮김
           const near = man.tr.path.filter((q) => Math.abs(q[0] - t()) <= 3 && Math.abs(q[0] - t()) > keyTol())
             .map((q) => ({ q, d: pxDist({ x: q[1], y: q[2] }, n) })).filter((o) => o.d < 16).sort((p, q) => p.d - q.d)[0];
@@ -1923,7 +1942,10 @@ export async function studio(el, { id, mode }) {
       const n = toNorm(e);
       if (drag?.manKey && man) { setManKey(n); render(); return; }
       if (!drag && !draft) {
-        canvas.style.cursor = pickable(n) ? 'grab' : tool === 'select' ? 'default' : 'crosshair';
+        const g = pickable(n);
+        const CUR = { l: 'ew-resize', r: 'ew-resize', t: 'ns-resize', b: 'ns-resize' };
+        canvas.style.cursor = g?.box ? (g.box.mode === 'move' ? 'move' : g.box.mode === 'edge' ? CUR[g.box.side] : (g.box.i % 2 ? 'nesw-resize' : 'nwse-resize'))
+          : g ? 'grab' : tool === 'select' ? 'default' : 'crosshair';
       }
       if (draft && (draft.k === 'arrow' || draft.k === 'measure' || draft.k === 'trackbox' || draft.k === 'cutbox' || draft.k === 'move') && drag?.creating) { draft.b = { x: +n.x.toFixed(4), y: +n.y.toFixed(4) }; render(); return; }
       if (draft && draft.k === 'grid' && drag?.creating) { draft.q = gridQuad(drag.start, n); render(); return; }
@@ -1937,6 +1959,8 @@ export async function studio(el, { id, mode }) {
         if (bx.mode === 'move') {
           const dx = n.x - start.x; const dy = n.y - start.y;
           Object.assign(nb, { x0: bx.b.x0 + dx, x1: bx.b.x1 + dx, y0: bx.b.y0 + dy, y1: bx.b.y1 + dy });
+        } else if (bx.mode === 'edge') {
+          if (bx.side === 'l') nb.x0 = n.x; else if (bx.side === 'r') nb.x1 = n.x; else if (bx.side === 't') nb.y0 = n.y; else nb.y1 = n.y;
         } else {
           if (bx.i === 0 || bx.i === 3) nb.x0 = n.x; else nb.x1 = n.x;
           if (bx.i === 0 || bx.i === 1) nb.y0 = n.y; else nb.y1 = n.y;

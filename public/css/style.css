@@ -1822,3 +1822,5 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
 .studio .st-transport select { padding: 2px 4px; font-size: 11px; }
 .tl { margin-top: 6px; }
 .tl-body { max-height: 245px; }
+.st-sec .st-follow { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-weight: 700; margin-bottom: 10px; }
+.st-follow small { flex-basis: 100%; padding-left: 22px; font-weight: 500; font-size: 11px; }
