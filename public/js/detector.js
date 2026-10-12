@@ -69,10 +69,11 @@ export async function detectIn(video, r, minScore = 0.3) {
 }
 
 // 한 점 주변(선수 키 ph 기준)에서 찾기 — 트래킹 시작 · 보정용
-export function detectAround(video, x, y, ph) {
+// zoom > 1: 놓쳤을 때 더 넓게. 멀리 있는(작은) 선수는 좁게 잘라 크게 확대해야 AI가 찾음
+export function detectAround(video, x, y, ph, zoom = 1) {
   const VH = video.videoHeight;
-  const side = Math.max(Math.min(VH * 0.5, ph * 4.2), Math.min(VH * 0.18, 260));
-  return detectIn(video, { x: x - side / 2, y: y - ph * 0.5 - side / 2, w: side, h: side });
+  const side = Math.min(VH * 0.6, Math.max(ph * 3.4 * zoom, Math.min(VH * 0.12, 150) * Math.min(zoom, 2)));
+  return detectIn(video, { x: x - side / 2, y: y - ph * 0.5 - side / 2, w: side, h: side }, ph < VH * 0.06 ? 0.22 : 0.28);
 }
 
 // 화면 전체를 겹치게 나눠 훑기 — '다시 잡기'에서 모든 선수 후보 보여주기

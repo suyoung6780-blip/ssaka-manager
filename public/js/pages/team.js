@@ -6,7 +6,7 @@ import {
   ROLES, MATCH_TYPES,
 } from '../ui.js';
 import { state, isCoach, isOwner } from '../store.js';
-import { createPad, formationData } from '../tactic.js';
+import { createPad, formationData, is8 } from '../tactic.js';
 
 const tcol = (...p) => collection(db, 'teams', state.team.id, ...p);
 const tdoc = (...p) => doc(db, 'teams', state.team.id, ...p);
@@ -39,7 +39,7 @@ export async function gameModel(el) {
     el.innerHTML = `${pageHead('GAME MODEL', '게임모델', isCoach() ? '<button class="btn" data-edit>편집</button>' : '')}
     <div class="gm">
       <section class="card">
-        <div class="card-head"><h3>기본 포메이션 ${esc(gm.formation || '')}</h3></div>
+        <div class="card-head"><h3>기본 포메이션 ${esc(gm.formation || '')}${is8(gm.formation) ? ' <small class="muted">8대8</small>' : ''}</h3></div>
         <div data-pad></div>
       </section>
       <section class="card">

@@ -419,6 +419,8 @@ export class PlayerTracker {
     const th = Math.max(6, Math.round(b.th * k));
     const stp = Math.max(1, Math.round(tw / 6));
     const H = st.hist;
+    if (!st.hist0) st.hist0 = Float32Array.from(H);
+    const H0 = st.hist0; // 처음 잡은 모습 — 겹친 뒤 다른 선수로 옮겨 타지 않게
     let best = -1;
     let bx = -1;
     let by = -1;
@@ -427,11 +429,12 @@ export class PlayerTracker {
       for (let x = 0; x <= r.w - tw; x += stp) {
         const { hst, n } = this.hist(r.d, r.w, x, y, tw, th, key);
         if (n < tw * th * 0.12) continue;
-        let bc = 0;
-        for (let i = 0; i < 96; i++) bc += Math.sqrt(hst[i] * H[i]);
-        bc /= 2;
+        let bc = 0; let bc0 = 0;
+        for (let i = 0; i < 96; i++) { bc += Math.sqrt(hst[i] * H[i]); bc0 += Math.sqrt(hst[i] * H0[i]); }
+        bc = (bc * 0.6 + bc0 * 0.4) / 2;
+        // 같은 팀(같은 색) 선수가 옆에 있으면 색만으론 구분이 안 됨 → 움직임으로 예상한 자리를 더 믿음
         const dist = Math.hypot(x0 + (x + tw / 2) / k - px, y0 + (y + th) / k - py) / Math.max(R, st.ph * 0.4);
-        const score = bc - dist * 0.08;
+        const score = bc - dist * 0.15;
         if (score > best) { best = score; bestBc = bc; bx = x; by = y; }
       }
     }
@@ -491,11 +494,22 @@ export function trackerPos(tr, t) {
   // 그 순간의 선수 키(화면 높이 비율) — 카메라 줌 · 원근에 따라 바뀜
   const h = a[3] && b[3] ? a[3] + (b[3] - a[3]) * k : a[3] || b[3];
   if (tr.manual && p.length >= 3) {
-    // 수동으로 찍은 점 사이는 부드러운 곡선으로 (Catmull-Rom)
+    // 수동으로 찍은 점 사이는 부드럽게 — 점 간격(시간)을 반영하고, 점 밖으로 튀어나가지 않게 (단조 3차 보간)
     const p0 = p[Math.max(0, lo - 1)];
     const p3 = p[Math.min(p.length - 1, hi + 1)];
-    const cr = (q0, q1, q2, q3) => 0.5 * (2 * q1 + (-q0 + q2) * k + (2 * q0 - 5 * q1 + 4 * q2 - q3) * k * k + (-q0 + 3 * q1 - 3 * q2 + q3) * k * k * k);
-    return { x: cr(p0[1], a[1], b[1], p3[1]), y: cr(p0[2], a[2], b[2], p3[2]), h };
+    const dt = b[0] - a[0] || 1;
+    const slope = (q, r) => (r[0] - q[0] > 1e-6 ? 1 / (r[0] - q[0]) : 0);
+    const tan = (i, prev, cur, next) => {
+      const d0 = prev === cur ? null : (cur[i] - prev[i]) * slope(prev, cur);
+      const d1 = next === cur ? null : (next[i] - cur[i]) * slope(cur, next);
+      if (d0 == null) return d1 ?? 0;
+      if (d1 == null) return d0;
+      if (d0 * d1 <= 0) return 0; // 방향이 바뀌는 점에서는 멈췄다 가듯이 (튀지 않게)
+      return (2 * d0 * d1) / (d0 + d1);
+    };
+    const k2 = k * k; const k3 = k2 * k;
+    const herm = (i) => (2 * k3 - 3 * k2 + 1) * a[i] + (k3 - 2 * k2 + k) * dt * tan(i, p0, a, b) + (-2 * k3 + 3 * k2) * b[i] + (k3 - k2) * dt * tan(i, a, b, p3);
+    return { x: herm(1), y: herm(2), h };
   }
   return { x: a[1] + (b[1] - a[1]) * k, y: a[2] + (b[2] - a[2]) * k, h };
 }
@@ -536,10 +550,63 @@ export function thinPath(tr, step) {
 }
 
 // ───────── 그리기 ─────────
-export const GROUND = new Set(['arrow', 'spot', 'poly', 'link', 'grid', 'measure']);
+export const GROUND = new Set(['arrow', 'spot', 'poly', 'link', 'grid', 'measure', 'offside']);
 export const itemPoints = (it) => ({
-  arrow: [it.a, it.b, it.c], spot: [it.p], poly: it.pts, link: it.pts, grid: it.q, measure: [it.a, it.b], text: [it.p], move: [it.b], zoom: [it.p],
+  arrow: [it.a, it.b, it.c], spot: [it.p], poly: it.pts, link: it.pts, grid: it.q, measure: [it.a, it.b], text: [it.p], move: [it.b], zoom: [it.p], light: [it.p], offside: [it.p],
 }[it.k] || []);
+
+// ───────── 오프사이드 라인: 기준점(p)을 지나 화면 끝에서 끝까지 · 한쪽은 어둡게 한쪽은 밝게 ─────────
+// d: 선 방향 (정규화 좌표 차이). 없으면 세로
+export function offsideGeom(it, p, W, H) {
+  const d = it.d || { x: 0, y: 1 };
+  let dx = d.x * W; let dy = d.y * H;
+  const len = Math.hypot(dx, dy) || 1;
+  dx /= len; dy /= len;
+  // 화면 사각형 안에서 선이 지나는 구간 (Liang–Barsky)
+  let t0 = -Infinity; let t1 = Infinity;
+  for (const [pp, q] of [[-dx, p.x], [dx, W - p.x], [-dy, p.y], [dy, H - p.y]]) {
+    if (Math.abs(pp) < 1e-9) continue;
+    const r = q / pp;
+    if (pp < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
+  }
+  if (!Number.isFinite(t0)) t0 = -Math.hypot(W, H);
+  if (!Number.isFinite(t1)) t1 = Math.hypot(W, H);
+  const nx = -dy; const ny = dx; // 선의 법선 (어느 쪽인지 가르는 방향)
+  // 화면 사각형을 선으로 잘라 두 쪽 다각형으로
+  const rect = [[0, 0], [W, 0], [W, H], [0, H]];
+  const half = (sign) => {
+    const out = [];
+    const f = ([x, y]) => sign * ((x - p.x) * nx + (y - p.y) * ny);
+    for (let i = 0; i < 4; i++) {
+      const a = rect[i]; const b = rect[(i + 1) % 4];
+      const fa = f(a); const fb = f(b);
+      if (fa >= 0) out.push(a);
+      if ((fa >= 0) !== (fb >= 0)) { const k = fa / (fa - fb); out.push([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]); }
+    }
+    return out;
+  };
+  return { dx, dy, t0, t1, dark: half(it.side === -1 ? -1 : 1), bright: half(it.side === -1 ? 1 : -1) };
+}
+function drawOffside(ctx, it, p, W, H, col, prog) {
+  const g = offsideGeom(it, p, W, H);
+  const k = Math.min(1, Math.max(0, prog));
+  const fill = (pts, style) => { if (pts.length < 3) return; ctx.fillStyle = style; ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill(); };
+  const s = it.dim ?? 0.5;
+  fill(g.dark, `rgba(0,0,0,${(s * 0.9 * k).toFixed(3)})`);
+  fill(g.bright, `rgba(255,255,255,${(s * 0.26 * k).toFixed(3)})`);
+  // 선: 기준점에서 양쪽 끝으로 뻗어 나감
+  const a = { x: p.x + g.dx * g.t0 * k, y: p.y + g.dy * g.t0 * k };
+  const b = { x: p.x + g.dx * g.t1 * k, y: p.y + g.dy * g.t1 * k };
+  const lw = Math.max(2.5, W / 300);
+  ctx.save();
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = lw * 2.6;
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  ctx.shadowColor = col; ctx.shadowBlur = lw * 3;
+  ctx.strokeStyle = col; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  ctx.restore();
+}
 
 function hatch(ctx, color, s) {
   const c = document.createElement('canvas');
@@ -828,6 +895,10 @@ export function drawItem(ctx, it, P, W, items, resolve) {
       label(ctx, it.t, p.x, p.y, W, col, true);
       break;
     }
+    case 'offside': {
+      drawOffside(ctx, it, P(it.p), W, ctx.canvas.height, col, easeOut(prog));
+      break;
+    }
     default:
   }
   ctx.restore();
@@ -943,4 +1014,60 @@ export function cutPlayer(video, fx, fy, ph, key) {
   }
   g.putImageData(im, 0, 0);
   return { url: c.toDataURL('image/png'), wN: w / VW, hN: h / VH, footOff: (y0 + h - fy) / VH };
+}
+
+// 직접 자르기: 코치가 감싼 네모(영상 픽셀) 안에서 잔디만 투명하게. 가운데 덩어리와 이어진 부분만 남김
+export function cutBox(video, box, key) {
+  const VW = video.videoWidth;
+  const VH = video.videoHeight;
+  const x0 = Math.max(0, Math.round(box.x0)); const y0 = Math.max(0, Math.round(box.y0));
+  const w = Math.max(4, Math.min(VW - x0, Math.round(box.x1 - box.x0)));
+  const h = Math.max(4, Math.min(VH - y0, Math.round(box.y1 - box.y0)));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(video, x0, y0, w, h, 0, 0, w, h);
+  const im = g.getImageData(0, 0, w, h);
+  const d = im.data;
+  const n = w * h;
+  const fg = new Uint8Array(n);
+  let fgN = 0;
+  for (let i = 0; i < n; i++) { const p = i * 4; fg[i] = isGrass(d[p], d[p + 1], d[p + 2], key) ? 0 : 1; fgN += fg[i]; }
+  // 잔디가 거의 없으면(실내 · 다른 색 바닥) 네모 그대로
+  if (fgN < n * 0.92) {
+    // 가는 선(라인 · 그물) 지우기: 깎았다가 다시 불림
+    const morph = (src, keepIf) => {
+      const out = new Uint8Array(n);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        let cnt = 0; let tot = 0;
+        for (let dy = -1; dy <= 1; dy++) { const yy = y + dy; if (yy < 0 || yy >= h) continue; for (let dx = -1; dx <= 1; dx++) { const xx = x + dx; if (xx < 0 || xx >= w) continue; tot++; cnt += src[yy * w + xx]; } }
+        out[y * w + x] = keepIf(cnt, tot) ? 1 : 0;
+      }
+      return out;
+    };
+    const open = morph(morph(fg, (k, t) => k === t), (k) => k > 0);
+    // 네모 안의 덩어리들 중 가운데에 가깝고 큰 것들을 남김 (선수 몸이 두세 덩어리로 갈라져도 이어지게)
+    const lab = new Int32Array(n).fill(-1);
+    const blobs = [];
+    for (let i = 0; i < n; i++) {
+      if (!open[i] || lab[i] >= 0) continue;
+      const id = blobs.length; const st = [i]; lab[i] = id; let cnt = 0; let sx = 0; let sy = 0;
+      while (st.length) {
+        const j = st.pop(); cnt++; const x = j % w; const y = (j - x) / w; sx += x; sy += y;
+        for (const k of [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1, y > 0 ? j - w : -1, y < h - 1 ? j + w : -1]) if (k >= 0 && open[k] && lab[k] < 0) { lab[k] = id; st.push(k); }
+      }
+      blobs.push({ cnt, cx: sx / cnt / w, cy: sy / cnt / h });
+    }
+    const big = Math.max(1, ...blobs.map((b) => b.cnt));
+    const keepId = new Set(blobs.map((b, i) => [b, i]).filter(([b]) => b.cnt > big * 0.08 && Math.abs(b.cx - 0.5) < 0.4).map(([, i]) => i));
+    for (let i = 0; i < n; i++) {
+      const on = open[i] && keepId.has(lab[i]);
+      // 원래 잔디가 아닌 가장자리는 살리고, 경계는 반투명
+      let a = on || (fg[i] && ((i % w > 0 && open[i - 1] && keepId.has(lab[i - 1])) || (i % w < w - 1 && open[i + 1] && keepId.has(lab[i + 1])))) ? 255 : 0;
+      if (a && (i % w === 0 || i % w === w - 1 || !fg[i])) a = 150;
+      d[i * 4 + 3] = a;
+    }
+    g.putImageData(im, 0, 0);
+  }
+  return { url: c.toDataURL('image/png'), wN: w / VW, hN: h / VH, fx: x0 + w / 2, fy: y0 + h };
 }

@@ -8,7 +8,15 @@ export const FORMATIONS = {
   '4-2-3-1': [[5, 34], [20, 10], [18, 26], [18, 42], [20, 58], [30, 27], [30, 41], [40, 14], [40, 34], [40, 54], [51, 34]],
   '3-5-2': [[5, 34], [18, 20], [17, 34], [18, 48], [34, 8], [32, 26], [30, 34], [32, 42], [34, 60], [50, 27], [50, 41]],
   '3-4-3': [[5, 34], [18, 20], [17, 34], [18, 48], [34, 10], [32, 27], [32, 41], [34, 58], [48, 14], [52, 34], [48, 54]],
+  // 8대8 (골키퍼 + 7명)
+  '3-3-1': [[5, 34], [19, 16], [17, 34], [19, 52], [34, 12], [32, 34], [34, 56], [49, 34]],
+  '3-2-2': [[5, 34], [19, 16], [17, 34], [19, 52], [32, 25], [32, 43], [48, 24], [48, 44]],
+  '2-3-2': [[5, 34], [18, 24], [18, 44], [33, 12], [31, 34], [33, 56], [48, 24], [48, 44]],
+  '3-1-3': [[5, 34], [19, 16], [17, 34], [19, 52], [30, 34], [45, 12], [49, 34], [45, 56]],
+  '2-4-1': [[5, 34], [18, 24], [18, 44], [33, 10], [31, 27], [31, 41], [33, 58], [49, 34]],
 };
+export const is8 = (name) => FORMATIONS[name]?.length === 8;
+const formOpts = (tm, eight) => Object.keys(FORMATIONS).filter((f) => is8(f) === eight).map((f) => `<option value="${tm}:${f}">${tm.toUpperCase()} · ${f}</option>`).join('');
 
 export const FIELDS = {
   full: { label: '풀코트', w: 105, h: 68 },
@@ -391,8 +399,10 @@ export function createPad(container, initial, { editable = true, motion = false,
       <select data-gp title="그리드">${Object.entries(GRIDS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
       <span class="pad-size" data-gsize><input type="number" data-gc min="0" max="12" title="세로줄(칸)"><i>×</i><input type="number" data-gr min="0" max="12" title="가로줄(칸)"><i>칸</i></span>
       <select data-form title="포메이션"><option value="">포메이션 넣기</option>
-        <optgroup label="A팀">${Object.keys(FORMATIONS).map((f) => `<option value="a:${f}">A · ${f}</option>`).join('')}</optgroup>
-        <optgroup label="B팀 (상대)">${Object.keys(FORMATIONS).map((f) => `<option value="b:${f}">B · ${f}</option>`).join('')}</optgroup>
+        <optgroup label="A팀 · 11대11">${formOpts('a', false)}</optgroup>
+        <optgroup label="A팀 · 8대8">${formOpts('a', true)}</optgroup>
+        <optgroup label="B팀 (상대) · 11대11">${formOpts('b', false)}</optgroup>
+        <optgroup label="B팀 (상대) · 8대8">${formOpts('b', true)}</optgroup>
       </select>
     </div>
     <div class="pad-tools">
