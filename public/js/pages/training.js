@@ -166,13 +166,19 @@ export function present(p) {
     </div>`;
   document.body.appendChild(wrap);
   const padBox = wrap.querySelector('[data-pad]');
-  if (padBox) createPad(padBox, p.pad, { editable: false });
+  const pad = padBox ? createPad(padBox, p.pad, { editable: false }) : null;
+  if (pad?.hasMotion()) wrap.insertAdjacentHTML('beforeend', '<div class="present-keys"><kbd>Space</kbd> · <kbd>Enter</kbd> · <kbd>→</kbd> 움직임 재생 · <kbd>←</kbd> 처음으로</div>');
   const close = () => {
     document.removeEventListener('keydown', onKey);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     wrap.remove();
   };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const onKey = (e) => {
+    if (e.key === 'Escape') { close(); return; }
+    if (!pad?.hasMotion()) return;
+    if ([' ', 'Enter', 'ArrowRight', 'ArrowDown'].includes(e.key)) { e.preventDefault(); pad.play(); }
+    else if (['ArrowLeft', 'ArrowUp'].includes(e.key)) { e.preventDefault(); pad.reset(); }
+  };
   document.addEventListener('keydown', onKey);
   wrap.querySelector('[data-close]').onclick = close;
   wrap.requestFullscreen?.().catch(() => {});

@@ -632,24 +632,61 @@ function ribbonArrow(ctx, pts, { W, H, hz, col, dash }) {
   ];
   const shapes = [...segs.map((sg) => [...side(sg, 1), ...side(sg, -1).reverse()]), head];
   const path = (poly) => { ctx.beginPath(); poly.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); };
+  const fillAll = () => shapes.forEach((sh) => { path(sh); ctx.fill(); });
+  const depth = Math.max(2, base * 0.5); // 띠 두께(옆면) — 바닥에서 살짝 떠 있는 입체 화살표
+  // 1) 바닥 그림자 (부드럽게)
   ctx.save();
-  // 그림자 (바닥에 살짝 아래로)
   ctx.fillStyle = 'rgba(0,0,0,0.38)';
-  ctx.translate(0, base * 0.35);
-  shapes.forEach((sh) => { path(sh); ctx.fill(); });
+  ctx.filter = `blur(${Math.max(1, base * 0.3)}px)`;
+  ctx.translate(base * 0.12, depth + base * 0.35);
+  fillAll();
   ctx.restore();
+  // 2) 옆면 (어두운 색으로 아래쪽에 겹겹이)
+  ctx.save();
+  ctx.fillStyle = shade(col, -0.45);
+  const stepD = Math.max(1, depth / 6);
+  for (let d = depth; d > 0; d -= stepD) { ctx.save(); ctx.translate(0, d); fillAll(); ctx.restore(); }
+  ctx.restore();
+  // 3) 윗면 + 위는 밝고 아래는 어두운 음영
   ctx.save();
   ctx.fillStyle = col;
-  ctx.strokeStyle = col === GLASS ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.75)';
-  ctx.lineWidth = Math.max(1, base * 0.14);
+  fillAll();
+  const all = shapes.flat();
+  const y0 = Math.min(...all.map((p) => p.y)); const y1 = Math.max(...all.map((p) => p.y));
+  const gr = ctx.createLinearGradient(0, y0, 0, Math.max(y0 + 1, y1));
+  gr.addColorStop(0, 'rgba(255,255,255,0.42)');
+  gr.addColorStop(0.5, 'rgba(255,255,255,0.06)');
+  gr.addColorStop(1, 'rgba(0,0,0,0.2)');
+  ctx.fillStyle = gr;
+  fillAll();
+  // 4) 테두리 (밝은 윗선 · 어두운 아랫선 느낌)
+  ctx.strokeStyle = col === GLASS ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.8)';
+  ctx.lineWidth = Math.max(1, base * 0.12);
   ctx.lineJoin = 'round';
-  shapes.forEach((sh) => { path(sh); ctx.fill(); ctx.stroke(); });
-  // 가운데 밝은 줄 (입체 광택)
-  ctx.globalAlpha = 0.35;
+  shapes.forEach((sh) => { path(sh); ctx.stroke(); });
+  // 5) 빛 받는 쪽 가장자리 하이라이트 (위쪽 변)
+  ctx.globalAlpha = 0.55;
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = Math.max(1, base * 0.18);
-  segs.forEach((sg) => { ctx.beginPath(); sg.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y - widthAt(p) * 0.12) : ctx.moveTo(p.x, p.y - widthAt(p) * 0.12))); ctx.stroke(); });
+  ctx.lineWidth = Math.max(1, base * 0.16);
+  segs.forEach((sg) => {
+    const a1 = side(sg, 1); const a2 = side(sg, -1);
+    const top = a1.reduce((v, p) => v + p.y, 0) <= a2.reduce((v, p) => v + p.y, 0) ? a1 : a2;
+    ctx.beginPath(); top.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y + base * 0.08) : ctx.moveTo(p.x, p.y + base * 0.08))); ctx.stroke();
+  });
+  // 6) 가운데 광택 줄
+  ctx.globalAlpha = 0.3;
+  ctx.lineWidth = Math.max(1, base * 0.14);
+  segs.forEach((sg) => { ctx.beginPath(); sg.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y - widthAt(p) * 0.1) : ctx.moveTo(p.x, p.y - widthAt(p) * 0.1))); ctx.stroke(); });
   ctx.restore();
+}
+
+// 색을 밝게(+) · 어둡게(-) — 반투명(GLASS) 같은 rgba 는 검은 반투명으로
+function shade(col, k) {
+  const m = /^#([0-9a-f]{6})$/i.exec(col || '');
+  if (!m) return 'rgba(0,0,0,0.35)';
+  const n = parseInt(m[1], 16);
+  const f = (v) => Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k);
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
 }
 
 // 2차 곡선을 0~prog 구간만 점으로 (그어지면서 나타나는 효과)

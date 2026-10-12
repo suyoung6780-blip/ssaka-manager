@@ -89,7 +89,13 @@ export async function gameModel(el) {
       <div data-vpad></div>
       ${x.note ? `<div class="prose">${text(x.note)}</div>` : ''}
       ${isCoach() ? '<div class="row end"><button class="btn ghost sm" data-pdel>삭제</button><button class="btn sm" data-pedit>수정</button></div>' : ''}`, { wide: true });
-    createPad(m.el.querySelector('[data-vpad]'), x.pad, { editable: false });
+    const vpad = createPad(m.el.querySelector('[data-vpad]'), x.pad, { editable: false });
+    const onKey = (e) => {
+      if (!m.el.isConnected) { document.removeEventListener('keydown', onKey); return; }
+      if (!vpad.hasMotion() || e.target.closest?.('input, textarea, select')) return;
+      if ([' ', 'Enter', 'ArrowRight'].includes(e.key)) { e.preventDefault(); vpad.play(); } else if (e.key === 'ArrowLeft') { e.preventDefault(); vpad.reset(); }
+    };
+    document.addEventListener('keydown', onKey);
     m.el.querySelector('[data-pedit]')?.addEventListener('click', () => { m.close(); patEditor(x); });
     m.el.querySelector('[data-pdel]')?.addEventListener('click', async () => {
       if (!(await confirmBox(`'${x.title}' 패턴을 삭제할까요?`))) return;

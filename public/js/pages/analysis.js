@@ -742,8 +742,13 @@ export async function studio(el, { id, mode }) {
     const hits = tele.items.filter((it) => it.hold > 0 && prevPlayT < it.t0 - 0.001 && it.t0 <= now + 0.02);
     prevPlayT = now;
     if (!hits.length) return false;
-    const at = Math.min(...hits.map((it) => it.t0));
+    holdAt(hits, Math.min(...hits.map((it) => it.t0)));
+    return true;
+  }
+  // 그림이 나타나는 장면에서 영상을 멈추고, 멈춤 시간 동안 그림을 보여준 뒤 다시 재생
+  function holdAt(hits, at) {
     freeze = { start: performance.now(), items: hits, until: performance.now() + Math.max(...hits.map((it) => it.hold)) * 1000 };
+    el.querySelector('[data-play]').textContent = '❚❚';
     video.pause();
     if (Math.abs(video.currentTime - at) > 0.02) video.currentTime = at; // 그림이 나타나는 정확한 장면에서 멈춤
     const tick = () => {
@@ -753,7 +758,6 @@ export async function studio(el, { id, mode }) {
       requestAnimationFrame(tick); // 멈춘 동안에도 계속 그려야 녹화 영상에 멈춤이 들어감
     };
     requestAnimationFrame(tick);
-    return true;
   }
 
   // 녹화 · 썸네일용 합성 캔버스 (영상 원본 해상도, 최대 1920px)
@@ -1361,9 +1365,14 @@ export async function studio(el, { id, mode }) {
   }
   async function playSmart() {
     if (busy) return;
+    if (freeze) { freeze = null; video.pause(); render(); return; } // 그림 보여주는 중에 누르면 그 자리에서 멈춤
     if (!video.paused) { video.pause(); return; }
-    if (await prepTracks()) video.play();
-    else render();
+    if (!(await prepTracks())) { render(); return; }
+    // 지금 장면에 그림이 있으면(방금 그렸으면) 먼저 그 그림을 멈춤 시간만큼 보여주고 재생
+    const now = t();
+    const hits = tele.items.filter((it) => it.hold > 0 && Math.abs(it.t0 - now) < 0.08);
+    if (hits.length) { holdAt(hits, Math.min(...hits.map((it) => it.t0))); return; }
+    video.play();
   }
 
   // 수동 트래킹: 선수 발 밑을 누르면 그 시점에 점이 찍히고 step 초 뒤로 넘어감. 점 사이는 부드럽게 이어짐

@@ -64,7 +64,11 @@ tr('c2', { title: '4-3-3 미들블럭 기초', topics: ['수비 전술'], ages: 
   points: '9번은 상대 6번 그림자 수비\n윙어는 안쪽 패스길 먼저 막기\n라인 간격 10~15m 유지' });
 tr('c3', { title: '7v7 한 쪽 사이드 빌드업', topics: ['빌드업', '포지셔널 게임'], ages: ['U15', 'U18'], players: 15, duration: 20, space: '하프코트', pad: sideBuild });
 tr('c4', { title: '3v3v3 전환 게임', topics: ['전환·역습', '포제션 게임'], ages: ['U12', 'U15', '성인'], players: 9, duration: 20, space: '45×30m', pad: transition, points: '공 뺏으면 3초 안에 앞으로\n뺏기면 가장 가까운 2명이 즉시 압박' });
-tr('c5', { title: '사이드백 오버래핑 + 크로스', topics: ['크로스·마무리', '공격 전술'], ages: ['U15'], players: 10, duration: 20, pad: formationData('4-2-3-1', false) });
+// 움직임(장면) 예시: 윙어에게 패스 → 사이드백 오버래핑 → 크로스
+const overlap = (() => { const d = formationData('4-2-3-1', false); d.items.forEach((x, i) => { x.id = `o${i}`; }); const rb = 'o4'; const rw = 'o9'; const ball = `o${d.items.length - 1}`;
+  d.steps = [{ [ball]: [40, 54] }, { [rb]: [52, 64], [rw]: [50, 46] }, { [rb]: [80, 62], [ball]: [80, 62] }, { [ball]: [97, 34] }]; return d; })();
+tr('c5', { title: '사이드백 오버래핑 + 크로스', topics: ['크로스·마무리', '공격 전술'], ages: ['U15'], players: 10, duration: 20, pad: overlap,
+  points: '윙어가 안으로 좁혀 길 열어주기\n사이드백은 윙어 바깥으로 전력질주\n크로스는 낮고 빠르게' });
 tr('c6', { title: '골키퍼 1v1 각 좁히기', topics: ['골키퍼'], ages: ['U12', 'U15', 'U18'], players: 4, duration: 15, pad: gk, points: '공보다 먼저 자세 낮추기\n각도 줄이며 앞으로 나가기' });
 // 데모 전용: 로컬에만 있는 경기 영상(public/__media/demo.m4v, 저장소에 안 올라감)으로 만든 AI 트래킹 예시
 // 데모 경기분석 예시: 상대는 오른쪽(우리 왼쪽) 측면 공격 · 크로스가 많고, 후반에 몰아침
