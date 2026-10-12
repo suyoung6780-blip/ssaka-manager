@@ -12,7 +12,7 @@ import {
 } from '../telestrator.js';
 import { ai, loadAI, detectAround, scanFrame, pickNear } from '../detector.js';
 import { STORAGE_ENABLED } from '../config.js';
-import { matchStudio, sampleMatch, computeReport } from './matchAnalysis.js';
+import { matchStudio, sampleMatch, computeReport, TARGETS } from './matchAnalysis.js';
 
 // 무료(파일 저장소 없음): 영상은 코치 컴퓨터에서 바로 열어 분석 — 이 창을 닫기 전까지만 기억
 const localFiles = new Map(); // 분석 id → File
@@ -60,8 +60,9 @@ function libGrid(rows) {
       </article>`).join('')}</div>`;
 }
 function matchThumb(p) {
-  const r = computeReport(p.events || [], 'opp');
-  const f = (p.formations || []).find((x) => x.team !== 'us');
+  const tm = p.target === 'us' ? 'us' : 'opp';
+  const r = computeReport(p.events || [], tm);
+  const f = p.lineups?.[tm]?.base ? { name: p.lineups[tm].base.f } : (p.formations || []).find((x) => x.team !== 'us');
   return `<div class="lib-thumb ma-thumb">
     <div class="ma-thumb-top"><span>📊 경기분석 · 기록 ${(p.events || []).length}</span>${f?.name ? `<b>${esc(f.name)}</b>` : ''}</div>
     ${r.atk.length ? ['왼쪽', '가운데', '오른쪽'].map((l) => `<div class="ma-tbar"><span>${l}</span><i style="width:${r.pct(r.ch[l])}%"></i><b>${r.pct(r.ch[l])}%</b></div>`).join('') : '<p class="muted small">아직 기록 전이에요</p>'}
@@ -115,6 +116,8 @@ function createMatchModal(preset = null) {
       <div class="grid2"><label>상대팀<input name="opponent" required maxlength="30" placeholder="예) 성남FC U15"></label>
         <label>경기일<input type="date" name="date" value="${todayStr()}"></label></div>
       <label>제목<input name="title" maxlength="80" placeholder="비우면 'vs 상대팀 경기분석'"></label>
+      <div class="grid2"><label>분석할 팀<select name="target">${TARGETS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+        <label>경기 인원<select name="size"><option value="11">11 vs 11</option><option value="8">8 vs 8 (초등부)</option></select></label></div>
       ${preset ? `<p class="muted small">영상: <b>${esc(preset.name)}</b></p>` : '<label>경기 영상 <small class="muted">내 컴퓨터에서 열어요 (서버에 안 올림) · 나중에 열어도 돼요</small><input type="file" name="file" accept="video/*"></label>'}
       <label>전반에 영상에서 <b>상대</b>가 공격하는 방향<select name="oppDir"><option value="right">오른쪽 →</option><option value="left">← 왼쪽</option></select></label>
       <div class="row end"><button class="btn">만들기</button></div>
@@ -127,7 +130,7 @@ function createMatchModal(preset = null) {
     try {
       const ref = await addDoc(col(), {
         type: 'analysis', mode: 'match', title: (d.title || `vs ${d.opponent} 경기분석`).trim(), opponent: d.opponent.trim(), date: d.date,
-        oppDir: d.oppDir, events: [], formations: [], videoUrl: '',
+        oppDir: d.oppDir, target: d.target || 'opp', size: +d.size || 11, lineups: {}, events: [], formations: [], videoUrl: '',
         ...(file ? { video: { local: true, name: file.name, size: file.size, type: file.type } } : {}),
         authorUid: state.user.uid, authorName: state.profile.name, createdAt: serverTimestamp(),
       });
@@ -199,11 +202,12 @@ const TOOLS = [
   ['arrow', '화살표', '↗'],
   ['dash', '이동(점선)', '⇢'],
   ['shape', '도형', '⬠'],
-  ['link', '연결선', '⟋'],
+  ['link', '선수 연결', '⟋'],
   ['grid', '그리드', '▦'],
   ['measure', '거리', '↔'],
   ['text', '글자', 'T'],
   ['move', '선수 이동', '⇄'],
+  ['zoom', '돋보기', '◯'],
 ];
 const HINT = {
   select: '그림을 끌어서 옮기고 점을 끌어 모양을 고치세요 · Delete 삭제 · 왼쪽에서 도구를 고르면 그리기 (한 번 그리면 자동 해제)',
@@ -212,6 +216,7 @@ const HINT = {
   dash: '끌어서 이동 경로(점선)',
   shape: '위에서 모양을 고르고 바닥에 끌어서 그리세요 · 꼭짓점을 끌면 모양이 바뀝니다',
   link: '이을 선수들을 차례로 누르세요 (누른 선수는 자동으로 트래킹) → Enter 또는 더블클릭으로 완성',
+  zoom: '크게 보여줄 곳을 누르세요 → 그 자리가 돋보기로 확대돼요 (오른쪽에서 모양 ◯▢ · 배율 ×2 ×3 ×4 · 크기)',
   grid: '바닥에 깔 범위를 끌어서 정하세요 → 원근에 맞춰 입체 그리드가 깔립니다 (모서리 점으로 조절)',
   measure: '끌어서 거리 재기 (그리드가 있으면 m로 표시)',
   text: '글자를 놓을 곳을 누르세요',
@@ -503,6 +508,118 @@ export async function studio(el, { id, mode }) {
     ctx.restore();
   }
 
+  // ── 선수 다듬기: 오려낸 선수 그림에서 딸려온 것을 잘라내기(네모) · 지우개 ──
+  // 그림 크기는 그대로 두고(발 위치가 안 바뀌게) 투명하게만 만듦
+  function trimModal(it) {
+    const m = modal(`<span class="eyebrow">TRIM</span><h2>선수 다듬기</h2>
+      <p class="muted small"><b>✂ 자르기</b>: 남길 부분(선수)을 네모로 끌어서 감싸면 바깥은 잘려요 · <b>🧽 지우개</b>: 딸려온 부분을 문질러 지워요</p>
+      <div class="trim-bar"><div class="seg sm"><button type="button" class="on" data-tm="crop">✂ 자르기</button><button type="button" data-tm="erase">🧽 지우개</button></div>
+        <label class="trim-size" hidden>지우개 크기 <input type="range" min="4" max="60" value="16" data-tbr></label>
+        <span class="row"><button type="button" class="chip" data-tundo>되돌리기</button><button type="button" class="chip" data-treset>처음으로</button></span></div>
+      <div class="trim-stage"><canvas data-tc></canvas></div>
+      <div class="row end"><button type="button" class="btn ghost" data-tcancel>취소</button><button type="button" class="btn" data-tok>적용</button></div>`, { wide: true });
+    const cv = m.el.querySelector('[data-tc]');
+    const g = cv.getContext('2d');
+    const orig = new Image();
+    let mode = 'crop';
+    let brush = 16;
+    const hist = [];
+    let box = null;
+    orig.onload = () => {
+      cv.width = orig.naturalWidth; cv.height = orig.naturalHeight;
+      g.drawImage(orig, 0, 0);
+      // 화면에서 크게 보이게 (최대 높이 60vh)
+      const k = Math.max(1, Math.min(8, (window.innerHeight * 0.6) / cv.height, (m.el.clientWidth - 40) / cv.width));
+      cv.style.width = `${cv.width * k}px`; cv.style.height = `${cv.height * k}px`;
+    };
+    orig.src = it.img;
+    const at = (e) => { const r = cv.getBoundingClientRect(); return { x: ((e.clientX - r.left) / r.width) * cv.width, y: ((e.clientY - r.top) / r.height) * cv.height }; };
+    const push = () => { hist.push(g.getImageData(0, 0, cv.width, cv.height)); if (hist.length > 30) hist.shift(); };
+    let base = null;
+    const erase = (p) => { g.save(); g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(p.x, p.y, (brush / 2) * (cv.width / cv.getBoundingClientRect().width), 0, Math.PI * 2); g.fill(); g.restore(); };
+    cv.onpointerdown = (e) => {
+      cv.setPointerCapture(e.pointerId);
+      push();
+      const p = at(e);
+      if (mode === 'erase') { erase(p); box = { erasing: true }; return; }
+      base = g.getImageData(0, 0, cv.width, cv.height);
+      box = { a: p, b: p };
+    };
+    cv.onpointermove = (e) => {
+      if (!box) return;
+      const p = at(e);
+      if (box.erasing) { erase(p); return; }
+      box.b = p;
+      g.putImageData(base, 0, 0);
+      const x = Math.min(box.a.x, p.x); const y = Math.min(box.a.y, p.y);
+      g.save(); g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(0, 0, cv.width, cv.height); g.clearRect(x, y, Math.abs(p.x - box.a.x), Math.abs(p.y - box.a.y)); g.restore();
+      g.putImageData(base, 0, 0, x, y, Math.abs(p.x - box.a.x), Math.abs(p.y - box.a.y));
+      g.save(); g.strokeStyle = '#ffd400'; g.lineWidth = Math.max(1, cv.width / 120); g.setLineDash([4, 3]); g.strokeRect(x, y, Math.abs(p.x - box.a.x), Math.abs(p.y - box.a.y)); g.restore();
+    };
+    cv.onpointerup = () => {
+      if (box && !box.erasing) {
+        g.putImageData(base, 0, 0);
+        const x = Math.round(Math.min(box.a.x, box.b.x)); const y = Math.round(Math.min(box.a.y, box.b.y));
+        const w = Math.round(Math.abs(box.b.x - box.a.x)); const h = Math.round(Math.abs(box.b.y - box.a.y));
+        if (w > 3 && h > 3) {
+          // 네모 바깥을 투명하게
+          g.save(); g.globalCompositeOperation = 'destination-in'; g.fillRect(x, y, w, h); g.restore();
+        } else hist.pop(); // 그냥 누르기만 함
+      }
+      box = null;
+    };
+    m.el.querySelectorAll('[data-tm]').forEach((b) => (b.onclick = () => {
+      mode = b.dataset.tm;
+      m.el.querySelectorAll('[data-tm]').forEach((x) => x.classList.toggle('on', x === b));
+      m.el.querySelector('.trim-size').hidden = mode !== 'erase';
+      cv.style.cursor = mode === 'erase' ? 'cell' : 'crosshair';
+    }));
+    m.el.querySelector('[data-tbr]').oninput = (e) => { brush = +e.target.value; };
+    m.el.querySelector('[data-tundo]').onclick = () => { const h = hist.pop(); if (h) g.putImageData(h, 0, 0); };
+    m.el.querySelector('[data-treset]').onclick = () => { push(); g.clearRect(0, 0, cv.width, cv.height); g.drawImage(orig, 0, 0); };
+    m.el.querySelector('[data-tcancel]').onclick = m.close;
+    m.el.querySelector('[data-tok]').onclick = () => {
+      snapshot();
+      it.img = cv.toDataURL('image/png');
+      m.close();
+      drawSide(); render();
+      toast('선수 그림을 다듬었어요.');
+    };
+  }
+
+  // ── 돋보기: 그 자리 영상(+바닥 그림)을 ×2 · ×3 · ×4 로 확대해서 동그라미 · 네모 안에 ──
+  function drawZoom(it, w, h) {
+    const vw = video.videoWidth; const vh = video.videoHeight;
+    if (!vw || video.readyState < 2) return;
+    const c = P(it.p);
+    const prog = it._prog == null ? 1 : it._prog;
+    const R = (it.r || 0.1) * w * (0.35 + 0.65 * Math.min(1, prog));
+    const z = it.z || 2;
+    const half = R / z;
+    const lw = Math.max(3, w / 320);
+    const path = () => {
+      ctx.beginPath();
+      if (it.shape === 'rect') ctx.roundRect(c.x - R, c.y - R * 0.72, R * 2, R * 1.44, R * 0.1);
+      else ctx.arc(c.x, c.y, R, 0, Math.PI * 2);
+    };
+    const hh = it.shape === 'rect' ? half * 0.72 : half; // 네모는 영상 비율에 가깝게 (가로가 긴 모양)
+    const H2 = it.shape === 'rect' ? R * 0.72 : R;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = lw * 5; ctx.fillStyle = '#000';
+    path(); ctx.fill();
+    ctx.restore();
+    ctx.save();
+    path(); ctx.clip();
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(video, (c.x - half) * (vw / w), (c.y - hh) * (vh / h), 2 * half * (vw / w), 2 * hh * (vh / h), c.x - R, c.y - H2, 2 * R, 2 * H2);
+    ctx.drawImage(ground, c.x - half, c.y - hh, 2 * half, 2 * hh, c.x - R, c.y - H2, 2 * R, 2 * H2);
+    ctx.restore();
+    ctx.save();
+    ctx.lineWidth = lw * 1.6; ctx.strokeStyle = '#ffffff'; path(); ctx.stroke();
+    ctx.lineWidth = lw * 0.7; ctx.strokeStyle = it.color || PALETTE[0]; path(); ctx.stroke();
+    ctx.restore();
+  }
+
   // ── 렌더 ──
   function render() {
     if (!canvas.width) return;
@@ -533,6 +650,7 @@ export async function studio(el, { id, mode }) {
       ctx.save(); ctx.strokeStyle = '#4ea1ff'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
       ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)); ctx.restore();
     }
+    vis.filter((it) => it.k === 'zoom').forEach((it) => drawZoom(it, w, h));
     vis.forEach((it) => {
       if (it.k === 'text') drawItem(ctx, it, P, w, tele.items, resolve);
       if (it.k === 'measure') drawMeasureLabel(ctx, it, P, w, tele.items, resolve);
@@ -710,7 +828,7 @@ export async function studio(el, { id, mode }) {
   el.querySelector('[data-rate]').onchange = (e) => { video.playbackRate = +e.target.value; };
 
   // ── 그림 목록 · 속성 ──
-  const NAMES = { move: '선수 이동', shape: '도형', arrow: '화살표', spot: '트래킹', poly: '도형', link: '연결선', grid: '그리드', measure: '거리', text: '글자' };
+  const NAMES = { zoom: '돋보기', move: '선수 이동', shape: '도형', arrow: '화살표', spot: '트래킹', poly: '도형', link: '선수 연결', grid: '그리드', measure: '거리', text: '글자' };
   function drawSide() {
     el.querySelector('[data-count]').textContent = tele.items.length ? `${tele.items.length}개` : '';
     el.querySelector('[data-items]').innerHTML = tele.items.map((it, i) => `
@@ -767,6 +885,11 @@ export async function studio(el, { id, mode }) {
       ${it.k === 'grid' ? `<div class="grid2 st-gridin"><label>세로칸<input type="number" min="1" max="20" value="${it.cols}" data-pcols></label><label>가로칸<input type="number" min="1" max="20" value="${it.rows}" data-prows></label>
         <label>실제 가로(m)<input type="number" min="1" max="120" value="${it.wM}" data-pwm></label><label>실제 세로(m)<input type="number" min="1" max="90" value="${it.hM}" data-phm></label></div>` : ''}
       ${it.k === 'text' ? `<label class="st-range">글자 <input data-ptext value="${esc(it.t)}" maxlength="30"></label>` : ''}
+      ${it.k === 'move' ? '<button type="button" class="btn ghost sm full" data-trim>✂ 선수 다듬기 (딸려온 것 잘라내기)</button><p class="muted small">옆 사람 · 배경이 같이 잘렸으면 다듬기에서 잘라내거나 지워요.</p>' : ''}
+      ${it.k === 'zoom' ? `<div class="st-num"><span>모양</span><div class="seg sm">${[['circle', '◯ 동그라미'], ['rect', '▢ 네모']].map(([k, l]) => `<button type="button" class="${(it.shape || 'circle') === k ? 'on' : ''}" data-zshape="${k}">${l}</button>`).join('')}</div></div>
+        <div class="st-num"><span>배율</span><div class="seg sm">${[2, 3, 4].map((v) => `<button type="button" class="${(it.z || 2) === v ? 'on' : ''}" data-zz="${v}">×${v}</button>`).join('')}</div></div>
+        <label class="st-range">돋보기 크기 <input type="range" min="40" max="220" value="${Math.round((it.r || 0.1) * 1000)}" data-zr></label>
+        <p class="muted small">돋보기를 끌어서 보여줄 곳으로 옮겨요.</p>` : ''}
       <div class="row"><button class="btn ghost sm" data-pdel>그림 삭제</button></div>`;
     bindTr(box);
     const ch = (fn) => () => { snapshot(); fn(); drawSide(); render(); };
@@ -788,6 +911,11 @@ export async function studio(el, { id, mode }) {
     box.querySelector('[data-pmarker]')?.addEventListener('change', ch(() => { it.marker = it.marker === false; }));
     box.querySelector('[data-pname]')?.addEventListener('change', ch(() => { it.name = box.querySelector('[data-pname]').value.trim(); }));
     box.querySelector('[data-ptext]')?.addEventListener('change', ch(() => { it.t = box.querySelector('[data-ptext]').value || it.t; }));
+    box.querySelector('[data-trim]')?.addEventListener('click', () => trimModal(it));
+    // 돋보기: 고른 모양 · 배율 · 크기는 다음 돋보기에도 그대로
+    box.querySelectorAll('[data-zshape]').forEach((b) => (b.onclick = ch(() => { it.shape = b.dataset.zshape; zoomPref.shape = it.shape; })));
+    box.querySelectorAll('[data-zz]').forEach((b) => (b.onclick = ch(() => { it.z = +b.dataset.zz; zoomPref.z = it.z; })));
+    box.querySelector('[data-zr]')?.addEventListener('input', (e) => { it.r = e.target.value / 1000; zoomPref.r = it.r; dirty = true; render(); });
     [['pcols', 'cols', 1, 20], ['prows', 'rows', 1, 20], ['pwm', 'wM', 1, 120], ['phm', 'hM', 1, 90]].forEach(([a, k, lo, hi]) => {
       box.querySelector(`[data-${a}]`)?.addEventListener('change', ch(() => { it[k] = Math.min(hi, Math.max(lo, +box.querySelector(`[data-${a}]`).value || it[k])); }));
     });
@@ -822,6 +950,7 @@ export async function studio(el, { id, mode }) {
     render();
   }
 
+  const zoomPref = { shape: 'circle', z: 2, r: 0.1 }; // 돋보기 기본값 (마지막에 고른 값 기억)
   const newItem = (k, extra) => {
     const t0 = +t().toFixed(2);
     const dur = +tele.set.dur || 5;
@@ -843,6 +972,7 @@ export async function studio(el, { id, mode }) {
       const pts = itemPoints(it).filter(Boolean).map(resolve);
       if (it.k === 'spot' && pxDist(pts[0], n) < Math.max(26, (withSpotSize(it).size || 0) * canvas.clientWidth * 1.2)) return { it, h: null };
       if (it.k === 'text' && pxDist(pts[0], n) < 30) return { it, h: null };
+      if (it.k === 'zoom' && pxDist(pts[0], n) < (it.r || 0.1) * canvas.clientWidth) return { it, h: null };
       if (it.k === 'move') {
         const s2 = moveScale(it);
         const b = resolve(it.b);
@@ -1413,6 +1543,10 @@ export async function studio(el, { id, mode }) {
         render();
         return;
       }
+      if (tool === 'zoom') {
+        commit(newItem('zoom', { p: { x: +n.x.toFixed(4), y: +n.y.toFixed(4) }, ...zoomPref }));
+        return;
+      }
       if (tool === 'text') {
         const s = prompt('영상에 쓸 글자');
         if (s) commit(newItem('text', { p: { x: n.x, y: n.y }, t: s.slice(0, 30) }));
@@ -1486,7 +1620,7 @@ export async function studio(el, { id, mode }) {
           if (it.k === 'arrow') it[h ? 'b' : 'a'] = np;
           else if (it.k === 'spot') it.p = np;
           else if (it.k === 'measure') it[h ? 'b' : 'a'] = np;
-          else if (it.k === 'text') it.p = np;
+          else if (it.k === 'text' || it.k === 'zoom') it.p = np;
           else if (it.k === 'move') it.b = np;
           else if (it.k === 'poly' && it.shape === 'circle' && it.pts.length === 4) {
             // 동그라미: 끈 점 방향으로 가로/세로 반지름만 바꾸고 항상 타원 유지

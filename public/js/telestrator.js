@@ -76,11 +76,32 @@ export class FrameAnalyzer {
     }
     const d = this.img.data;
     const n = AW * AH;
+    const g = new Uint8Array(n); // 잔디 픽셀
+    for (let i = 0, p = 0; i < n; i++, p += 4) g[i] = isGrass(d[p], d[p + 1], d[p + 2], key) ? 1 : 0;
+    this.grass = g;
+    // 경기장 범위: 세로줄 · 가로줄마다 잔디가 몇 칸 이어지는 처음 ~ 끝. 그 밖(관중석 · 트랙 · 광고판)은
+    // 선수가 아니니 그림을 가리지 않음 → 화살표가 경기장 밖으로 나가도 그대로 보임
+    const R = Math.max(3, Math.round(AH * 0.015));
+    const span = (len, at) => {
+      let lo = -1; let hi = -1; let run = 0;
+      for (let i = 0; i < len; i++) { run = at(i) ? run + 1 : 0; if (run >= R) { lo = i - R + 1; break; } }
+      run = 0;
+      for (let i = len - 1; i >= 0; i--) { run = at(i) ? run + 1 : 0; if (run >= R) { hi = i + R - 1; break; } }
+      return [lo, hi];
+    };
+    const colSpan = Array.from({ length: AW }, (_, x) => span(AH, (y) => g[y * AW + x]));
+    const rowSpan = Array.from({ length: AH }, (_, y) => span(AW, (x) => g[y * AW + x]));
     const m = this.mctx.createImageData(AW, AH);
     const md = m.data;
-    for (let i = 0, p = 0; i < n; i++, p += 4) {
-      md[p] = md[p + 1] = md[p + 2] = 255;
-      md[p + 3] = isGrass(d[p], d[p + 1], d[p + 2], key) ? 255 : 0;
+    for (let y = 0, i = 0; y < AH; y++) {
+      const [rl, rh] = rowSpan[y];
+      for (let x = 0; x < AW; x++, i++) {
+        const [ct, cb] = colSpan[x];
+        const onPitch = ct >= 0 && rl >= 0 && y >= ct && y <= cb && x >= rl && x <= rh;
+        const p = i * 4;
+        md[p] = md[p + 1] = md[p + 2] = 255;
+        md[p + 3] = !onPitch || g[i] ? 255 : 0; // 경기장 안에서 잔디가 아닌 곳(선수)만 그림을 가림
+      }
     }
     this.mctx.putImageData(m, 0, 0);
     this.ok = true;
@@ -149,10 +170,11 @@ export class FrameAnalyzer {
   horizon() {
     if (!this.img) return null;
     const { AW, AH } = this;
-    const md = this.mctx.getImageData(0, 0, AW, AH).data;
+    const g = this.grass;
+    if (!g) return null;
     for (let y = 0; y < AH; y += 2) {
       let n = 0;
-      for (let x = 0; x < AW; x += 4) if (md[(y * AW + x) * 4 + 3]) n++;
+      for (let x = 0; x < AW; x += 4) if (g[y * AW + x]) n++;
       if (n > AW / 4 * 0.55) return y / AH;
     }
     return null;
@@ -516,7 +538,7 @@ export function thinPath(tr, step) {
 // ───────── 그리기 ─────────
 export const GROUND = new Set(['arrow', 'spot', 'poly', 'link', 'grid', 'measure']);
 export const itemPoints = (it) => ({
-  arrow: [it.a, it.b, it.c], spot: [it.p], poly: it.pts, link: it.pts, grid: it.q, measure: [it.a, it.b], text: [it.p], move: [it.b],
+  arrow: [it.a, it.b, it.c], spot: [it.p], poly: it.pts, link: it.pts, grid: it.q, measure: [it.a, it.b], text: [it.p], move: [it.b], zoom: [it.p],
 }[it.k] || []);
 
 function hatch(ctx, color, s) {
@@ -814,11 +836,74 @@ export function cutPlayer(video, fx, fy, ph, key) {
   g.drawImage(video, x0, y0, w, h, 0, 0, w, h);
   const im = g.getImageData(0, 0, w, h);
   const d = im.data;
-  for (let i = 0; i < w * h; i++) {
-    const p = i * 4;
-    if (isGrass(d[p], d[p + 1], d[p + 2], key)) d[p + 3] = 0;
+  const n = w * h;
+  // 1) 잔디가 아닌 곳
+  const fg = new Uint8Array(n);
+  for (let i = 0; i < n; i++) { const p = i * 4; fg[i] = isGrass(d[p], d[p + 1], d[p + 2], key) ? 0 : 1; }
+  // 2) 가는 선(경기장 라인 · 그물 등) 지우기: 깎았다가(erode) 다시 불림(dilate)
+  const r = ph > 110 ? 2 : 1;
+  const morph = (src, keepIf) => {
+    const out = new Uint8Array(n);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let cnt = 0; let tot = 0;
+        for (let dy = -r; dy <= r; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= h) continue;
+          for (let dx = -r; dx <= r; dx++) { const xx = x + dx; if (xx < 0 || xx >= w) continue; tot++; cnt += src[yy * w + xx]; }
+        }
+        out[y * w + x] = keepIf(cnt, tot) ? 1 : 0;
+      }
+    }
+    return out;
+  };
+  const open = morph(morph(fg, (k, t) => k === t), (k) => k > 0);
+  // 3) 몸통(상자 가운데 · 위에서 55%)에서 가장 가까운 덩어리를 씨앗으로 이어진 부분만
+  const cx = w / 2;
+  let seed = -1; let best = Infinity;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!open[y * w + x]) continue;
+      const dd = (x - cx) ** 2 + ((y - h * 0.5) * 0.6) ** 2;
+      if (dd < best) { best = dd; seed = y * w + x; }
+    }
   }
-  // 가장자리 부드럽게
+  const keep = new Uint8Array(n);
+  if (seed >= 0) {
+    const st = [seed];
+    keep[seed] = 1;
+    while (st.length) {
+      const i = st.pop();
+      const x = i % w; const y = (i - x) / w;
+      const nb = [x > 0 && i - 1, x < w - 1 && i + 1, y > 0 && i - w, y < h - 1 && i + w];
+      for (const j of nb) if (j !== false && open[j] && !keep[j]) { keep[j] = 1; st.push(j); }
+    }
+    // 4) 줄마다 몸 가운데(±22%)에 걸친 부분만 — 옆 사람 · 배경이 붙어 들어오는 것 막기
+    const core = ph * 0.22;
+    for (let y = 0; y < h; y++) {
+      let x = 0;
+      while (x < w) {
+        if (!keep[y * w + x]) { x++; continue; }
+        let e = x;
+        while (e < w && keep[y * w + e]) e++;
+        if (e - 1 < cx - core || x > cx + core) for (let k = x; k < e; k++) keep[y * w + k] = 0;
+        x = e;
+      }
+    }
+  }
+  // 5) 깎였던 가장자리 되살리기(원래 잔디 아닌 곳 안에서만) + 테두리는 반투명으로 부드럽게
+  const grow = morph(keep, (k) => k > 0);
+  for (let i = 0; i < n; i++) {
+    const on = grow[i] && fg[i];
+    let a = on ? 255 : 0;
+    if (on) {
+      const x = i % w; const y = (i - x) / w;
+      const edge = (x > 0 && !(grow[i - 1] && fg[i - 1])) || (x < w - 1 && !(grow[i + 1] && fg[i + 1]))
+        || (y > 0 && !(grow[i - w] && fg[i - w])) || (y < h - 1 && !(grow[i + w] && fg[i + w]));
+      if (edge) a = 150;
+    }
+    d[i * 4 + 3] = a;
+  }
   g.putImageData(im, 0, 0);
   return { url: c.toDataURL('image/png'), wN: w / VW, hN: h / VH, footOff: (y0 + h - fy) / VH };
 }

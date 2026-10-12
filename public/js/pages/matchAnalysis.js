@@ -3,7 +3,7 @@
 import { db, doc, updateDoc, deleteDoc } from '../fb.js';
 import { esc, toast, fail, modal, confirmBox, empty } from '../ui.js';
 import { state, go } from '../store.js';
-import { createPad, formationData, blank, FORMATIONS } from '../tactic.js';
+import { createPad, blank } from '../tactic.js';
 import { loadAI, scanFrame } from '../detector.js';
 
 const col = () => ['teams', state.team.id, 'posts'];
@@ -23,6 +23,43 @@ export const KINDS = [
 ];
 const KIND = Object.fromEntries(KINDS.map(([k, l, key, c]) => [k, { l, key, c }]));
 const TEAM = { opp: '상대', us: '우리' };
+export const TARGETS = [['opp', '상대 팀'], ['us', '우리 팀'], ['both', '두 팀 다']];
+
+// ───────── 포메이션 (작전판 없이: 포메이션 고르기 + 포지션별 번호) ─────────
+export const FORMS = {
+  11: ['4-4-2', '4-3-3', '4-2-3-1', '4-1-4-1', '4-4-1-1', '4-3-1-2', '3-5-2', '3-4-3', '3-4-2-1', '5-3-2', '5-4-1'],
+  8: ['2-3-2', '2-4-1', '3-3-1', '3-2-2', '2-3-1-1', '3-1-2-1'],
+};
+const PHASES = [['base', '기본'], ['att', '공격 시'], ['def', '수비 시']];
+const validForm = (f, size) => /^\d(-\d){1,4}$/.test(f || '') && f.split('-').reduce((a, b) => a + +b, 0) === size - 1;
+// 포메이션 → 자리(오른쪽으로 공격, y 0 = 왼쪽 측면) + 포지션 이름
+export function positionsOf(f) {
+  const lines = String(f).split('-').map(Number).filter((n) => n > 0);
+  const L = lines.length;
+  const out = [{ x: 0.06, y: 0.5, role: 'GK' }];
+  lines.forEach((c, li) => {
+    const x = L === 1 ? 0.5 : 0.25 + (li * (0.84 - 0.25)) / (L - 1);
+    const type = li === 0 ? 'B' : li === L - 1 ? 'F' : L >= 4 && li === 1 ? 'DM' : L >= 4 && li === L - 2 ? 'AM' : 'M';
+    for (let i = 0; i < c; i++) {
+      const y = c === 1 ? 0.5 : 0.13 + (i * 0.74) / (c - 1);
+      const side = c >= 3 && i === 0 ? 'L' : c >= 3 && i === c - 1 ? 'R' : '';
+      let role = { B: 'CB', DM: 'DM', AM: 'AM', M: 'CM', F: 'ST' }[type];
+      if (side && type === 'B') role = c >= 5 ? `${side}WB` : c >= 4 ? `${side}B` : 'CB';
+      else if (side && type === 'M') role = c >= 4 ? `${side}M` : 'CM';
+      else if (side && type === 'F') role = `${side}W`;
+      else if (side && type === 'AM') role = `${side}W`;
+      out.push({ x, y, role });
+    }
+  });
+  return out;
+}
+// 포메이션 그림 (번호 보기 · 고치기)
+export function lineupHtml(lu, { edit = false, color = '#e5484d', keys = [] } = {}) {
+  if (!lu?.f) return '<p class="muted small">아직 정하지 않았어요.</p>';
+  const star = new Set(keys.map((k) => String(k.num || '').trim()).filter(Boolean));
+  return `<div class="lu-pitch" style="--c:${color}">${positionsOf(lu.f).map((p, i) => `<div class="lu-pos ${star.has(String(lu.nums?.[i] || '').trim()) ? 'key' : ''}" style="left:${p.x * 100}%;top:${p.y * 100}%">
+    ${edit ? `<input data-lunum="${i}" value="${esc(lu.nums?.[i] || '')}" maxlength="3" inputmode="numeric" aria-label="${p.role} 번호">` : `<b>${esc(lu.nums?.[i] || '')}</b>`}<small>${p.role}</small></div>`).join('')}</div>`;
+}
 // 저장 좌표: x 0 = 그 팀 골문 쪽, 1 = 공격 방향 / y 0 = 공격하는 팀 기준 왼쪽, 1 = 오른쪽
 const channel = (y) => (y < 1 / 3 ? '왼쪽' : y > 2 / 3 ? '오른쪽' : '가운데');
 const third = (x) => (x < 1 / 3 ? '수비 1/3' : x > 2 / 3 ? '공격 1/3' : '중앙 1/3');
@@ -48,12 +85,18 @@ const dot = (x, y, c, r = 1.3, extra = '') => `<circle cx="${(x * 105).toFixed(1
 export async function matchStudio(el, post, { canEdit, files, sample = false }) {
   const data = {
     events: post.events || [],
-    formations: post.formations || [],
+    formations: post.formations || [], // 예전 작전판 포메이션 (보기만)
     oppDir: post.oppDir || 'right',
+    target: post.target || 'both', // 예전 분석은 두 팀 다
+    size: post.size || 11,
+    lineups: post.lineups || {},
+    keys: post.keys || {}, // 키 플레이어 { opp: [{ id, num, pos, name, note }], us: [...] }
   };
+  const teams = data.target === 'both' ? ['opp', 'us'] : [data.target];
+  const main = teams[0];
   let tab = canEdit ? 'tag' : 'check';
   let kind = 'attack';
-  let team = 'opp';
+  let team = data.target === 'us' ? 'us' : 'opp';
   let saveT = null;
   let lastId = null; // 방금 기록한 장면
   const file = files.get(post.id);
@@ -68,9 +111,9 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     <nav class="tabs admin-tabs ma-tabs">${[...(canEdit ? [['tag', '기록하기']] : [['check', '⚽ 체크 포인트']]), ['formation', '포메이션'], ['report', '리포트']].map(([k, l]) => `<a href="javascript:void 0" data-tab="${k}">${l}</a>`).join('')}</nav>
     <div class="ma-body">
       <div class="ma-video" ${canEdit ? '' : 'hidden'}>
-        ${vsrc ? `<div class="ma-vwrap"><video playsinline preload="auto" crossorigin="anonymous" src="${esc(vsrc)}"></video><canvas class="ma-ai" hidden></canvas></div>
+        ${vsrc ? `<div class="ma-vwrap"><video playsinline preload="auto" crossorigin="anonymous" src="${esc(vsrc)}"></video><canvas class="ma-ai" hidden></canvas>${canEdit ? '<div class="ma-status" data-status></div>' : ''}</div>
           <div class="ma-ctl"><button class="icon-btn" data-play>▶</button><button class="icon-btn sm" data-step="-5">«</button><button class="icon-btn sm" data-step="5">»</button>
-          <span class="st-time" data-time>0:00</span><input type="range" min="0" max="1000" value="0" data-seek>
+          <span class="st-time" data-time>0:00</span><span class="ma-seek"><input type="range" min="0" max="1000" value="0" data-seek><span class="ma-marks" data-marks></span></span>
           <select data-rate><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></div>`
         : `<div class="card ma-novideo"><p>경기 영상을 열면 보면서 기록할 수 있어요. 영상은 서버에 올라가지 않아요.</p>
           <label class="btn file-btn">경기 영상 파일 열기<input type="file" accept="video/*" hidden data-file></label>
@@ -96,7 +139,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
 
   // 저장: 바꿀 때마다 잠깐 기다렸다가 한 번에
   const payload = () => ({
-    events: data.events, formations: data.formations, oppDir: data.oppDir,
+    events: data.events, formations: data.formations, oppDir: data.oppDir, target: data.target, size: data.size, lineups: data.lineups, keys: data.keys,
     // 리포트 요약도 함께 (영상은 저장하지 않음)
     report: { opp: computeReport(data.events, 'opp').summary, us: computeReport(data.events, 'us').summary, n: data.events.length, at: new Date().toISOString() },
   });
@@ -123,8 +166,45 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     } catch (err) { fail(err); }
   });
 
+  // 공격 방향 표시: 우리 팀만 분석하면 '우리 공격' 기준으로
+  const dirLabel = () => (main === 'us' ? '우리 공격' : '상대 공격');
+  const dirArrow = () => (attacksRight(main, data.oppDir) ? '→' : '←');
+
+  // ── 기록 상태 표시: 영상이 자동으로 분석되지 않으니, 지금 기록 중인지 · 얼마나 기록했는지 늘 보이게 ──
+  let idle = 0; // 마지막 기록 뒤 실제로 재생된 시간(초)
+  let lastTU = null;
+  let flash = null; // 방금 기록한 장면 (잠깐 표시)
+  const drawStatus = () => {
+    const box = el.querySelector('[data-status]');
+    if (!box || !video) return;
+    const n = data.events.length;
+    let cls = ''; let html;
+    if (flash && Date.now() - flash.at < 2500) { cls = 'ok'; html = `✓ 기록됨 · ${TEAM[flash.team]} ${KIND[flash.k].l} (${fmtT(flash.t)}) · 총 ${n}개`; }
+    else if (video.paused) html = `⏸ 멈춤 · 기록 ${n}개 — 장면(종류)을 고르고 오른쪽 경기장을 누르면 기록돼요`;
+    else if (idle >= 60) { cls = 'warn'; html = `⚠ ${Math.floor(idle / 60)}분 넘게 기록이 없어요 — 장면이 있었으면 <kbd>Space</kbd>로 멈추고 경기장을 눌러 주세요`; }
+    else { cls = 'rec'; html = `<i></i>기록 중 · ${n}개 — 장면이 나오면 오른쪽 경기장을 누르세요`; }
+    box.className = `ma-status ${cls}`;
+    box.innerHTML = html;
+  };
+  const drawMarks = () => {
+    const box = el.querySelector('[data-marks]');
+    const d = video?.duration;
+    if (!box || !d) return;
+    box.innerHTML = data.events.filter((e) => e.t <= d).map((e) => `<i style="left:${(e.t / d) * 100}%;background:${KIND[e.k].c}"></i>`).join('');
+  };
+  const tagged = (e) => { idle = 0; flash = { ...e, at: Date.now() }; drawStatus(); drawMarks(); setTimeout(drawStatus, 2600); };
+
   // ── 영상 조작 ──
   if (video) {
+    video.addEventListener('timeupdate', () => {
+      const now = t();
+      if (!video.paused && lastTU != null && now > lastTU && now - lastTU < 2) idle += now - lastTU;
+      lastTU = now;
+      drawStatus();
+    });
+    video.addEventListener('loadedmetadata', () => { drawMarks(); drawStatus(); });
+    drawStatus();
+    video.addEventListener('pause', drawStatus);
     const upd = () => {
       el.querySelector('[data-time]').textContent = `${fmtT(t())} / ${fmtT(video.duration || 0)}`;
       el.querySelector('[data-seek]').value = video.duration ? Math.round((t() / video.duration) * 1000) : 0;
@@ -153,13 +233,14 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
   // ───────── 기록하기 ─────────
   function drawTag() {
     panel.innerHTML = `
-      <div class="ma-row"><div class="seg" data-team>${Object.entries(TEAM).map(([k, l]) => `<button class="${k === team ? 'on' : ''}" data-tm="${k}">${l} 팀</button>`).join('')}</div>
-        <button class="btn ghost sm" data-dir title="하프타임에 바꿔 주세요">상대 공격 방향 ${data.oppDir === 'right' ? '→' : '←'}</button></div>
+      <div class="ma-row">${teams.length > 1 ? `<div class="seg" data-team>${teams.map((k) => `<button class="${k === team ? 'on' : ''}" data-tm="${k}">${TEAM[k]} 팀</button>`).join('')}</div>` : `<span class="tag solid">${TEAM[main]} 팀 분석</span>`}
+        <button class="btn ghost sm" data-dir title="하프타임에 바꿔 주세요">${dirLabel()} 방향 ${dirArrow()}</button></div>
       <div class="ma-kinds">${KINDS.map(([k, l, key, c]) => `<button class="${k === kind ? 'on' : ''}" data-kind="${k}" style="--c:${c}"><i></i>${l}<kbd>${key}</kbd></button>`).join('')}</div>
-      <p class="muted small ma-hint">${video ? `<b>${KIND[kind].l}</b>(${TEAM[team]})을 고른 채로 아래 경기장에서 <b>일어난 곳</b>을 누르세요 → 지금 영상 시각(${fmtT(t())})으로 기록돼요. 화면에 보이는 그대로 누르면 돼요.` : '영상을 열면 기록할 수 있어요.'}</p>
+      <p class="muted small ma-hint">${video ? `영상은 자동으로 분석되지 않아요 — <b>코치님이 누른 장면</b>으로 리포트가 만들어져요.<br><b>${KIND[kind].l}</b>(${TEAM[team]})을 고른 채로 아래 경기장에서 <b>일어난 곳</b>을 누르세요 → 지금 영상 시각(${fmtT(t())})으로 기록돼요. 화면에 보이는 그대로 누르면 돼요.` : '영상을 열면 기록할 수 있어요.'}</p>
       <div class="ma-tagpitch" data-pitch></div>
       <div class="ma-keys muted small">단축키: <kbd>Space</kbd> 재생 · <kbd>←</kbd><kbd>→</kbd> 5초 · <kbd>Q</kbd> 상대/우리 · ${KINDS.map(([, l, key]) => `<kbd>${key}</kbd> ${l}`).join(' · ')}</div>
       <div class="ma-live" data-live></div>
+      <section class="card kp-edit" data-kps>${keysEditHtml()}</section>
       <h4 class="ma-h">기록 <small>${data.events.length}개</small></h4>
       <ul class="list ma-log" data-log></ul>`;
     panel.querySelectorAll('[data-tm]').forEach((b) => (b.onclick = () => { team = b.dataset.tm; drawTag(); }));
@@ -168,11 +249,44 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     drawTagPitch();
     drawLog();
     drawLive();
+    bindKeys();
+  }
+  // ⭐ 키 플레이어 (기록하기에서 영상 보며 바로 적기) — 번호가 포메이션에 있으면 ⭐ 표시
+  function keysEditHtml() {
+    return `<h4>⭐ 키 플레이어 <small class="muted">영상 보며 눈에 띄는 선수를 바로 적어요</small></h4>
+      <datalist id="kp-pos">${['GK', 'CB', 'LB', 'RB', 'DM', 'CM', 'AM', 'LM', 'RM', 'LW', 'RW', 'ST'].map((x) => `<option value="${x}">`).join('')}</datalist>
+      ${teams.map((tm) => `${teams.length > 1 ? `<p class="kp-team" style="--c:${tm === 'opp' ? '#e5484d' : '#4ea1ff'}">${TEAM[tm]} 팀</p>` : ''}
+        ${(data.keys[tm] || []).map((k) => `<div class="kp-row" data-kt="${tm}" data-kid="${k.id}">
+          <input data-k="num" value="${esc(k.num || '')}" placeholder="번호" maxlength="3" inputmode="numeric">
+          <input data-k="pos" value="${esc(k.pos || '')}" placeholder="포지션" maxlength="6" list="kp-pos">
+          <input data-k="name" value="${esc(k.name || '')}" placeholder="이름 (몰라도 돼요)" maxlength="12">
+          <input data-k="note" value="${esc(k.note || '')}" placeholder="특징 예) 왼발 · 스피드 · 오른쪽 돌파" maxlength="60">
+          <button type="button" class="link-btn small" data-kdel>✕</button></div>`).join('')}
+        <button type="button" class="btn ghost sm" data-kadd="${tm}">+ ${teams.length > 1 ? `${TEAM[tm]} 팀 ` : ''}키 플레이어 추가</button>`).join('')}`;
+  }
+  function bindKeys() {
+    const box = panel.querySelector('[data-kps]');
+    if (!box) return;
+    const redraw = (focusTm) => {
+      box.innerHTML = keysEditHtml(); bindKeys();
+      if (focusTm) box.querySelector(`.kp-row[data-kt="${focusTm}"]:last-of-type [data-k="num"]`)?.focus();
+    };
+    box.querySelectorAll('[data-kadd]').forEach((b) => (b.onclick = () => {
+      const tm = b.dataset.kadd;
+      data.keys = { ...data.keys, [tm]: [...(data.keys[tm] || []), { id: uid(), num: '', pos: '', name: '', note: '' }] };
+      save(); redraw(tm);
+    }));
+    box.querySelectorAll('.kp-row').forEach((row) => {
+      const tm = row.dataset.kt;
+      const k = (data.keys[tm] || []).find((x) => x.id === row.dataset.kid);
+      row.querySelectorAll('[data-k]').forEach((inp) => (inp.oninput = () => { k[inp.dataset.k] = inp.value.trim(); save(); }));
+      row.querySelector('[data-kdel]').onclick = () => { data.keys[tm] = data.keys[tm].filter((x) => x !== k); save(); redraw(); };
+    });
   }
   // 기록할 때마다 바로 바뀌는 미니 리포트 (상대 팀)
   function drawLive() {
     const box = panel.querySelector('[data-live]');
-    if (box) box.innerHTML = liveHtml(data.events);
+    if (box) box.innerHTML = liveHtml(data.events, main);
   }
   function drawTagPitch() {
     const box = panel.querySelector('[data-pitch]');
@@ -183,7 +297,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       const [sx, sy] = toScreen(e.x, e.y, e.team, data.oppDir);
       return dot(sx, sy, KIND[e.k].c, 1.4, `stroke="${e.team === 'opp' ? '#fff' : '#000'}" stroke-width=".4"`);
     }).join('');
-    const arrow = data.oppDir === 'right' ? '상대 공격 →' : '← 상대 공격';
+    const arrow = dirArrow() === '→' ? `${dirLabel()} →` : `← ${dirLabel()}`;
     box.innerHTML = `${pitchSvg(`${recent}<text x="52.5" y="4.5" class="ma-dirtxt">${arrow}</text>`, { cls: 'tag' })}`;
     const svg = box.querySelector('svg');
     svg.onclick = (ev) => {
@@ -199,6 +313,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       lastId = e.id;
       save(); drawTagPitch(); drawLog(); drawLive();
       el.querySelector('.ma-h small').textContent = `${data.events.length}개`;
+      tagged(e);
     };
   }
   function drawLog() {
@@ -208,12 +323,14 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     box.innerHTML = list.map((e) => `<li data-ev="${e.id}" class="${e.id === lastId ? 'new' : ''}"><button class="link-btn" data-go="${e.t}">${fmtT(e.t)}</button>
       <span class="ma-tag" style="--c:${KIND[e.k].c}">${KIND[e.k].l}</span><b>${TEAM[e.team]}</b>
       <small>${third(e.x)} · ${channel(e.y)}${e.text ? ` · ${esc(e.text)}` : ''}</small>${canEdit ? '<button class="link-btn small" data-rm>✕</button>' : ''}</li>`).join('') || '<li class="muted">아직 기록이 없어요.</li>';
-    box.querySelector('li.new')?.scrollIntoView({ block: 'nearest' });
+    // 새 기록이 보이게 — 페이지 전체가 아니라 기록 목록 안에서만 스크롤 (영상이 화면 밖으로 밀리지 않게)
+    const li = box.querySelector('li.new');
+    if (li && box.scrollHeight > box.clientHeight) box.scrollTop += li.getBoundingClientRect().top - box.getBoundingClientRect().top - box.clientHeight / 2;
     box.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => { if (video) { video.currentTime = Math.max(0, +b.dataset.go - 3); video.play(); } }));
     box.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => {
       const id = b.closest('li').dataset.ev;
       data.events = data.events.filter((x) => x.id !== id);
-      save(); drawTag();
+      save(); drawTag(); drawMarks(); drawStatus();
     }));
   }
 
@@ -224,64 +341,102 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     if (e.key === ' ' && video) { e.preventDefault(); video.paused ? video.play() : video.pause(); return; }
     if (e.key === 'ArrowRight' && video) { video.currentTime = t() + 5; return; }
     if (e.key === 'ArrowLeft' && video) { video.currentTime = Math.max(0, t() - 5); return; }
-    if (k === 'Q') { team = team === 'opp' ? 'us' : 'opp'; drawTag(); return; }
+    if (k === 'Q' && teams.length > 1) { team = team === 'opp' ? 'us' : 'opp'; drawTag(); return; }
     const hit = KINDS.find(([, , key]) => key === k);
     if (hit) { kind = hit[0]; drawTag(); }
   };
   if (canEdit) { document.addEventListener('keydown', onKey); state.cleanup.push(() => document.removeEventListener('keydown', onKey)); }
 
   // ───────── 포메이션 ─────────
+  const luPhase = { opp: 'base', us: 'base' };
+  const keysView = (tm) => {
+    const ks = (data.keys[tm] || []).filter((k) => k.num || k.name || k.note);
+    return ks.length ? `<div class="kp-list">${ks.map((k) => `<div class="kp-card" style="--c:${tm === 'opp' ? '#e5484d' : '#4ea1ff'}">
+      <b class="kp-num">${esc(k.num || '?')}</b><div><strong>⭐ ${esc(k.name || `${k.num || ''}번`)}${k.pos ? ` <small>${esc(k.pos)}</small>` : ''}</strong>${k.note ? `<p>${esc(k.note)}</p>` : ''}</div></div>`).join('')}</div>` : '';
+  };
   function drawFormation() {
-    const fs = data.formations;
+    const old = data.formations;
+    const lu = (tm, ph) => data.lineups?.[tm]?.[ph];
     panel.innerHTML = `
-      ${canEdit ? `<div class="ma-row"><button class="btn sm" data-fadd>+ 포메이션 추가</button>
+      ${canEdit ? `<div class="ma-row"><span class="muted small">경기 인원</span><div class="seg">${[11, 8].map((n) => `<button class="${data.size === n ? 'on' : ''}" data-size="${n}">${n} vs ${n}</button>`).join('')}</div>
         ${video ? '<button class="btn ghost sm" data-fai>🤖 AI로 잡기 (지금 화면)</button>' : ''}</div>
-        <p class="muted small">AI는 선수들이 넓게 보이는 장면(골킥 · 상대 빌드업 등)에서 가장 잘 잡아요. 잡은 뒤 작전판에서 고치면 돼요.</p>` : ''}
-      <div class="ma-forms">${fs.map((f) => `<section class="card ma-form" data-fid="${f.id}">
-        <div class="card-head"><h3>${esc(TEAM[f.team] || '상대')} · ${esc(f.name || '')}</h3><small class="muted">${esc(f.label || '')}${f.t != null ? ` · ${fmtT(f.t)}` : ''}${f.ai ? ' · AI 제안' : ''}</small></div>
-        <div data-fpad></div>
-        ${canEdit ? '<div class="row end"><button class="link-btn small" data-fdel>삭제</button></div>' : ''}</section>`).join('') || empty('아직 포메이션이 없어요.')}</div>`;
+        <p class="muted small">포메이션을 고르고 자리마다 <b>등번호</b>만 적으면 돼요. 공격할 때 · 수비할 때 서는 모양이 다르면 <b>공격 시 · 수비 시</b>도 따로 정해요 (비워 두면 기본과 같아요). AI가 못 알아보면 직접 골라 주세요.</p>` : ''}
+      <div class="lu-cards">${teams.map((tm) => {
+        if (!canEdit) {
+          const set = PHASES.filter(([ph]) => lu(tm, ph)?.f);
+          return `<section class="card lu-card"><h3>${TEAM[tm]} 팀 포메이션 <small class="muted">${data.size} vs ${data.size}</small></h3>
+            ${keysView(tm)}
+            ${set.length ? `<div class="lu-views">${set.map(([ph, l]) => `<div><h4>${l} · <b>${esc(lu(tm, ph).f)}</b></h4>${lineupHtml(lu(tm, ph), { color: tm === 'opp' ? '#e5484d' : '#4ea1ff', keys: data.keys[tm] || [] })}</div>`).join('')}</div>` : '<p class="muted">아직 포메이션이 없어요.</p>'}</section>`;
+        }
+        const ph = luPhase[tm];
+        const cur = lu(tm, ph) || {};
+        const opts = FORMS[data.size];
+        const custom = cur.f && !opts.includes(cur.f);
+        return `<section class="card lu-card" data-lut="${tm}"><h3>${TEAM[tm]} 팀 포메이션</h3>
+          <div class="seg sm lu-phase">${PHASES.map(([k, l]) => `<button class="${k === ph ? 'on' : ''}" data-luph="${k}">${l}${lu(tm, k)?.f ? ` · ${esc(lu(tm, k).f)}` : ''}</button>`).join('')}</div>
+          <div class="lu-row"><select data-luf><option value="">포메이션 고르기</option>${opts.map((f) => `<option ${f === cur.f ? 'selected' : ''}>${f}</option>`).join('')}<option value="custom" ${custom ? 'selected' : ''}>직접 입력…</option></select>
+            <input data-lucustom placeholder="${data.size === 8 ? '예) 2-2-2-1' : '예) 4-1-2-3'}" value="${custom ? esc(cur.f) : ''}" ${custom ? '' : 'hidden'}>
+            ${cur.f ? '<button class="link-btn small" data-luclear>지우기</button>' : ''}</div>
+          ${lineupHtml(cur.f ? cur : null, { edit: true, color: tm === 'opp' ? '#e5484d' : '#4ea1ff', keys: data.keys[tm] || [] })}
+        </section>`;
+      }).join('')}</div>
+      ${old.length ? `<details class="lu-old"><summary>예전에 작전판으로 저장한 포메이션 ${old.length}개</summary><div class="ma-forms">${old.map((f) => `<section class="card ma-form" data-fid="${f.id}">
+        <div class="card-head"><h3>${esc(TEAM[f.team] || '상대')} · ${esc(f.name || '')}</h3><small class="muted">${esc(f.label || '')}</small></div>
+        <div data-fpad></div>${canEdit ? '<div class="row end"><button class="link-btn small" data-fdel>삭제</button></div>' : ''}</section>`).join('')}</div></details>` : ''}`;
     panel.querySelectorAll('.ma-form').forEach((c) => {
-      const f = fs.find((x) => x.id === c.dataset.fid);
+      const f = old.find((x) => x.id === c.dataset.fid);
       createPad(c.querySelector('[data-fpad]'), f.pad, { editable: false });
       c.querySelector('[data-fdel]')?.addEventListener('click', async () => {
         if (!(await confirmBox('이 포메이션을 지울까요?'))) return;
         data.formations = data.formations.filter((x) => x.id !== f.id); save(); drawFormation();
       });
     });
-    panel.querySelector('[data-fadd]')?.addEventListener('click', () => formationEditor(null));
+    panel.querySelectorAll('[data-size]').forEach((b) => (b.onclick = async () => {
+      const n = +b.dataset.size;
+      if (n === data.size) return;
+      // 인원이 바뀌면 맞지 않는 포메이션은 지움 (확인 후)
+      const bad = Object.values(data.lineups || {}).some((t) => Object.values(t).some((x) => x?.f && !validForm(x.f, n)));
+      if (bad && !(await confirmBox(`${n} vs ${n}로 바꾸면 지금 정한 포메이션은 지워져요. 바꿀까요?`))) return;
+      data.size = n;
+      Object.values(data.lineups || {}).forEach((t) => Object.keys(t).forEach((ph) => { if (t[ph]?.f && !validForm(t[ph].f, n)) delete t[ph]; }));
+      save(); drawFormation();
+    }));
     panel.querySelector('[data-fai]')?.addEventListener('click', aiFormation);
-  }
-
-  // 포메이션 편집 창 (AI 결과 또는 기본 포메이션에서 시작)
-  function formationEditor(init) {
-    const names = Object.keys(FORMATIONS);
-    const m = modal(`<span class="eyebrow">FORMATION</span><h2>포메이션 ${init?.ai ? '— AI 제안' : '추가'}</h2>
-      ${init?.ai ? `<p class="muted">AI가 상대 선수 <b>${init.count}명</b>을 찾아 <b>${esc(init.name)}</b>로 봤어요.${init.count < 11 ? ' 화면에 안 보인 선수가 있으면 숫자가 적게 나와요.' : ''} 작전판에서 선수를 끌어 고치고, 포메이션 이름도 맞게 고친 뒤 저장하세요.</p>` : ''}
-      <div class="grid2"><label>팀<select data-fteam>${Object.entries(TEAM).map(([k, l]) => `<option value="${k}" ${k === (init?.team || 'opp') ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-        <label>포메이션 이름<input data-fname list="fnames" value="${esc(init?.name || '4-4-2')}"><datalist id="fnames">${names.map((n) => `<option value="${n}">`).join('')}</datalist></label>
-        <label>언제<input data-flabel value="${esc(init?.label || (t() < 2700 ? '전반' : '후반'))}" placeholder="예) 전반 시작 · 후반 20분 변경"></label>
-        <label>기본 배치 불러오기<select data-fpreset><option value="">-</option>${names.map((n) => `<option>${n}</option>`).join('')}</select></label></div>
-      <div data-epad></div>
-      <div class="row end"><button class="btn" data-fsave>저장</button></div>`, { wide: true });
-    const preset = (n) => { const d = formationData(n, false); if (m.el.querySelector('[data-fteam]').value === 'opp') d.items.forEach((x) => { if (x.team) x.team = 'c'; }); return d; };
-    let pad = createPad(m.el.querySelector('[data-epad]'), init?.pad || preset('4-4-2'));
-    m.el.querySelector('[data-fpreset]').onchange = (e) => {
-      if (!e.target.value) return;
-      m.el.querySelector('[data-epad]').innerHTML = '';
-      pad = createPad(m.el.querySelector('[data-epad]'), preset(e.target.value));
-      m.el.querySelector('[data-fname]').value = e.target.value;
-    };
-    m.el.querySelector('[data-fsave]').onclick = () => {
-      data.formations.push({ id: uid(), team: m.el.querySelector('[data-fteam]').value, name: m.el.querySelector('[data-fname]').value.trim().slice(0, 12),
-        label: m.el.querySelector('[data-flabel]').value.trim().slice(0, 30), t: video ? +t().toFixed(1) : null, ai: !!init?.ai, pad: pad.getData() });
-      save(); m.close(); drawFormation(); toast('포메이션을 저장했어요.');
-    };
+    panel.querySelectorAll('[data-lut]').forEach((card) => {
+      const tm = card.dataset.lut;
+      const setLu = (v) => {
+        data.lineups = { ...data.lineups, [tm]: { ...(data.lineups[tm] || {}) } };
+        if (v) data.lineups[tm][luPhase[tm]] = v; else delete data.lineups[tm][luPhase[tm]];
+        save();
+      };
+      const cur = () => data.lineups?.[tm]?.[luPhase[tm]] || {};
+      card.addEventListener('pointerdown', () => { luPhase.lastTeam = tm; });
+      card.querySelectorAll('[data-luph]').forEach((b) => (b.onclick = () => { luPhase[tm] = b.dataset.luph; drawFormation(); }));
+      card.querySelector('[data-luf]').onchange = (e) => {
+        const v = e.target.value;
+        if (v === 'custom') { card.querySelector('[data-lucustom]').hidden = false; card.querySelector('[data-lucustom]').focus(); return; }
+        if (v) setLu({ f: v, nums: cur().nums || [] }); else setLu(null);
+        drawFormation();
+      };
+      card.querySelector('[data-lucustom]').onchange = (e) => {
+        const f = e.target.value.trim().replace(/\s/g, '');
+        if (!validForm(f, data.size)) { toast(`필드 선수 ${data.size - 1}명이 되게 적어 주세요 (예: ${data.size === 8 ? '2-3-2' : '4-2-3-1'})`); return; }
+        setLu({ f, nums: cur().nums || [] }); drawFormation();
+      };
+      card.querySelector('[data-luclear]')?.addEventListener('click', () => { setLu(null); drawFormation(); });
+      card.querySelectorAll('[data-lunum]').forEach((inp) => (inp.oninput = () => {
+        const nums = [...(cur().nums || [])];
+        nums[+inp.dataset.lunum] = inp.value.trim().slice(0, 3);
+        setLu({ ...cur(), nums });
+        card.querySelector('[data-luph].on').innerHTML = `${PHASES.find(([k]) => k === luPhase[tm])[1]} · ${esc(cur().f)}`;
+      }));
+    });
   }
 
   // AI: 지금 화면에서 선수를 찾고 → 유니폼 색으로 팀 나누기 → 상대 선수 한 명을 누르면 → 줄을 세어 포메이션
   async function aiFormation() {
     video.pause();
+    const aiTeam = teams.length > 1 ? (luPhase.lastTeam || 'opp') : main;
     const cv = el.querySelector('.ma-ai');
     const wrap = el.querySelector('.ma-vwrap');
     const VW = video.videoWidth; const VH = video.videoHeight;
@@ -322,7 +477,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       cx.clearRect(0, 0, cv.width, cv.height);
       boxes.forEach((b) => { cx.lineWidth = 2; cx.strokeStyle = sel < 0 ? `rgb(${b.col.map(Math.round).join(',')})` : b.g === sel ? '#ff3b30' : 'rgba(255,255,255,.35)'; cx.strokeRect(b.x0 * k, b.y0 * k, (b.x1 - b.x0) * k, (b.y1 - b.y0) * k); });
       cx.fillStyle = 'rgba(0,0,0,.65)'; cx.fillRect(8, 8, 300, 26); cx.fillStyle = '#fff'; cx.font = '700 13px sans-serif';
-      cx.fillText(sel < 0 ? '상대 팀 선수 한 명을 누르세요' : '이 팀이 맞으면 잠시 후 포메이션이 나와요', 16, 26);
+      cx.fillText(sel < 0 ? `${TEAM[aiTeam]} 팀 선수 한 명을 누르세요` : '이 팀이 맞으면 잠시 후 포메이션이 나와요', 16, 26);
     };
     paint();
     cv.onclick = (ev) => {
@@ -333,25 +488,36 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       paint(hitB.g);
       setTimeout(() => {
         cv.hidden = true; cv.onclick = null;
-        const opp = boxes.filter((b) => b.g === hitB.g);
-        const res = shapeFrom(opp, VW, VH, data.oppDir === 'right');
-        if (res.count < 6) return toast(`상대 선수를 ${res.count}명만 찾았어요. 선수들이 더 많이 보이는 장면에서 해 보세요.`);
-        formationEditor({ ai: true, team: 'opp', name: res.name, count: res.count, pad: res.pad, label: t() < 2700 ? '전반' : '후반' });
+        const grp = boxes.filter((b) => b.g === hitB.g);
+        const res = shapeFrom(grp, VW, VH, attacksRight(aiTeam, data.oppDir));
+        if (res.count < 5) return toast(`선수를 ${res.count}명만 찾았어요. 선수들이 더 많이 보이는 장면에서 해 보세요.`);
+        // 인원에 맞으면 지금 고른 칸(기본 · 공격 시 · 수비 시)에 바로 넣고, 아니면 직접 고르도록
+        if (validForm(res.name, data.size)) {
+          data.lineups = { ...data.lineups, [aiTeam]: { ...(data.lineups[aiTeam] || {}), [luPhase[aiTeam]]: { f: res.name, nums: [], ai: true } } };
+          save(); drawFormation();
+          toast(`AI가 ${TEAM[aiTeam]} 팀을 ${res.name}로 봤어요. 틀리면 목록에서 직접 고쳐 주세요.`);
+        } else {
+          drawFormation();
+          toast(`AI가 ${res.name} (${res.count}명)로 봤는데 ${data.size}명 기준과 안 맞아요. 화면에 안 보인 선수가 있을 수 있어요 — 목록에서 직접 골라 주세요.`);
+        }
       }, 600);
     };
   }
 
   // ───────── 선수용: 체크 포인트 (이번 상대, 이것만 기억하자) ─────────
   function drawCheck() {
-    const r = computeReport(data.events, 'opp');
-    const opp = data.formations.find((f) => f.team !== 'us');
-    panel.innerHTML = r.summary.length ? `
-      <section class="card ma-check big"><h3>⚽ 이번 상대, 이것만 기억하자 ${post.opponent ? `<small>vs ${esc(post.opponent)}</small>` : ''}</h3>
-        <ol>${r.summary.slice(0, 3).map((x) => `<li>${x}</li>`).join('')}</ol></section>
+    const r = computeReport(data.events, main);
+    const lu = data.lineups?.[main]?.base;
+    const opp = !lu && data.formations.find((f) => f.team === main || (main === 'opp' && f.team !== 'us'));
+    panel.innerHTML = r.summary.length || lu || keysView(main) ? `
+      <section class="card ma-check big"><h3>⚽ ${main === 'opp' ? '이번 상대, 이것만 기억하자' : '우리 경기, 이것만 기억하자'} ${post.opponent ? `<small>vs ${esc(post.opponent)}</small>` : ''}</h3>
+        ${r.summary.length ? `<ol>${r.summary.slice(0, 3).map((x) => `<li>${x}</li>`).join('')}</ol>` : '<p class="muted">기록이 쌓이면 체크 포인트가 나와요.</p>'}</section>
+      ${keysView(main) ? `<section class="card"><h3>⭐ ${main === 'opp' ? '조심할 선수' : '키 플레이어'}</h3>${keysView(main)}</section>` : ''}
       <div class="ma-grid">
-        ${liveHtml(data.events).replace('📊 실시간 리포트', '상대 공격 방향')}
-        <section class="card"><h4>조심할 곳 <small>상대 공격이 많이 일어난 곳 · 상대는 → 방향</small></h4>${pitchSvg(r.heatSvg)}</section>
-        ${opp ? `<section class="card ma-form"><h4>상대 포메이션 <small>${esc(opp.name || '')}</small></h4><div data-fpad></div></section>` : ''}
+        ${liveHtml(data.events, main).replace('📊 실시간 리포트', `${TEAM[main]} 공격 방향`)}
+        <section class="card"><h4>${main === 'opp' ? '조심할 곳' : '우리 공격이 많았던 곳'} <small>${TEAM[main]} 공격이 많이 일어난 곳 · → 방향</small></h4>${pitchSvg(r.heatSvg)}</section>
+        ${lu?.f ? `<section class="card"><h4>${TEAM[main]} 포메이션 <small>${esc(lu.f)}</small></h4>${lineupHtml(lu, { color: main === 'opp' ? '#e5484d' : '#4ea1ff', keys: data.keys[main] || [] })}</section>` : ''}
+        ${opp ? `<section class="card ma-form"><h4>${TEAM[main]} 포메이션 <small>${esc(opp.name || '')}</small></h4><div data-fpad></div></section>` : ''}
       </div>
       <div class="row"><button class="btn ghost sm" data-goto="formation">포메이션 자세히 ›</button><button class="btn ghost sm" data-goto="report">전체 리포트 ›</button></div>`
       : empty('코치님이 아직 이 경기를 기록하는 중이에요. 기록이 쌓이면 체크 포인트가 나와요.');
@@ -360,14 +526,16 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
   }
 
   // ───────── 리포트 ─────────
-  let rteam = 'opp';
+  let rteam = main;
   function drawReport() {
     const { ev, other, atk, ch, pct, shots, goals, crosses, losses, set, wins, flow, heatSvg, oursSide, summary } = computeReport(data.events, rteam);
     const bar = (l, n) => `<div class="ma-bar"><span>${l}${rteam === 'opp' && l !== '가운데' ? `<small>${oursSide(l)}</small>` : ''}</span><div><i style="width:${pct(n)}%"></i></div><b>${pct(n)}%</b><small>${n}</small></div>`;
 
     panel.innerHTML = `
-      <div class="ma-row"><div class="seg">${Object.entries(TEAM).map(([k, l]) => `<button class="${k === rteam ? 'on' : ''}" data-rt="${k}">${l} 팀</button>`).join('')}</div>
+      <div class="ma-row">${teams.length > 1 ? `<div class="seg">${teams.map((k) => `<button class="${k === rteam ? 'on' : ''}" data-rt="${k}">${TEAM[k]} 팀</button>`).join('')}</div>` : ''}
         <span class="muted small">모든 그림은 <b>${TEAM[rteam]} 팀이 오른쪽(→)으로 공격</b>하는 방향으로 맞춰서 보여줘요</span></div>
+      ${data.lineups?.[rteam] && Object.keys(data.lineups[rteam]).length ? `<p class="ma-luline">${TEAM[rteam]} 포메이션 · ${PHASES.filter(([ph]) => data.lineups[rteam][ph]?.f).map(([ph, l]) => `${l} <b>${esc(data.lineups[rteam][ph].f)}</b>`).join(' · ')} <button class="link-btn small" data-goto-f>자세히</button></p>` : ''}
+      ${keysView(rteam) ? `<section class="card"><h3>⭐ ${TEAM[rteam]} 키 플레이어</h3>${keysView(rteam)}</section>` : ''}
       ${data.events.length ? '' : empty('아직 기록이 없어요. 기록하기에서 장면을 기록하면 리포트가 자동으로 만들어져요.')}
       <section class="card ma-sum"><h3>요약</h3>${summary.length ? `<ul>${summary.map((s) => `<li>${s}</li>`).join('')}</ul>` : '<p class="muted">기록이 더 쌓이면 요약이 나와요.</p>'}
         <div class="ma-counts">${[['공격 전개', ev.filter((e) => e.k === 'attack').length], ['슈팅', shots.length], ['득점', goals.length], ['크로스', crosses.length], ['볼 뺏김', losses.length], ['볼 탈취', wins.length], ['세트피스', set.length]].map(([l, n]) => `<div><span>${l}</span><b>${n}</b></div>`).join('')}</div></section>
@@ -382,6 +550,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       </div>
       ${data.formations.length ? `<p class="muted small">포메이션은 <b>포메이션</b> 탭에서 볼 수 있어요 (${data.formations.length}개).</p>` : ''}`;
     panel.querySelectorAll('[data-rt]').forEach((b) => (b.onclick = () => { rteam = b.dataset.rt; drawReport(); }));
+    panel.querySelector('[data-goto-f]')?.addEventListener('click', () => setTab('formation'));
   }
 
   setTab(tab);
@@ -427,11 +596,11 @@ export function tour(steps) {
 }
 
 // 미니 리포트 HTML (상대 팀) — 기록하기 · 체험하기에서 실시간으로
-export function liveHtml(events) {
-  const r = computeReport(events, 'opp');
+export function liveHtml(events, tm = 'opp') {
+  const r = computeReport(events, tm);
   const n = r.atk.length;
   const bar = (l) => `<div class="ma-bar"><span>${l}${l !== '가운데' ? `<small>${r.oursSide(l)}</small>` : ''}</span><div><i style="width:${r.pct(r.ch[l])}%"></i></div><b>${r.pct(r.ch[l])}%</b><small>${r.ch[l]}</small></div>`;
-  return `<div class="card ma-livecard"><h4>📊 실시간 리포트 <small>상대 팀 · 기록 ${events.filter((e) => e.team === 'opp').length}개</small></h4>
+  return `<div class="card ma-livecard"><h4>📊 실시간 리포트 <small>${TEAM[tm]} 팀 · 기록 ${events.filter((e) => e.team === tm).length}개</small></h4>
     ${n ? `${bar('왼쪽')}${bar('가운데')}${bar('오른쪽')}${r.summary[0] ? `<p class="ma-livesum">${r.summary[0]}</p>` : ''}` : '<p class="muted small">상대 공격 · 크로스 · 슈팅을 기록하면 여기서 바로 공격 방향이 계산돼요.</p>'}</div>`;
 }
 
@@ -533,7 +702,7 @@ export function sampleMatch() {
   add(1500, 'us', 'goal', 0.92, 0.5);
   for (let i = 0; i < 12; i++) add(rnd() * 5400, 'us', 'loss', 0.2 + rnd() * 0.5, rnd());
   ev.sort((a, b) => a.t - b.t);
-  const pad = formationData('4-4-2', false); pad.items.forEach((x) => { if (x.team) x.team = 'c'; });
-  return { id: 'sample', mode: 'match', title: '예시) vs 상대 FC 경기분석', opponent: '상대 FC', date: '', oppDir: 'right', events: ev,
-    formations: [{ id: 'sf', team: 'opp', name: '4-4-2', label: '전반', t: 30, ai: true, pad }] };
+  return { id: 'sample', mode: 'match', title: '예시) vs 상대 FC 경기분석', opponent: '상대 FC', date: '', oppDir: 'right', events: ev, target: 'both', size: 11,
+    lineups: { opp: { base: { f: '4-4-2', nums: ['1', '2', '4', '5', '3', '7', '8', '6', '11', '9', '10'] }, att: { f: '2-3-5', nums: [] }, def: { f: '4-5-1', nums: [] } } },
+    keys: { opp: [{ id: 'k1', num: '10', pos: 'ST', name: '', note: '왼발 · 박스 앞 중거리 슈팅' }, { id: 'k2', num: '7', pos: 'LM', name: '', note: '스피드 · 오른쪽으로 꺾어 크로스' }] }, formations: [] };
 }

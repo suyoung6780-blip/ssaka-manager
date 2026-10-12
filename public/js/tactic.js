@@ -253,6 +253,8 @@ const TOOLS = [
 // 움직임(장면): data.steps[k] = { 아이템id: [x, y] } — 장면 1은 기본 위치, 장면 2부터 바뀐 위치만 저장
 const MOVABLE = ['player', 'ball', 'cone', 'marker', 'text'];
 let idSeq = 0;
+let clipboard = null; // Ctrl+C 한 아이템들 (다른 작전판에도 붙여넣기 가능)
+let activePad = 0; // 마지막으로 만진 작전판 (단축키는 그 작전판에만)
 const newId = () => `i${Date.now().toString(36)}${(++idSeq).toString(36)}`;
 const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2);
 
@@ -265,7 +267,11 @@ export function createPad(container, initial, { editable = true, motion = false,
   let tool = 'select';
   let team = 'a';
   let sel = -1;
+  const extra = new Set(); // 함께 고른 아이템들 (Ctrl · Shift + 클릭)
+  const padId = ++padSeq;
+  if (editable) activePad = padId; // 새로 연 편집 작전판이 단축키를 받음
   const history = [];
+  const future = []; // 다시 실행 (Ctrl+Shift+Z / Ctrl+Y)
   const sizes = {}; // 도구별 마지막 크기 → 새로 놓는 것도 같은 크기로
   const kindOf = (t) => (['pass', 'run', 'dribble'].includes(t) ? 'arrow' : t);
   const curSize = () => sizes[kindOf(tool)] || 1;
@@ -302,7 +308,8 @@ export function createPad(container, initial, { editable = true, motion = false,
   container.appendChild(svg);
 
 
-  const snapshot = () => { history.push(JSON.stringify(data)); if (history.length > 80) history.shift(); };
+  const snapshot = () => { history.push(JSON.stringify(data)); if (history.length > 80) history.shift(); future.length = 0; };
+  const selected = () => [items()[sel], ...extra].filter(Boolean);
   // 작은 그리드 훈련장에서도 선수·콘이 너무 작아지지 않게 하한을 둔다
   const unit = () => Math.max(0.55, Math.max(data.field.w, data.field.h) / 105);
   const items = () => data.items;
@@ -353,7 +360,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     // 그리는 순서: 영역 → 화살표 → 장비 → 선수 → 공 → 글자
     const order = { zone: 0, arrow: 1, cone: 2, marker: 2, minigoal: 2, goal: 2, player: 3, ball: 4, text: 5 };
     list.map((it, i) => [it, i]).sort((a, b) => order[a[0].k] - order[b[0].k])
-      .forEach(([it, i]) => drawItem(layer, it, i, T, u, editable && i === sel, mk));
+      .forEach(([it, i]) => drawItem(layer, it, i, T, u, editable && (i === sel || extra.has(data.items[i])), mk));
     vertical = false;
     if (editable) syncUi();
     drawMotion();
@@ -428,7 +435,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.querySelector('[data-size]').hidden = !(canSize || (tool !== 'select' && !tool.startsWith('zone')));
     container.querySelector('[data-szv]').textContent = `${Math.round((canSize ? s.s || 1 : curSize()) * 100)}%`;
     container.querySelector('[data-hint]').textContent = {
-      select: '끌어서 이동 · 더블클릭으로 번호/글자 수정 · Delete 키로 삭제 · +/- 키로 크기',
+      select: '끌어서 이동 · Ctrl(⌘)+클릭 여러 개 · Ctrl+C/V 복사·붙여넣기 · Ctrl+Z 되돌리기 · Delete 삭제 · +/- 크기 · 더블클릭 번호 수정',
       player: '필드를 누르면 선수가 놓입니다 (번호 자동) · Enter 키로 선택·이동',
       zone: '끌어서 영역 그리기', 'zone-dash': '끌어서 영역 그리기',
       pass: '끌어서 화살표 그리기', run: '끌어서 화살표 그리기', dribble: '끌어서 화살표 그리기',
@@ -499,13 +506,14 @@ export function createPad(container, initial, { editable = true, motion = false,
   };
 
   // ───────── 도구 ─────────
-  container.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = () => { tool = b.dataset.tool; sel = -1; render(); }));
+  container.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = () => { tool = b.dataset.tool; sel = -1; extra.clear(); render(); }));
   container.querySelectorAll('[data-team]').forEach((b) => (b.onclick = () => { team = b.dataset.team; syncUi(); }));
   const del = () => {
     if (sel < 0) return;
     snapshot();
-    data.items.splice(sel, 1);
-    sel = -1;
+    const gone = new Set(selected());
+    data.items = data.items.filter((x) => !gone.has(x));
+    sel = -1; extra.clear();
     render();
   };
   container.querySelector('[data-act="delete"]').onclick = del;
@@ -516,25 +524,56 @@ export function createPad(container, initial, { editable = true, motion = false,
     s.rot = ((s.rot || 0) + 90) % 360;
     render();
   };
-  container.querySelector('[data-act="undo"]').onclick = () => {
+  const undo = () => {
     if (!history.length) return;
     stop();
+    future.push(JSON.stringify(data));
     data = JSON.parse(history.pop());
     scene = Math.min(scene, data.steps.length);
-    sel = -1;
+    sel = -1; extra.clear();
     render();
   };
-  container.querySelector('[data-act="clear"]').onclick = () => { stop(); snapshot(); data.items = []; data.steps = []; scene = 0; sel = -1; render(); };
+  const redo = () => {
+    if (!future.length) return;
+    stop();
+    history.push(JSON.stringify(data));
+    data = JSON.parse(future.pop());
+    scene = Math.min(scene, data.steps.length);
+    sel = -1; extra.clear();
+    render();
+  };
+  container.querySelector('[data-act="undo"]').onclick = undo;
+  // 복사 · 붙여넣기 · 모두 고르기
+  const copy = () => { const list = selected(); if (list.length) clipboard = list.map((x) => { const c = clone(x); delete c.id; return c; }); return list.length; };
+  const paste = () => {
+    if (!clipboard?.length) return;
+    snapshot();
+    const off = 2 * unit();
+    const added = clipboard.map((x) => {
+      const c = clone(x);
+      if ('x1' in c) { c.x1 = round(c.x1 + off); c.y1 = round(c.y1 + off); c.x2 = round(c.x2 + off); c.y2 = round(c.y2 + off); } else { c.x = round(c.x + off); c.y = round(c.y + off); }
+      if (c.k === 'player') c.n = nextNum(c.team);
+      return c;
+    });
+    data.items.push(...added);
+    clipboard = clipboard.map((x) => { const c = clone(x); if ('x1' in c) { c.x1 += off; c.y1 += off; c.x2 += off; c.y2 += off; } else { c.x += off; c.y += off; } return c; }); // 또 붙이면 조금씩 비켜서
+    tool = 'select';
+    sel = data.items.indexOf(added[0]); extra.clear(); added.slice(1).forEach((x) => extra.add(x));
+    render();
+  };
+  container.querySelector('[data-act="clear"]').onclick = () => { stop(); snapshot(); data.items = []; data.steps = []; scene = 0; sel = -1; extra.clear(); render(); };
   // 크기: 고른 것(없으면 지금 도구로 새로 놓을 것)을 한 단계씩
   const STEPS = [0.5, 0.65, 0.8, 1, 1.25, 1.5, 1.8, 2.2, 2.6, 3];
   const step = (v, d) => { const i = STEPS.findIndex((x) => x >= v - 0.001); return STEPS[Math.max(0, Math.min(STEPS.length - 1, (i < 0 ? STEPS.length - 1 : i) + d))]; };
   const resizeSel = (d) => {
-    const s = items()[sel];
-    if (s && s.k !== 'zone') {
+    const list = selected().filter((x) => x.k !== 'zone');
+    if (list.length) {
       snapshot();
-      s.s = step(s.s || 1, d);
-      if (s.s === 1) delete s.s;
-      sizes[s.k] = s.s || 1;
+      list.forEach((s) => {
+        s.s = step(s.s || 1, d);
+        if (s.s === 1) delete s.s;
+        sizes[s.k] = s.s || 1;
+      });
     } else if (tool !== 'select') sizes[kindOf(tool)] = step(curSize(), d);
     render();
   };
@@ -544,8 +583,22 @@ export function createPad(container, initial, { editable = true, motion = false,
     if (!svg.isConnected) { document.removeEventListener('keydown', onKey); document.removeEventListener('pointerdown', onOut, true); return; }
     const a = document.activeElement;
     if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
-    const mine = !a || a === document.body || container.contains(a);
-    if (e.key === 'Enter' && mine && !e.isComposing) {
+    const mine = (!a || a === document.body || container.contains(a)) && activePad === padId;
+    const mod = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
+    // Ctrl/⌘ + Z 되돌리기 · Shift+Z / Y 다시 · C 복사 · V 붙여넣기 · D 복제 · A 모두 고르기
+    if (mod && mine && !e.isComposing) {
+      if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); redo(); return; }
+      if (key === 'c' && sel >= 0) { e.preventDefault(); copy(); return; }
+      if (key === 'x' && sel >= 0) { e.preventDefault(); copy(); del(); return; }
+      if (key === 'v' && clipboard?.length) { e.preventDefault(); paste(); return; }
+      if (key === 'd' && sel >= 0) { e.preventDefault(); copy(); paste(); return; }
+      if (key === 'a' && items().length) { e.preventDefault(); tool = 'select'; sel = 0; extra.clear(); items().slice(1).forEach((x) => extra.add(x)); render(); return; }
+    }
+    if (e.key === 'Escape' && mine && sel >= 0) { sel = -1; extra.clear(); render(); return; }
+    if (!mine) return;
+    if (e.key === 'Enter' && !e.isComposing) {
       e.preventDefault(); // 방금 누른 도구 버튼이 다시 눌리지 않게
       if (tool !== 'select') { tool = 'select'; render(); }
       return;
@@ -556,7 +609,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     else if (e.key === '-' || e.key === '_') { e.preventDefault(); resizeSel(-1); }
   };
   // 작전판 밖을 누르면 선택 풀기 (다른 작전판과 헷갈리지 않게)
-  const onOut = (e) => { if (!svg.isConnected) return; if (sel >= 0 && !container.contains(e.target)) { sel = -1; render(); } };
+  const onOut = (e) => { if (!svg.isConnected) return; if (container.contains(e.target)) { activePad = padId; return; } if (sel >= 0) { sel = -1; extra.clear(); render(); } };
   document.addEventListener('keydown', onKey);
   document.addEventListener('pointerdown', onOut, true);
 
@@ -570,6 +623,7 @@ export function createPad(container, initial, { editable = true, motion = false,
   let drag = null;
 
   svg.addEventListener('pointerdown', (e) => {
+    activePad = padId;
     if (anim) { stop(); render(); }
     svg.focus({ preventScroll: true });
     const p = pt(e);
@@ -577,18 +631,32 @@ export function createPad(container, initial, { editable = true, motion = false,
     const handle = e.target.getAttribute('data-handle');
 
     if (tool === 'select') {
-      if (!g) { sel = -1; render(); return; }
-      sel = +g.dataset.i;
+      if (!g) { sel = -1; extra.clear(); render(); return; }
+      const i = +g.dataset.i;
+      const hit = items()[i];
+      if (e.ctrlKey || e.metaKey || e.shiftKey) {
+        // 여러 개 고르기: 누를 때마다 넣었다 뺐다
+        if (i === sel) { const nx = [...extra][0]; if (nx) { extra.delete(nx); sel = items().indexOf(nx); } else sel = -1; }
+        else if (extra.has(hit)) extra.delete(hit);
+        else { if (sel >= 0) extra.add(items()[sel]); sel = i; }
+        render();
+        return;
+      }
+      if (i !== sel && !extra.has(hit)) extra.clear(); // 고른 묶음 밖을 누르면 그것만
+      else if (extra.has(hit)) { extra.delete(hit); if (sel >= 0) extra.add(items()[sel]); }
+      sel = i;
       const it = items()[sel];
       snapshot();
+      const group = handle ? [] : [...extra];
       if (scene > 0 && MOVABLE.includes(it.k)) {
-        const [x, y] = posAt(scene)[it.id];
-        drag = { it, start: p, orig: { x, y }, stepMove: true };
+        const pos = posAt(scene);
+        const [x, y] = pos[it.id];
+        drag = { it, start: p, orig: { x, y }, stepMove: true, group: group.filter((m) => MOVABLE.includes(m.k)).map((m) => ({ m, o: { x: pos[m.id][0], y: pos[m.id][1] } })) };
         svg.setPointerCapture(e.pointerId);
         render();
         return;
       }
-      drag = { it, start: p, orig: clone(it), handle };
+      drag = { it, start: p, orig: clone(it), handle, group: group.map((m) => ({ m, o: clone(m) })) };
       svg.setPointerCapture(e.pointerId);
       render();
       return;
@@ -623,6 +691,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     const dy = p.y - start.y;
     if (drag.stepMove) {
       data.steps[scene - 1][it.id] = [round(orig.x + dx), round(orig.y + dy)];
+      drag.group?.forEach(({ m, o }) => { data.steps[scene - 1][m.id] = [round(o.x + dx), round(o.y + dy)]; });
     } else if (drag.creating) {
       if (it.k === 'zone') {
         it.x = Math.min(start.x, p.x); it.y = Math.min(start.y, p.y);
@@ -633,6 +702,12 @@ export function createPad(container, initial, { editable = true, motion = false,
     } else if (handle === 'p1') { it.x1 = p.x; it.y1 = p.y; } else if (handle === 'p2') { it.x2 = p.x; it.y2 = p.y; } else if (it.k === 'arrow') {
       it.x1 = round(orig.x1 + dx); it.y1 = round(orig.y1 + dy); it.x2 = round(orig.x2 + dx); it.y2 = round(orig.y2 + dy);
     } else { it.x = round(orig.x + dx); it.y = round(orig.y + dy); }
+    // 함께 고른 것들도 같이 옮기기
+    if (!drag.stepMove && !drag.creating && !handle) {
+      drag.group?.forEach(({ m, o }) => {
+        if (m.k === 'arrow') { m.x1 = round(o.x1 + dx); m.y1 = round(o.y1 + dy); m.x2 = round(o.x2 + dx); m.y2 = round(o.y2 + dy); } else { m.x = round(o.x + dx); m.y = round(o.y + dy); }
+      });
+    }
     render();
   });
 
