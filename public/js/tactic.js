@@ -280,9 +280,40 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
     case 'arrow': {
       const prog = o.prog == null ? 1 : o.prog;
       if (prog <= 0) break;
-      let pts = bezPts(it, prog);
-      if (it.style === 'dribble') pts = wavyPts(pts, u);
-      el('path', { d: ptsD(pts), stroke: col, 'stroke-width': 0.45 * u, fill: 'none', 'marker-end': `url(#${mkFor(col)})`, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': it.style === 'run' ? `${u * 1.2} ${u * 0.9}` : '' }, g);
+      // 흔들림 없이: 전체 곡선(드리블 물결 포함)을 한 번 만들어 두고 그어진 길이만큼 잘라 씀,
+      // 화살촉 방향은 곡선 자체의 방향으로 (그어지는 중 마지막 짧은 조각 방향을 쓰면 짧은 화살표일수록 흔들렸음)
+      const full = bezPts(it, 1, 48);
+      let all = it.style === 'dribble' ? wavyPts(full, u) : full;
+      const lens = [0];
+      for (let k = 1; k < all.length; k++) lens.push(lens[k - 1] + Math.hypot(all[k].x - all[k - 1].x, all[k].y - all[k - 1].y));
+      const Ltot = lens[lens.length - 1] || 1e-6;
+      const hl = Math.min(1.8 * u, Ltot * 0.45); // 화살촉 길이 (짧은 화살표는 줄임)
+      const want = Ltot * Math.min(1, prog);
+      const bodyL = Math.max(0, want - hl * 0.7);
+      const cutAt = (L) => {
+        let k = 1; while (k < lens.length - 1 && lens[k] < L) k++;
+        const f = (L - lens[k - 1]) / Math.max(1e-6, lens[k] - lens[k - 1]);
+        return { k, p: { x: all[k - 1].x + (all[k].x - all[k - 1].x) * f, y: all[k - 1].y + (all[k].y - all[k - 1].y) * f } };
+      };
+      const b = cutAt(bodyL);
+      const pts = [...all.slice(0, b.k), b.p];
+      if (bodyL > 0.01) el('path', { d: ptsD(pts), stroke: col, 'stroke-width': 0.45 * u, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': it.style === 'run' ? `${u * 1.2} ${u * 0.9}` : '' }, g);
+      // 화살촉: 매끈한 곡선(물결 없는) 위, 그어진 길이 비율의 점과 방향
+      const fl = [0];
+      for (let k = 1; k < full.length; k++) fl.push(fl[k - 1] + Math.hypot(full[k].x - full[k - 1].x, full[k].y - full[k - 1].y));
+      const Lf = fl[fl.length - 1] || 1e-6;
+      const onFull = (L) => {
+        let k = 1; while (k < fl.length - 1 && fl[k] < L) k++;
+        const f = (L - fl[k - 1]) / Math.max(1e-6, fl[k] - fl[k - 1]);
+        return { x: full[k - 1].x + (full[k].x - full[k - 1].x) * f, y: full[k - 1].y + (full[k].y - full[k - 1].y) * f };
+      };
+      const tip = onFull(Lf * Math.min(1, prog));
+      const back = onFull(Math.max(0, Lf * Math.min(1, prog) - Math.max(hl, Lf * 0.08)));
+      let ang = Math.atan2(tip.y - back.y, tip.x - back.x);
+      if (!isFinite(ang) || (tip.x === back.x && tip.y === back.y)) ang = Math.atan2(it.y2 - it.y1, it.x2 - it.x1);
+      const hw = hl * 0.55;
+      el('path', { d: `M ${tip.x} ${tip.y} L ${tip.x - Math.cos(ang) * hl - Math.sin(ang) * hw} ${tip.y - Math.sin(ang) * hl + Math.cos(ang) * hw} L ${tip.x - Math.cos(ang) * hl + Math.sin(ang) * hw} ${tip.y - Math.sin(ang) * hl - Math.cos(ang) * hw} Z`, fill: col, stroke: 'none' }, g);
+      void mkFor;
       el('path', { d: ptsD(bezPts(it)), stroke: 'transparent', 'stroke-width': 2.4 * u, fill: 'none' }, g);
       if (o.badge) { // 순서 번호
         const m = bez(it, 0.5);
@@ -370,12 +401,16 @@ let activePad = 0; // 마지막으로 만진 작전판 (단축키는 그 작전�
 const newId = () => `i${Date.now().toString(36)}${(++idSeq).toString(36)}`;
 const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2);
 
-export function createPad(container, initial, { editable = true, motion = false, play = true } = {}) {
+// draft: 임시 보관 이름 (예: '팀id/gm') — 주면 고칠 때마다 이 컴퓨터에 자동 보관 → 저장 안 하고 나갔다 와도 불러오기
+export function createPad(container, initial, { editable = true, motion = false, play = true, draft = null } = {}) {
   let data = normalize(initial);
   data.steps ||= [];
   let scene = 0; // 0 = 장면 1 (기본)
   let anim = null; // 재생 중: 아이템id → [x, y]
   let raf = 0;
+  let pl = null; // 재생 정보 { frameAt, total, t0, N } — 멈췄다 이어가기용
+  let paused = null; // 보기 화면에서 멈춘 시각 { t }
+  let mkey = ''; // 움직임 바를 다시 그릴지 (재생 중 매 프레임 다시 그리면 버튼이 안 눌림)
   let tool = 'select';
   let team = 'a';
   let sel = -1;
@@ -420,6 +455,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     </div>
     <div class="pad-acts pad-sel" data-selbar>
       <span class="pad-num" data-pnum>번호 <input data-pnin maxlength="4" title="선수 번호 (또는 짧은 이름) 적고 Enter"></span>
+      <span class="pad-num pad-txt" data-ptxt>글자 <input data-ptin maxlength="30" title="글자를 고치고 Enter (더블클릭해도 돼요)"></span>
       <span class="pad-teams" data-teams>${Object.entries(TEAMS).map(([k, t]) => `<button type="button" class="pteam" data-team="${k}" style="--c:${t.fill};--t:${t.text}">${t.label}</button>`).join('')}</span>
       <span class="pad-colors" data-colors>${TOOL_COLORS.map((c) => `<button type="button" class="pcol ${c ? '' : 'def'}" data-col="${c}" style="--c:${c || 'transparent'}" title="${c || '기본색'}"></button>`).join('')}</span>
       <span class="pad-opt" data-spread>시야 ${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="chip" data-sp="${v}">${l}</button>`).join('')}</span>
@@ -434,7 +470,16 @@ export function createPad(container, initial, { editable = true, motion = false,
   container.appendChild(svg);
 
 
-  const snapshot = () => { history.push(JSON.stringify(data)); if (history.length > 80) history.shift(); future.length = 0; };
+  const snapshot = () => { history.push(JSON.stringify(data)); if (history.length > 80) history.shift(); future.length = 0; queueDraft(); };
+  // ── 임시 보관 ──
+  const DKEY = editable && draft ? `ssaka-pad:${draft}` : null;
+  let draftT = null;
+  const saveDraft = () => {
+    clearTimeout(draftT); draftT = null;
+    if (!DKEY) return;
+    try { localStorage.setItem(DKEY, JSON.stringify({ at: Date.now(), data })); } catch { /* 보관 못 해도 그냥 진행 */ }
+  };
+  function queueDraft() { if (DKEY) { clearTimeout(draftT); draftT = setTimeout(saveDraft, 1200); } }
   const selected = () => [items()[sel], ...extra].filter(Boolean);
   // 작은 그리드 훈련장에서도 선수·콘이 너무 작아지지 않게 하한을 둔다
   const unit = () => Math.max(0.55, Math.max(data.field.w, data.field.h) / 105);
@@ -545,20 +590,29 @@ export function createPad(container, initial, { editable = true, motion = false,
   if (!editable) mbar.classList.add('view');
   const hasMotion = () => data.steps.length > 0 || data.items.some((x) => x.k === 'arrow');
   function drawMotion() {
+    const key = [editable, motion, play, !!anim, !!paused, scene, anim?.scene, data.steps.length, hasMotion()].map((v) => (v && typeof v === 'object' ? 1 : v)).join('|');
+    if (key === mkey && mbar.innerHTML) return;
+    mkey = key;
+    const N1 = data.steps.length + 1;
     if (!editable) {
-      mbar.hidden = !(play && hasMotion());
+      mbar.hidden = !(play !== false && hasMotion());
       if (mbar.hidden) return;
-      mbar.innerHTML = `<button type="button" class="chip on" data-play>${anim ? '■ 멈춤' : '▶ 움직임 보기'}</button>
-        <span class="pm-dots">${[0, ...data.steps].map((_, k) => `<i class="${k === scene && !anim ? 'on' : ''}"></i>`).join('')}</span>`;
+      const playing = anim && !paused;
+      const cur = anim ? anim.scene : scene;
+      mbar.innerHTML = `${playing ? '<button type="button" class="chip on" data-pause>❚❚ 멈춤</button>'
+        : paused ? '<button type="button" class="chip on" data-resume>▶ 이어서</button><button type="button" class="chip" data-play0>⏮ 처음부터</button>'
+          : '<button type="button" class="chip on" data-play0>▶ 움직임 보기</button>'}
+        <span class="pm-dots" title="누르면 그 장면부터 재생">${Array.from({ length: N1 }, (_, k) => `<i class="${k === cur ? 'on' : ''}" data-dot="${k}"></i>`).join('')}</span>`;
     } else {
       if (!motion) { mbar.hidden = true; return; }
-      const n = data.steps.length + 1;
+      const n = N1;
       mbar.innerHTML = `<b>🎬 움직임</b>
-        <span class="pm-scenes">${Array.from({ length: n }, (_, k) => `<button type="button" class="chip ${k === scene ? 'on' : ''}" data-sc="${k}">장면 ${k + 1}</button>`).join('')}
+        <span class="pm-scenes">${Array.from({ length: n }, (_, k) => `<button type="button" class="chip ${k === (anim ? anim.scene : scene) ? 'on' : ''}" data-sc="${k}">장면 ${k + 1}</button>`).join('')}
         <button type="button" class="chip" data-addsc>+ 장면</button></span>
-        ${hasMotion() ? `<button type="button" class="chip" data-play>${anim ? '■ 멈춤' : '▶ 재생'}</button>` : ''}
-        ${scene > 0 ? '<button type="button" class="chip" data-delsc>이 장면 삭제</button>' : ''}
-        <small class="muted">${n === 1 ? '<b>+ 장면</b>을 누르고 선수 · 공 · 기구를 끌어서 옮기면 ▶ 재생할 때 그 자리로 움직여요' : scene > 0 ? `장면 ${scene + 1}: 끌어서 옮겨요 · <b>노란 점선 가운데 흰 점</b>을 끌면 곡선으로 움직여요(더블클릭하면 직선) · 여기서 지우면 이 장면에서만 지워져요` : '장면 1: 처음 위치예요'}</small>`;
+        ${hasMotion() ? (anim ? '<button type="button" class="chip on" data-pause title="지금 장면에서 멈추고 바로 고칠 수 있어요">❚❚ 멈춤 · 여기서 수정</button>'
+          : `<button type="button" class="chip" data-playhere title="이 장면으로 오는 움직임부터 재생">▶ ${scene > 0 ? '이 장면부터 재생' : '재생'}</button>${scene > 0 ? '<button type="button" class="chip" data-play0>⏮ 처음부터</button>' : ''}`) : ''}
+        ${scene > 0 && !anim ? '<button type="button" class="chip" data-delsc>이 장면 삭제</button>' : ''}
+        <small class="muted">${anim ? '재생 중 — 멈추면 그 장면에서 바로 고칠 수 있어요' : n === 1 ? '<b>+ 장면</b>을 누르고 선수 · 공 · 기구를 끌어서 옮기면 ▶ 재생할 때 그 자리로 움직여요' : scene > 0 ? `장면 ${scene + 1}: 끌어서 옮겨요 · <b>노란 점선 가운데 흰 점</b>을 끌면 곡선으로 움직여요(더블클릭하면 직선) · 여기서 지우면 이 장면에서만 지워져요` : '장면 1: 처음 위치예요'}</small>`;
       mbar.querySelectorAll('[data-sc]').forEach((b) => (b.onclick = () => { stop(); scene = +b.dataset.sc; sel = -1; render(); }));
       mbar.querySelector('[data-addsc]').onclick = () => { stop(); snapshot(); data.steps.splice(scene, 0, {}); if (data.stepOrder) data.stepOrder.splice(scene, 0, {}); shiftScenes(scene + 1, 1); scene += 1; sel = -1; extra.clear(); render(); };
       mbar.querySelector('[data-delsc]')?.addEventListener('click', () => {
@@ -567,22 +621,51 @@ export function createPad(container, initial, { editable = true, motion = false,
         data.items = data.items.filter((x) => !((x.from || 0) === scene && x.until === scene));
         data.steps.splice(scene - 1, 1); data.stepOrder?.splice(scene - 1, 1); shiftScenes(scene, -1); scene -= 1; sel = -1; extra.clear(); render();
       });
+      mbar.querySelector('[data-playhere]')?.addEventListener('click', () => playAll(Math.max(0, scene - 1))); // 이 장면으로 오는 움직임부터
     }
-    mbar.querySelector('[data-play]')?.addEventListener('click', () => (anim ? (stop(), render()) : playAll()));
+    mbar.querySelector('[data-play0]')?.addEventListener('click', () => { stop(); scene = 0; playAll(0); });
+    mbar.querySelector('[data-pause]')?.addEventListener('click', pauseAnim);
+    mbar.querySelector('[data-resume]')?.addEventListener('click', resumeAnim);
+    mbar.querySelectorAll('[data-dot]').forEach((d) => (d.onclick = () => { stop(); scene = +d.dataset.dot; playAll(scene); }));
   }
-  function stop() { cancelAnimationFrame(raf); anim = null; }
+  // 멈춤: 수정 화면에선 지금 재생 중인 장면으로 멈춰서 바로 고칠 수 있게 · 보기 화면에선 그 순간에 멈춤(이어서 가능)
+  function pauseAnim() {
+    if (!anim) return;
+    if (editable) { const s0 = anim.scene; stop(); scene = s0; sel = -1; render(); return; }
+    cancelAnimationFrame(raf);
+    paused = { t: performance.now() - pl.t0 };
+    drawMotion();
+  }
+  function resumeAnim() {
+    if (!paused || !pl) return;
+    pl.t0 = performance.now() - paused.t;
+    paused = null;
+    raf = requestAnimationFrame(tickAnim);
+    drawMotion();
+  }
+  function tickAnim(now) {
+    if (!svg.isConnected || !pl) { stop(); return; }
+    const t = Math.max(0, now - pl.t0);
+    if (t >= pl.total) { anim = null; scene = pl.N; pl = null; render(); return; }
+    anim = pl.frameAt(t);
+    render();
+    raf = requestAnimationFrame(tickAnim);
+  }
+  function stop() { cancelAnimationFrame(raf); anim = null; paused = null; }
   // 장면 s → s+1 로 옮긴 것의 순서 (1 먼저 · 2 다음 · 3 마지막), data.stepOrder[s] = { 아이템id: 순서 }
   const ordOf = (s0, id) => data.stepOrder?.[s0]?.[id] || 1;
   const movedIn = (s0) => Object.keys(data.steps[s0] || {}).filter((id) => {
     const a = posAt(s0)[id]; const b = posAt(s0 + 1)[id];
     return a && b && (a[0] !== b[0] || a[1] !== b[1]);
   });
-  function playAll() {
+  function playAll(start = 0) {
+    stop();
     const N = data.steps.length;
+    start = Math.max(0, Math.min(N, start));
     const P = Array.from({ length: N + 1 }, (_, k) => posAt(k));
     // 시간표: 장면마다 ① 화살표가 순서대로 끝까지 그어지고 → ② 옮긴 선수 · 공 · 기구가 순서대로 움직이고 → ③ 다음 장면으로 바뀜
     const segs = [];
-    for (let s0 = 0; s0 <= N; s0++) {
+    for (let s0 = start; s0 <= N; s0++) {
       const arrO = [...new Set(arrowsIn(s0).map((x) => x.order || 1))].sort((a, b) => a - b);
       const moved = s0 < N ? movedIn(s0) : [];
       const movO = [...new Set(moved.map((id) => ordOf(s0, id)))].sort((a, b) => a - b);
@@ -590,7 +673,7 @@ export function createPad(container, initial, { editable = true, motion = false,
       movO.forEach((o) => segs.push({ s: s0, kind: 'move', o, moved, dur: 1150 }, { s: s0, kind: 'move', o, hold: true, moved, dur: 200 }));
       if (s0 < N) segs.push({ s: s0, kind: 'switch', moved, dur: 350 });
     }
-    if (!segs.length) return;
+    if (!segs.length) { scene = start; render(); return; }
     const total = segs.reduce((a, x) => a + x.dur, 0);
     const frameAt = (t) => {
       let acc = 0; let cur = segs[segs.length - 1]; let f = 1;
@@ -626,18 +709,10 @@ export function createPad(container, initial, { editable = true, motion = false,
       }
       return { pos, prog, vis, scene: s0 };
     };
-    const t0 = performance.now();
-    const tick = (now) => {
-      if (!svg.isConnected) { stop(); return; }
-      const t = Math.max(0, now - t0);
-      if (t >= total) { anim = null; scene = N; render(); return; }
-      anim = frameAt(t);
-      render();
-      raf = requestAnimationFrame(tick);
-    };
+    pl = { frameAt, total, t0: performance.now(), N };
     sel = -1; extra.clear();
     anim = frameAt(0);
-    raf = requestAnimationFrame(tick);
+    raf = requestAnimationFrame(tickAnim);
   }
 
   function syncUi() {
@@ -687,6 +762,10 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.querySelector('[data-pnum]').hidden = !onePlayer;
     const pnin = container.querySelector('[data-pnin]');
     if (onePlayer && document.activeElement !== pnin) pnin.value = s.n ?? '';
+    const oneText = s && s.k === 'text' && !extra.size;
+    container.querySelector('[data-ptxt]').hidden = !oneText;
+    const ptin = container.querySelector('[data-ptin]');
+    if (oneText && document.activeElement !== ptin) ptin.value = s.t ?? '';
     const ordin = container.querySelector('[data-ordin]');
     if (document.activeElement !== ordin) ordin.value = curOrd || 1;
     container.querySelector('[data-straight]').hidden = !(s?.k === 'arrow' && s.cx != null);
@@ -710,10 +789,28 @@ export function createPad(container, initial, { editable = true, motion = false,
   const api = {
     getData: () => clone(data),
     hasMotion: () => hasMotion(),
-    play: () => { if (!hasMotion()) return false; stop(); scene = 0; playAll(); return true; },
+    play: () => { if (!hasMotion()) return false; stop(); scene = 0; playAll(0); return true; },
     reset: () => { stop(); scene = 0; render(); },
   };
+  api.clearDraft = () => { clearTimeout(draftT); draftT = null; if (DKEY) try { localStorage.removeItem(DKEY); } catch { /* */ } };
   if (!editable) return api;
+
+  // 저장 안 하고 나갔던 작전판이 있으면 위에 알림 → 불러오기 / 버리기
+  if (DKEY) {
+    let d0 = null;
+    try { d0 = JSON.parse(localStorage.getItem(DKEY) || 'null'); } catch { d0 = null; }
+    if (d0?.data && JSON.stringify(d0.data) !== JSON.stringify(data)) {
+      const t0 = new Date(d0.at);
+      const bar = document.createElement('div');
+      bar.className = 'pad-draft';
+      bar.innerHTML = `<span>💾 저장하지 않은 작전판이 있어요 (${t0.getMonth() + 1}/${t0.getDate()} ${String(t0.getHours()).padStart(2, '0')}:${String(t0.getMinutes()).padStart(2, '0')})</span>
+        <button type="button" class="chip on" data-dload>불러오기</button><button type="button" class="chip" data-ddrop>버리기</button>`;
+      container.prepend(bar);
+      bar.querySelector('[data-dload]').onclick = () => { snapshot(); data = normalize(d0.data); data.steps ||= []; scene = 0; sel = -1; extra.clear(); bar.remove(); render(); };
+      bar.querySelector('[data-ddrop]').onclick = () => { api.clearDraft(); bar.remove(); };
+    }
+    window.addEventListener('pagehide', saveDraft);
+  }
 
   // ───────── 필드 · 그리드 설정 ─────────
   const resize = (nw, nh) => {
@@ -870,6 +967,17 @@ export function createPad(container, initial, { editable = true, motion = false,
     x.n = pnIn.value.trim().slice(0, 4);
     render();
   };
+  // 글자 고치기 (고른 글자 → 아래 칸에서 바로)
+  const ptIn = container.querySelector('[data-ptin]');
+  ptIn.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ptIn.blur(); } e.stopPropagation(); };
+  ptIn.oninput = () => {
+    const x = items()[sel];
+    if (x?.k !== 'text' || !ptIn.value.trim()) return;
+    if (!ptIn.dataset.snap) { snapshot(); ptIn.dataset.snap = '1'; }
+    x.t = ptIn.value.slice(0, 30);
+    render();
+  };
+  ptIn.onblur = () => { delete ptIn.dataset.snap; };
   // 순서: 숫자로 (기본 1 = 다 같이 · 2로 바꾸면 그것만 두 번째로 …)
   const ordIn = container.querySelector('[data-ordin]');
   ordIn.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ordIn.blur(); } e.stopPropagation(); };
@@ -1030,9 +1138,25 @@ export function createPad(container, initial, { editable = true, motion = false,
     it.len = round(Math.max(3 * unit(), Math.hypot(p.x - o[0], p.y - o[1])));
   };
 
+  let lastTap = { t: 0, id: null };
   svg.addEventListener('pointerdown', (e) => {
     activePad = padId;
     if (anim) { stop(); render(); }
+    // 같은 글자 · 선수를 0.4초 안에 두 번 누르면 바로 고치기 (화면을 다시 그려서 브라우저 더블클릭이 안 잡히던 것)
+    const tg = e.target.closest?.('[data-i]');
+    const tit = tg && items()[+tg.dataset.i];
+    if (tit && (tit.k === 'text' || tit.k === 'player')) {
+      const now = performance.now();
+      if (lastTap.id === tit.id && now - lastTap.t < 400) {
+        lastTap = { t: 0, id: null };
+        e.preventDefault();
+        sel = items().indexOf(tit); extra.clear(); render();
+        const inp = container.querySelector(tit.k === 'text' ? '[data-ptin]' : '[data-pnin]');
+        setTimeout(() => { inp.focus(); inp.select(); }, 0);
+        return;
+      }
+      lastTap = { t: now, id: tit.id };
+    }
     svg.focus({ preventScroll: true });
     const p = pt(e);
     const gh = e.target.closest?.('[data-gh]');

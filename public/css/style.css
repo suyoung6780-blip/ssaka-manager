@@ -1825,3 +1825,12 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
 .tl-body { max-height: 245px; }
 .st-sec .st-follow { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-weight: 700; margin-bottom: 10px; }
 .st-follow small { flex-basis: 100%; padding-left: 22px; font-weight: 500; font-size: 11px; }
+/* 작전판 임시 보관 알림 */
+.pad-draft { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 8px; border: 1px solid #ffd400; background: rgba(255,212,0,.08); border-radius: var(--r-sm); font-size: 13px; }
+.pad-draft span { flex: 1; min-width: 180px; }
+.pad-txt input { width: 160px; }
+/* 휴대폰: 창(사용법 등)이 맨 위에 붙지 않고 화면 가운데에 · 길면 스크롤 */
+@media (max-width: 860px) {
+  .modal-wrap { align-items: flex-start; padding: 16px 12px calc(16px + env(safe-area-inset-bottom)); }
+  .modal-wrap > .modal { margin: auto 0; max-height: none; }
+}

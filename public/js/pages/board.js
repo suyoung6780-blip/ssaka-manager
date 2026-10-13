@@ -216,7 +216,7 @@ function editor(type, p, refresh) {
   const padBox = m.el.querySelector('[data-pad]');
   const usePad = m.el.querySelector('[data-use-pad]');
   const syncPad = () => {
-    if (usePad.checked && !pad) pad = createPad(padBox, p.pad || formationData('4-3-3', false));
+    if (usePad.checked && !pad) pad = createPad(padBox, p.pad || formationData('4-3-3', false), { draft: `${state.team.id}/${type}/${p.id || 'new'}` });
     padBox.hidden = !usePad.checked;
   };
   if (usePad) { usePad.onchange = syncPad; syncPad(); }
@@ -252,6 +252,7 @@ function editor(type, p, refresh) {
       const col = collection(db, 'teams', state.team.id, 'posts');
       if (p.id) await updateDoc(doc(col, p.id), { ...data, updatedAt: serverTimestamp() });
       else await addDoc(col, { ...data, authorUid: state.user.uid, authorName: state.profile.name, createdAt: serverTimestamp() });
+      pad?.clearDraft();
       m.close();
       toast('저장했습니다.');
       refresh();

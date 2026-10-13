@@ -111,7 +111,7 @@ export async function gameModel(el) {
         <label>설명 <small class="muted">누가 · 언제 · 어떻게 (선수들이 함께 봐요)</small><textarea name="note" rows="3" maxlength="1500">${esc(x?.note || '')}</textarea></label>
         <div class="row end"><button type="button" class="btn ghost" data-cancel>취소</button><button class="btn">저장</button></div>
       </form>`, { wide: true });
-    const pad = createPad(m.el.querySelector('[data-epad]'), x?.pad || formationData('4-3-3', true), { motion: true });
+    const pad = createPad(m.el.querySelector('[data-epad]'), x?.pad || formationData('4-3-3', true), { motion: true, draft: `${state.team.id}/pattern/${x?.id || 'new'}` });
     m.el.querySelector('[data-cancel]').onclick = m.close;
     m.el.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
@@ -119,7 +119,7 @@ export async function gameModel(el) {
       const item = { id: x?.id || `p${Date.now().toString(36)}`, title: d.title.trim(), cat: d.cat, note: d.note.trim(), pad: pad.getData() };
       const all = gm.patterns || [];
       const next = x ? all.map((p) => (p.id === x.id ? item : p)) : [...all, item];
-      try { await savePats(next); m.close(); toast('저장했어요.'); view(); } catch (err) { fail(err); }
+      try { await savePats(next); pad.clearDraft(); m.close(); toast('저장했어요.'); view(); } catch (err) { fail(err); }
     };
   }
 
@@ -137,7 +137,7 @@ export async function gameModel(el) {
         <div class="row end"><button type="button" class="btn ghost" data-cancel>취소</button><button class="btn">저장</button></div>
       </section>
     </form>`;
-    const pad = createPad(el.querySelector('[data-pad]'), gm.pad || formationData('4-3-3', false), { motion: true });
+    const pad = createPad(el.querySelector('[data-pad]'), gm.pad || formationData('4-3-3', false), { motion: true, draft: `${state.team.id}/gamemodel` });
     el.querySelector('[data-cancel]').onclick = view;
     el.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
@@ -147,6 +147,7 @@ export async function gameModel(el) {
       try {
         await setDoc(tdoc('private', 'gameModel'), next);
         Object.assign(gm, next);
+        pad.clearDraft();
         toast('저장했습니다.');
         view();
       } catch (err) { fail(err); }

@@ -239,7 +239,7 @@ export function editor(p, refresh) {
   const padBox = form.querySelector('[data-pad]');
   const usePad = form.querySelector('[data-use-pad]');
   const syncPad = () => {
-    if (usePad.checked && !pad) pad = createPad(padBox, p.pad || { ...blank('custom'), grid: { preset: 'none', cols: 0, rows: 0 } }, { motion: true });
+    if (usePad.checked && !pad) pad = createPad(padBox, p.pad || { ...blank('custom'), grid: { preset: 'none', cols: 0, rows: 0 } }, { motion: true, draft: `${state.team.id}/program/${p.id || 'new'}` });
     padBox.hidden = !usePad.checked;
   };
   usePad.onchange = syncPad;
@@ -261,6 +261,7 @@ export function editor(p, refresh) {
       const col = collection(db, 'teams', state.team.id, 'posts');
       if (p.id) await updateDoc(doc(col, p.id), { ...data, updatedAt: serverTimestamp() });
       else await addDoc(col, { ...data, authorUid: state.user.uid, authorName: state.profile.name, createdAt: serverTimestamp() });
+      pad?.clearDraft();
       m.close();
       toast('저장했습니다.');
       refresh();

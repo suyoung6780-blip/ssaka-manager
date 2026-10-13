@@ -8,7 +8,7 @@ import {
 } from '../ui.js';
 import { state, isCoach, go } from '../store.js';
 import {
-  PALETTE, uid, FrameAnalyzer, PlayerTracker, trackerPos, setTrackerAt, setKeyAt, delKeyAt, thinPath, stampH, GROUND, itemPoints, offsideGeom, drawItem, drawMeasureLabel, cutPlayer, cutBox, meters, label,
+  PALETTE, uid, FrameAnalyzer, PlayerTracker, trackerPos, setTrackerAt, setKeyAt, delKeyAt, thinPath, stampH, GROUND, itemPoints, offsideGeom, drawItem, drawMeasureLabel, drawAngleLabel, angleDeg, cutPlayer, cutBox, meters, label,
 } from '../telestrator.js';
 import { ai, loadAI, detectAround, scanFrame, pickNear } from '../detector.js';
 import { STORAGE_ENABLED } from '../config.js';
@@ -221,10 +221,10 @@ const TOOLS = [
   ['track', '트래킹', '◎'],
   ['arrow', '화살표', '↗'],
   ['dash', '이동(점선)', '⇢'],
-  ['shape', '도형', '⬠'],
+  ['shape', '그리드', '▦'],
   ['link', '선수 연결', '⟋'],
-  ['grid', '그리드', '▦'],
   ['measure', '거리', '↔'],
+  ['vision', '시야', '◁'],
   ['text', '글자', 'T'],
   ['move', '선수 이동', '⇄'],
   ['zoom', '돋보기', '◯'],
@@ -240,7 +240,9 @@ const HINT = {
   link: '이을 선수들을 차례로 누르세요 (누른 선수는 자동으로 트래킹) → Enter 또는 더블클릭으로 완성',
   zoom: '크게 보여줄 곳을 누르세요 → 그 자리가 돋보기로 확대돼요 (오른쪽에서 모양 ◯▢ · 배율 ×2 ×3 ×4 · 크기)',
   grid: '바닥에 깔 범위를 끌어서 정하세요 → 원근에 맞춰 입체 그리드가 깔립니다 (모서리 점으로 조절)',
-  measure: '끌어서 거리 재기 (그리드가 있으면 m로 표시)',
+  measure: '끌어서 거리 재기',
+  vision: '선수를 누른 채 바라보는 쪽으로 끌어요 → V자 시야 (오른쪽에서 좁게 · 보통 · 넓게)',
+  angle: '꼭짓점(공 · 선수)을 누른 채 첫 번째 선 끝(예: 왼쪽 골포스트)으로 끌어요 → 두 번째 선 끝 점을 끌어 맞추면 각도가 나와요',
   text: '글자를 놓을 곳을 누르세요',
   move: '① 옮길 선수를 네모로 감싸서 자르세요 → ② 잘린 선수를 끌어서 옮길 곳에 놓으세요 (원래 자리는 어둡게 남아요)',
   light: '선수를 누르면 그 선수만 밝게 비추고 나머지는 어두워져요 (재생하면 따라감) · 끌면 그 크기의 동그라미 자리를 비춰요',
@@ -420,7 +422,8 @@ export async function studio(el, { id, mode }) {
   // 트래킹 · 연결선은 재생 중에도 보이고, 나머지 그림은 그 장면에서 멈춰 있을 때만 보임
   // 재생되면 선수를 따라가는 그림. still = 따라가지 않고 그 장면에서 멈춤 동안만 보여줌
   const isLive = (it) => !it.still && (it.k === 'spot' || it.k === 'link' || ((it.k === 'light' || it.k === 'offside') && !!it.p?.tr));
-  let followPref = true; // 트래킹 · 스포트라이트를 새로 만들 때 '따라가기' 기본값 (마지막에 고른 값)
+  let followPref = true;
+  let visionPref = 50; // 시야 넓이 기본값 (마지막에 고른 값) // 트래킹 · 스포트라이트를 새로 만들 때 '따라가기' 기본값 (마지막에 고른 값)
   const visible = (it) => (isLive(it)
     ? t() >= it.t0 - 0.02 && (it.t1 == null || t() <= it.t1 + 0.02) && !cutOff(it)
     : recording?.hq ? !!freeze?.items.includes(it) : video.paused && Math.abs(t() - it.t0) < 0.06);
@@ -501,6 +504,7 @@ export async function studio(el, { id, mode }) {
     // 재생 중엔 필요할 때만 분석 (따라갈 선수 · 바닥 그림이 없으면 건너뛰어 영상이 끊기지 않게)
     if (playing && !needAnalysis(now)) return;
     if (!fa.grab(SRC(), tele.set)) return;
+    occludeTracked(now);
     if (!fa.hz || performance.now() - hzAt > 500) { fa.hz = fa.horizon(); hzAt = performance.now(); }
     msctx.clearRect(0, 0, maskSoft.width, maskSoft.height);
     msctx.drawImage(fa.mask, 0, 0, maskSoft.width, maskSoft.height);
@@ -530,6 +534,18 @@ export async function studio(el, { id, mode }) {
     }
   }
 
+  // 지금 장면에 있는 트래킹 선수들(기록된 길 안) → 그 네모 안은 선수가 그림 앞에
+  function occludeTracked(now) {
+    const boxes = [];
+    for (const tr of tele.trackers) {
+      const p = tr.path;
+      if (!p.length || now < p[0][0] - 0.05 || now > p[p.length - 1][0] + 0.3) continue;
+      const b = trBox(tr);
+      if (b) boxes.push(b);
+    }
+    fa.occludeBoxes(boxes);
+  }
+
   // 이 선수를 쓰는 그림들 중 가장 늦게 끝나는 시각
   function trackUntil(tr) {
     let until = -1;
@@ -542,7 +558,7 @@ export async function studio(el, { id, mode }) {
 
   // 나타나는 효과 진행도: 강조 멈춤 중이면 멈춘 뒤 흐른 시간, 재생 중이면 영상 시간 기준 (0.7초에 걸쳐)
   // 화살표 · 연결선은 1.6초에 걸쳐 그어지고, 나머지는 0.8초에 걸쳐 나타남 (그림마다 바꿀 수 있음)
-  const animSec = (it) => it.anim ?? (it.k === 'arrow' ? 1.6 : 0.8);
+  const animSec = (it) => it.anim ?? (it.k === 'arrow' || it.k === 'move' ? 1.6 : 0.8);
   function appear(it) {
     if (it.k === 'link') return 1; // 연결선은 그어지는 과정 없이 바로 보임
     const sec = animSec(it);
@@ -564,42 +580,55 @@ export async function studio(el, { id, mode }) {
     const r = (b.y - hz) / Math.max(0.02, it.a.y - hz);
     return Math.min(2.2, Math.max(0.45, r));
   }
+  // 선수 이동: 원래 자리에서 새 자리까지 실제로 걸어가듯 움직임 (잔상 · 그림자 · 점선 길), 멈춤이 끝날 땐 부드럽게 사라짐
+  const easeIO = (x) => { const v = Math.min(1, Math.max(0, x)); return v < 0.5 ? 4 * v * v * v : 1 - (-2 * v + 2) ** 3 / 2; };
   function drawMove(it, w, h) {
     const im = imgOf(it.img);
     if (!im.complete || !im.naturalWidth) return;
-    const k = 1 - (1 - Math.min(1, it._prog ?? 1)) ** 3;
+    const prog = Math.min(1, it._prog ?? 1);
+    const k = easeIO(prog);
+    const fade = it._fade ?? 1;
     const a = { x: it.a.x * w, y: it.a.y * h };
     const bN = resolve(it.b);
     const bt = { x: bN.x * w, y: bN.y * h };
-    const cur = { x: a.x + (bt.x - a.x) * k, y: a.y + (bt.y - a.y) * k };
-    const s1 = 1 + (moveScale(it) - 1) * k;
+    const at = (kk) => ({ x: a.x + (bt.x - a.x) * kk, y: a.y + (bt.y - a.y) * kk, s: 1 + (moveScale(it) - 1) * kk });
     const iw = it.wN * w;
     const ih = it.hN * h;
     const foot = (it.foot || 0) * h;
-    ctx.save();
-    // 원래 자리: 같은 선수를 어둡게 덮어서 '떠난 자리' 표시
-    ctx.filter = 'brightness(0.32) saturate(0.4)';
-    ctx.globalAlpha = 0.9;
-    ctx.drawImage(im, a.x - iw / 2, a.y - ih + foot, iw, ih);
-    ctx.filter = 'none';
-    ctx.globalAlpha = 1;
-    // 이동 경로 (점선)
     const col = it.color || PALETTE[0];
-    ctx.strokeStyle = col;
-    ctx.fillStyle = col;
-    ctx.lineWidth = Math.max(2, w / 300);
-    ctx.setLineDash([w / 120, w / 180]);
+    const put = (p, alpha) => { ctx.globalAlpha = alpha; ctx.drawImage(im, p.x - (iw * p.s) / 2, p.y - (ih - foot) * p.s, iw * p.s, ih * p.s); };
+    ctx.save();
+    // 원래 자리: 선수를 지우고 주변 잔디로 메움 (예전 그림은 어두운 자국) + 옅은 윤곽으로 '여기 있었다' 표시
+    const plate = it.bg && imgOf(it.bg);
+    const leave = Math.min(1, prog * 2.5) * fade;
+    if (plate && plate.complete && plate.naturalWidth) {
+      ctx.globalAlpha = leave;
+      ctx.drawImage(plate, a.x - iw / 2, a.y - ih + foot, iw, ih);
+      ctx.filter = 'brightness(2.2) grayscale(1)';
+      put({ ...a, s: 1 }, 0.18 * leave);
+      ctx.filter = 'none';
+    } else {
+      ctx.filter = 'brightness(0.3) saturate(0.3)';
+      put({ ...a, s: 1 }, 0.85 * leave);
+      ctx.filter = 'none';
+    }
+    // 지나온 길 (점선) — 움직인 만큼만
+    const cur = at(k);
+    ctx.globalAlpha = 0.9 * fade;
+    ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, w / 300); ctx.setLineDash([w / 120, w / 180]);
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(cur.x, cur.y); ctx.stroke();
     ctx.setLineDash([]);
-    // 새 자리: 발밑 그림자 + 선수
-    ctx.globalAlpha = 0.35;
+    // 잔상: 움직이는 동안 뒤에 옅게 몇 개 (움직임이 확실히 보이게)
+    if (prog > 0 && prog < 1) for (let j = 3; j >= 1; j--) { const kj = easeIO(prog - j * 0.07); if (kj > 0 && kj < k - 0.01) put(at(kj), (0.32 - j * 0.08) * fade); }
+    // 새 자리: 발밑 그림자 + 고리 + 선수 (살짝 그림자를 줘서 영상에 붙어 보이게)
+    ctx.globalAlpha = 0.35 * fade;
     ctx.fillStyle = '#000';
-    ctx.beginPath(); ctx.ellipse(cur.x, cur.y, iw * s1 * 0.45, iw * s1 * 0.14, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = col;
-    ctx.lineWidth = Math.max(2, w / 400);
-    ctx.beginPath(); ctx.ellipse(cur.x, cur.y, iw * s1 * 0.55, iw * s1 * 0.18, 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.drawImage(im, cur.x - (iw * s1) / 2, cur.y - (ih - foot) * s1, iw * s1, ih * s1);
+    ctx.beginPath(); ctx.ellipse(cur.x, cur.y, iw * cur.s * 0.45, iw * cur.s * 0.14, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, w / 400);
+    ctx.beginPath(); ctx.ellipse(cur.x, cur.y, iw * cur.s * 0.55, iw * cur.s * 0.18, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = Math.max(2, ih * cur.s * 0.04);
+    put(cur, fade);
     ctx.restore();
   }
 
@@ -721,7 +750,9 @@ export async function studio(el, { id, mode }) {
     const w = W();
     const h = H();
     ctx.clearRect(0, 0, w, h); // 영상은 아래 <video> 가 원본 화질로 재생
-    const vis = tele.items.filter(visible).map((it) => ({ ...withSpotSize(it), _prog: appear(it), _src: it, _hz: fa.hz }));
+    // 멈춤이 끝나기 0.4초 전부터 선수 이동은 서서히 사라짐 (영상으로 돌아갈 때 툭 끊기지 않게)
+    const fadeOut = freeze && freeze.until ? Math.min(1, Math.max(0, (freeze.until - clock()) / 400)) : 1;
+    const vis = tele.items.filter(visible).map((it) => ({ ...withSpotSize(it), _prog: appear(it), _src: it, _hz: fa.hz, _ph: it.k === 'arrow' ? phAt(it.a) : undefined, _fade: it.k === 'move' ? fadeOut : 1 }));
     // 바닥 레이어 (크로마키 대상)
     gctx.clearRect(0, 0, w, h);
     vis.filter((it) => GROUND.has(it.k)).forEach((it) => drawItem(gctx, it, P, w, tele.items, resolve));
@@ -750,9 +781,11 @@ export async function studio(el, { id, mode }) {
     vis.forEach((it) => {
       if (it.k === 'text') drawItem(ctx, it, P, w, tele.items, resolve);
       if (it.k === 'measure') drawMeasureLabel(ctx, it, P, w, tele.items, resolve);
+      if (it.k === 'angle') drawAngleLabel(ctx, it, P, w);
       if (it.k === 'spot') spotTop(it, w);
     });
     if (draft && draft.k === 'measure') drawMeasureLabel(ctx, draft, P, w, tele.items, resolve);
+    if (draft && draft.k === 'angle') drawAngleLabel(ctx, draft, P, w);
     // 편집 표시
     if (edit && !recording) {
       if (man && boxesShown()) drawKeys(man.tr, w, h);
@@ -862,6 +895,31 @@ export async function studio(el, { id, mode }) {
     const len = Math.hypot(d.x * W(), d.y * H()) || 1;
     const L = Math.min(W(), H()) * 0.2;
     return { x: a.x + ((d.x * W()) / len) * (L / W()), y: a.y + ((d.y * H()) / len) * (L / H()) };
+  }
+
+  // 이 자리에 서 있는 선수의 화면 키(캔버스 px): 선수에 붙어 있으면 그 선수, 아니면 지금 보이는 트래킹 선수로 원근 계산
+  function phAt(pt) {
+    const now = t();
+    if (pt?.tr) {
+      const tr = tele.trackers.find((x) => x.id === pt.tr);
+      const q = tr && trackerPos(tr, now);
+      const h = (q && q.h) || tr?.h;
+      if (h) return h * H();
+    }
+    const p = resolve(pt);
+    let best = null;
+    for (const tr of tele.trackers) {
+      const path = tr.path;
+      if (!path.length || now < path[0][0] - 0.1 || now > path[path.length - 1][0] + 0.5) continue;
+      const q = trackerPos(tr, now); const h = (q && q.h) || tr.h;
+      if (!q || !h) continue;
+      const d = Math.abs(q.y - p.y);
+      if (!best || d < best.d) best = { d, h, y: q.y };
+    }
+    if (!best) return undefined; // 기준이 될 선수가 없으면 예전처럼 화면 크기로
+    const hz = fa.hz;
+    const k = hz != null && best.y - hz > 0.02 && p.y - hz > 0.02 ? Math.min(2, Math.max(0.4, (p.y - hz) / (best.y - hz))) : 1;
+    return best.h * k * H();
   }
 
   // 트래킹 선수의 실제 키에 맞춰 ▼ 표시 크기 결정 (멀리 있으면 작게, 가까우면 크게)
@@ -1002,7 +1060,7 @@ export async function studio(el, { id, mode }) {
   video.addEventListener('play', () => markHere());
 
   // ── 그림 목록 · 속성 ──
-  const NAMES = { zoom: '돋보기', move: '선수 이동', shape: '도형', arrow: '화살표', spot: '트래킹', poly: '도형', link: '선수 연결', grid: '그리드', measure: '거리', text: '글자', light: '스포트라이트', offside: '오프사이드 라인' };
+  const NAMES = { vision: '시야', angle: '각도', zoom: '돋보기', move: '선수 이동', shape: '그리드', arrow: '화살표', spot: '트래킹', poly: '그리드', link: '선수 연결', grid: '그리드', measure: '거리', text: '글자', light: '스포트라이트', offside: '오프사이드 라인' };
   const ICONS = { ...Object.fromEntries(TOOLS.map(([k, , ic]) => [k, ic])), spot: '◎', poly: '⬠' };
   // 같은 순간(0.06초 안)에 나타나는 그림끼리 한 장면으로
   function scenes() {
@@ -1227,6 +1285,10 @@ export async function studio(el, { id, mode }) {
         <div class="st-num"><span>배율</span><div class="seg sm">${[2, 3, 4].map((v) => `<button type="button" class="${(it.z || 2) === v ? 'on' : ''}" data-zz="${v}">×${v}</button>`).join('')}</div></div>
         <label class="st-range">돋보기 크기 <input type="range" min="40" max="220" value="${Math.round((it.r || 0.1) * 1000)}" data-zr></label>
         <p class="muted small">돋보기를 끌어서 보여줄 곳으로 옮겨요.</p>` : ''}
+      ${it.k === 'vision' ? `<div class="st-num"><span>시야 넓이</span><div class="seg sm">${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="${(it.spread || 50) === v ? 'on' : ''}" data-vsp="${v}">${l}</button>`).join('')}</div></div>
+        <p class="muted small">흰 점을 끌어 보는 방향 · 길이를 바꿔요. 시작 점을 트래킹 중인 선수 발에 두면 그 선수에 붙어요.</p>` : ''}
+      ${it.k === 'angle' ? `<div class="st-num"><span>각도</span><b>${Math.round(angleDeg(P(it.a), P(it.b), P(it.c)))}°</b><input type="number" min="0" max="180" step="1" value="${it.deg ?? ''}" placeholder="직접 입력" data-adeg><i>°</i></div>
+        <p class="muted small">꼭짓점 · 두 선 끝(흰 점)을 끌어서 맞춰요. 숫자는 화면에서 본 각도라 원근 때문에 실제와 조금 다를 수 있어요 — 정확한 값을 알면 직접 입력하세요.</p>` : ''}
       ${it.k === 'light' ? `<label class="st-range">${it.p?.tr ? '빛 크기' : '동그라미 크기'} <input type="range" min="${it.p?.tr ? 50 : 10}" max="${it.p?.tr ? 250 : 400}" value="${it.p?.tr ? Math.round((it.scale || 1) * 100) : Math.round((it.r || 0.06) * 1000)}" data-lsize></label>
         <label class="st-range">주변 어둡게 <input type="range" min="20" max="95" value="${Math.round((it.dim ?? 0.68) * 100)}" data-ldim></label>
         <label class="mini-switch"><input type="checkbox" data-lring ${it.ring !== false ? 'checked' : ''}> 테두리 빛</label>
@@ -1251,6 +1313,8 @@ export async function studio(el, { id, mode }) {
     box.querySelector('[data-phold]').onchange = ch(() => { const v = box.querySelector('[data-phold]').value; it.hold = Math.max(0, Math.min(30, v === '' ? 4 : +v)); });
     box.querySelector('[data-pdel]').onclick = ch(() => { tele.items = tele.items.filter((x) => x !== it); sel = null; });
     box.querySelector('[data-pdup]').onclick = () => dupItem(it);
+    box.querySelectorAll('[data-vsp]').forEach((b) => (b.onclick = ch(() => { it.spread = +b.dataset.vsp; visionPref = it.spread; })));
+    box.querySelector('[data-adeg]')?.addEventListener('change', ch(() => { const v = box.querySelector('[data-adeg]').value; if (v === '') delete it.deg; else it.deg = Math.max(0, Math.min(180, +v)); }));
     box.querySelector('[data-pfollow]')?.addEventListener('change', ch(() => {
       followPref = box.querySelector('[data-pfollow]').checked;
       if (followPref) { delete it.still; if (it.t1 != null && it.t1 <= it.t0) it.t1 = +(it.t0 + (+tele.set.dur || 5)).toFixed(2); } else it.still = true;
@@ -1341,6 +1405,8 @@ export async function studio(el, { id, mode }) {
       if (it.k === 'spot' && pxDist(pts[0], n) < Math.max(26, (withSpotSize(it).size || 0) * canvas.clientWidth * 1.2)) return { it, h: null };
       if (it.k === 'text' && pxDist(pts[0], n) < 30) return { it, h: null };
       if (it.k === 'zoom' && pxDist(pts[0], n) < (it.r || 0.1) * canvas.clientWidth) return { it, h: null };
+      if (it.k === 'vision' && segDist(pts[0], pts[1], n) < 14) return { it, h: null };
+      if (it.k === 'angle' && (segDist(pts[0], pts[1], n) < 14 || segDist(pts[0], pts[2], n) < 14)) return { it, h: null };
       if (it.k === 'light') {
         const sh = lightShape(it); const k = canvas.clientWidth / W();
         if ((((n.x * canvas.clientWidth) - sh.x * k) / (sh.rx * k)) ** 2 + (((n.y * canvas.clientHeight) - sh.y * k) / (sh.ry * k)) ** 2 <= 1) return { it, h: null };
@@ -1412,7 +1478,7 @@ export async function studio(el, { id, mode }) {
     const ry = Math.max(rx * (W() / H()) * 0.42, Math.abs(b.y - a.y) / 2);
     const r = (v) => +v.toFixed(4);
     if (kind === 'circle') return [{ x: r(cx + rx), y: r(cy) }, { x: r(cx), y: r(cy + ry) }, { x: r(cx - rx), y: r(cy) }, { x: r(cx), y: r(cy - ry) }];
-    if (kind === 'rect') return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => ({ x: r(cx + u * rx), y: r(cy + v * ry) }));
+    if (kind === 'rect') return gridQuad(a, b); // 네모는 바닥에 눕힌 사다리꼴 (멀리 있는 쪽이 좁게 = 원근)
     const n = { circle: 10, tri: 3, penta: 5, hexa: 6 }[kind] || 10;
     const start = kind === 'hexa' ? 0 : -Math.PI / 2;
     return Array.from({ length: n }, (_, i) => {
@@ -1941,7 +2007,7 @@ export async function studio(el, { id, mode }) {
     const h = hit(n);
     const pt = h && h.h != null ? itemPoints(h.it)[h.h] : null;
     if (drawing) {
-      if (h && (pt?.tr || (h.h == null && ['grid', 'poly', 'spot', 'light', 'offside'].includes(h.it.k)))) return null;
+      if (h && (pt?.tr || (h.h == null && ['grid', 'poly', 'spot', 'light', 'offside', 'vision', 'angle'].includes(h.it.k)))) return null;
     }
     if (h) {
       const bound = pt?.tr || (h.it.k === 'spot' && h.it.p?.tr);
@@ -1988,6 +2054,18 @@ export async function studio(el, { id, mode }) {
       if (tool === 'move') { // ① 옮길 선수를 네모로 감싸서 직접 자르기
         draft = { k: 'cutbox', a: n, b: n };
         drag = { creating: true };
+        render();
+        return;
+      }
+      if (tool === 'vision') {
+        draft = newItem('vision', { a: snap(n), b: { x: +n.x.toFixed(4), y: +n.y.toFixed(4) }, spread: visionPref });
+        drag = { creating: true, start: n };
+        render();
+        return;
+      }
+      if (tool === 'angle') {
+        draft = newItem('angle', { a: snap(n), b: { x: n.x, y: n.y }, c: { x: n.x, y: n.y } });
+        drag = { creating: true, start: n };
         render();
         return;
       }
@@ -2050,6 +2128,14 @@ export async function studio(el, { id, mode }) {
       }
       if (draft && (draft.k === 'arrow' || draft.k === 'measure' || draft.k === 'trackbox' || draft.k === 'cutbox' || draft.k === 'move') && drag?.creating) { draft.b = { x: +n.x.toFixed(4), y: +n.y.toFixed(4) }; render(); return; }
       if (draft && draft.k === 'grid' && drag?.creating) { draft.q = gridQuad(drag.start, n); render(); return; }
+      if (draft && draft.k === 'vision' && drag?.creating) { draft.b = { x: +n.x.toFixed(4), y: +n.y.toFixed(4) }; render(); return; }
+      if (draft && draft.k === 'angle' && drag?.creating) {
+        // 두 번째 선은 첫 선에서 35° 돌린 자리에 (놓은 뒤 끌어서 맞춤)
+        const a = resolve(draft.a); const dx = (n.x - a.x) * W(); const dy = (n.y - a.y) * H(); const r = 35 * Math.PI / 180;
+        draft.b = { x: +n.x.toFixed(4), y: +n.y.toFixed(4) };
+        draft.c = { x: +(a.x + (dx * Math.cos(r) - dy * Math.sin(r)) / W()).toFixed(4), y: +(a.y + (dx * Math.sin(r) + dy * Math.cos(r)) / H()).toFixed(4) };
+        render(); return;
+      }
       if (draft && draft.k === 'light' && drag?.creating) { draft.r = +Math.max(0.004, Math.hypot(n.x - drag.start.x, ((n.y - drag.start.y) * H()) / W())).toFixed(4); render(); return; }
       if (draft && draft.k === 'offside' && drag?.creating) { if (pxDist(drag.start, n) > 8) draft.d = { x: +(n.x - drag.start.x).toFixed(4), y: +(n.y - drag.start.y).toFixed(4) }; render(); return; }
       if (draft && draft.k === 'poly' && draft.shape && drag?.creating) { draft.pts = shapePts(drag.start, n, draft.shape); render(); return; }
@@ -2090,6 +2176,7 @@ export async function studio(el, { id, mode }) {
           else if (it.k === 'spot') it.p = np;
           else if (it.k === 'measure') it[h ? 'b' : 'a'] = np;
           else if (it.k === 'text' || it.k === 'zoom' || it.k === 'light' || it.k === 'offside') it.p = np;
+          else if (it.k === 'vision' || it.k === 'angle') it[['a', 'b', 'c'][h]] = np;
           else if (it.k === 'move') it.b = np;
           else if (it.k === 'poly' && it.shape === 'circle' && it.pts.length === 4) {
             // 동그라미: 끈 점 방향으로 가로/세로 반지름만 바꾸고 항상 타원 유지
@@ -2134,11 +2221,11 @@ export async function studio(el, { id, mode }) {
             try { m = pt.measure(video, n.x * VW, n.y * VH, tele.set, fa.hz); } catch { /* */ }
             const fx = m ? m.x : n.x * VW; const fy = m ? m.y : n.y * VH; const ph = m ? m.ph : VH * 0.08;
             const c = cutPlayer(video, fx, fy, ph, tele.set);
-            cut = { url: c.url, wN: c.wN, hN: c.hN, fx, fy, foot: c.footOff };
+            cut = { url: c.url, bg: c.bg, wN: c.wN, hN: c.hN, fx, fy, foot: c.footOff };
           }
         } catch { toast('이 영상은 선수를 오려낼 수 없습니다.'); render(); return; }
         const a = { x: +(cut.fx / VW).toFixed(4), y: +(cut.fy / VH).toFixed(4) };
-        commit(newItem('move', { a, b: { ...a }, img: cut.url, wN: cut.wN, hN: cut.hN, foot: cut.foot || 0 }));
+        commit(newItem('move', { a, b: { ...a }, img: cut.url, bg: cut.bg, wN: cut.wN, hN: cut.hN, foot: cut.foot || 0 }));
         setHint('✂ 잘랐어요 — ② 이제 잘린 선수를 끌어서 옮길 곳에 놓으세요 (덜 잘렸으면 오른쪽 ✂ 선수 다듬기)');
         return;
       }
@@ -2155,6 +2242,12 @@ export async function studio(el, { id, mode }) {
         return;
       }
       if (draft && draft.k === 'offside' && drag?.creating) { drag = null; commit(draft); return; }
+      if (draft && (draft.k === 'vision' || draft.k === 'angle') && drag?.creating) {
+        drag = null;
+        if (pxDist(resolve(draft.a), draft.b) > 12) commit(draft); else { draft = null; render(); }
+        if (tool === 'select' && sel?.k === 'angle') setHint('두 번째 선 끝 점(흰 점)을 끌어서 맞추세요 — 각도가 바로 바뀌어요');
+        return;
+      }
       if (draft && draft.k === 'trackbox' && drag?.creating && draft.target) {
         // '다시 잡기'에서 AI 후보 대신 직접 감싼 네모
         const n = toNorm(e);
@@ -2244,6 +2337,7 @@ export async function studio(el, { id, mode }) {
           if (it.k === 'arrow') it[h ? 'b' : 'a'] = s;
           else if (it.k === 'spot') it.p = s;
           else if ((it.k === 'light' || it.k === 'offside') && h === 0) it.p = s;
+          else if ((it.k === 'vision' || it.k === 'angle') && h === 0) it.a = s;
           else if (it.k === 'poly' || it.k === 'link') it.pts[h] = s;
         }
         render();
