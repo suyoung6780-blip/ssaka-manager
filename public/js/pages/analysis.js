@@ -2371,12 +2371,14 @@ export async function studio(el, { id, mode }) {
     mp4.onReady = (i) => { info = i; };
     mp4.onError = (e) => { demuxErr = e; };
     let off = 0; const CH = 8 << 20;
+    let seq = false; // 정보를 다 읽은 뒤에는 앞에서부터 차례로 (중간을 건너뛰지 않게)
     const feed = async () => {
       const buf = await blob.slice(off, off + CH).arrayBuffer();
       if (!buf.byteLength) { off = blob.size; return; }
       buf.fileStart = off;
       const next = mp4.appendBuffer(buf);
-      off = typeof next === 'number' && next > off ? next : off + buf.byteLength;
+      // 처음엔 파일 정보(moov)를 찾으러 건너뛰어도 되지만, 프레임을 꺼낼 땐 차례로 읽어야 함
+      off = !seq && typeof next === 'number' && next > off ? next : off + buf.byteLength;
     };
     while (!info && !demuxErr && off < blob.size) await feed();
     if (!info || demuxErr) return 'none';
@@ -2410,6 +2412,8 @@ export async function studio(el, { id, mode }) {
     dec.configure(dcfg);
     let samplesDone = false;
     mp4.onSamples = (tid, _u, samples) => {
+      // 소리 등 다른 트랙: 꺼낸 즉시 버림 (안 꺼내면 읽은 원본 조각이 메모리에서 안 지워져 파일 크기만큼 쌓임)
+      if (tid !== tr.id) { if (samples.length) mp4.releaseUsedSamples(tid, samples[samples.length - 1].number + 1); return; }
       for (const sm of samples) {
         const ts = (sm.cts * 1e6) / sm.timescale + tShift * 1e6;
         if (ts / 1e6 > to + 1.5) { samplesDone = true; break; }
@@ -2419,8 +2423,10 @@ export async function studio(el, { id, mode }) {
       if (samplesDone) mp4.stop();
     };
     mp4.setExtractionOptions(tr.id, null, { nbSamples: 30 });
+    for (const tk of info.tracks || []) if (tk.id !== tr.id) mp4.setExtractionOptions(tk.id, null, { nbSamples: 200 });
     const sk = mp4.seek(Math.max(0, from - tShift - 0.05), true); // 시작점 바로 앞 키프레임부터
     off = sk.offset;
+    seq = true;
     mp4.start();
     busy.msg = busy.msg.replace('🎬', '⚡');
     drawPanel();
@@ -2466,7 +2472,9 @@ export async function studio(el, { id, mode }) {
         await feed();
       }
       if (ticks === 0) return 'none';
-      console.info('[영상 만들기] 빠른 방식', `${ticks}프레임 · ${((performance.now() - t0w) / 1000).toFixed(1)}초 · 시각 보정 ${tShift.toFixed(3)}초`);
+      console.info('[영상 만들기] 빠른 방식', `${ticks}프레임 · ${((performance.now() - t0w) / 1000).toFixed(1)}초 · 시각 보정 ${tShift.toFixed(3)}초 · 마지막 ${lastM.toFixed(2)}`);
+      // 끝까지 못 갔으면(파일을 다 못 읽음 등) 남은 부분은 재생 방식으로 이어서
+      if (!busy.stop && lastM < to - 0.2) return { partial: true, lastM, ticks, done };
       return 'done';
     } finally {
       queue.forEach((f) => f.close());
@@ -2475,7 +2483,7 @@ export async function studio(el, { id, mode }) {
       frameSrc = null; vtime = null;
     }
   }
-  async function exportHQ({ from, to, maxH, fps }) {
+  async function exportHQ({ from, to, maxH, fps, fileHandle = null }) {
     await loadMuxer();
     const VW = video.videoWidth; const VH = video.videoHeight;
     const k = Math.min(1, maxH / VH);
@@ -2483,7 +2491,24 @@ export async function studio(el, { id, mode }) {
     const bitrate = Math.min(60e6, Math.round(outW * outH * fps * 0.32)); // 1080p30 ≈ 20Mbps
     const cfg = await pickCodec(outW, outH, fps, bitrate);
     if (!cfg) throw new Error('이 브라우저는 고화질 mp4 를 만들 수 없어요');
-    const muxer = new window.Mp4Muxer.Muxer({ target: new window.Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: outW, height: outH, frameRate: fps }, fastStart: 'in-memory' });
+    // 고른 파일에 바로 써 내려감 → 긴 영상도 메모리가 쌓이지 않음 (못 고르는 브라우저는 메모리에 모았다가 저장)
+    const ws = fileHandle ? await fileHandle.createWritable() : null;
+    // 쓰기를 직접 챙김: 파일에 다 써질 때까지 기다린 양(queued)이 많으면 만들기를 잠깐 멈춤 → 메모리가 쌓이지 않음
+    let queued = 0; let writeErr = null; let writing = Promise.resolve();
+    const fileTarget = ws && new window.Mp4Muxer.StreamTarget({
+      chunked: true, chunkSize: 8 << 20,
+      onData: (data, position) => {
+        const copy = data.slice();
+        queued += copy.byteLength;
+        writing = writing.then(() => ws.write({ type: 'write', position, data: copy })).then(() => { queued -= copy.byteLength; }, (e) => { writeErr = e; });
+      },
+    });
+    const muxer = new window.Mp4Muxer.Muxer({
+      target: ws ? fileTarget : new window.Mp4Muxer.ArrayBufferTarget(),
+      video: { codec: 'avc', width: outW, height: outH, frameRate: fps },
+      fastStart: ws ? false : 'in-memory',
+    });
+    let closed = false;
     let encErr = null;
     const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { encErr = e; } });
     enc.configure(cfg);
@@ -2503,6 +2528,8 @@ export async function studio(el, { id, mode }) {
       vf.close();
       n++;
       while (enc.encodeQueueSize > 6) await new Promise((r) => setTimeout(r, 4));
+      while (queued > (48 << 20) && !writeErr) await new Promise((r) => setTimeout(r, 5)); // 파일 쓰기가 밀리면 기다림
+      if (writeErr) throw writeErr;
     };
     busy = { msg: `🎬 고화질 영상 만드는 중 (${outW}×${outH} · ${fps}fps) — ${fmtT(from)} → ${fmtT(to)}`, p: 0, stop: false };
     drawPanel();
@@ -2514,19 +2541,21 @@ export async function studio(el, { id, mode }) {
       // 1순위: 영상 파일을 직접 풀어서(디코딩) 프레임을 바로 꺼내 씀 — 재생을 기다리지 않아 몇 배 빠름
       let fast = 'none';
       try { fast = await decodeExport({ from, to, fps, emit, VW, VH, onFail: () => n === 0 }); } catch (e) { if (n > 0) throw e; console.info('[영상 만들기] 빠른 방식 실패 → 재생 방식', e?.message || e); fast = 'none'; }
-      if (fast === 'none') {
-      await seekTo(from);
+      const cont = fast && fast.partial ? fast : null; // 빠른 방식이 중간까지 한 경우 거기서 이어감
+      if (cont) console.info('[영상 만들기] 빠른 방식이 중간에 끝나서 재생 방식으로 이어감', cont.lastM.toFixed(2));
+      if (fast === 'none' || cont) {
+      await seekTo(cont ? cont.lastM + 0.001 : from);
       lastProcessed = t(); prevPlayT = from;
       // 탐색(건너뛰기)을 쓰지 않음: 실제로 재생하면서 새 프레임이 나올 때마다 잠깐 멈추고 그려서 굽기
       // → 긴 영상 · 무거운 파일에서도 영상이 멈추지 않음 (예전엔 탐색이 밀리면 화면이 멈춘 채 그림만 나왔음)
       // 다음 프레임을 기다리는 시간이 대부분이라 빠르게 넘김 (프레임마다 멈추므로 빠뜨리진 않음). 밀리면 자동으로 느리게
       let rateNow = 4;
       video.muted = true; video.playbackRate = rateNow;
-      const done = new Set();
-      let lastM = from - 1e-3;
-      let ticks = 0; // 영상 시간 기준으로 낸 프레임 수 (멈춤 프레임 제외)
+      const done = cont ? cont.done : new Set();
+      let lastM = cont ? cont.lastM : from - 1e-3;
+      let ticks = cont ? cont.ticks : 0; // 영상 시간 기준으로 낸 프레임 수 (멈춤 프레임 제외)
       let lastCb = performance.now();
-      let lastFrameAt = from;
+      let lastFrameAt = cont ? cont.lastM : from;
       let fixes = 0;
       const prf = { wait: 0, proc: 0, render: 0, emit: 0, n: 0, playAt: performance.now() };
       await new Promise((resolve, reject) => {
@@ -2605,15 +2634,24 @@ export async function studio(el, { id, mode }) {
       await enc.flush();
       if (encErr) throw encErr;
       muxer.finalize();
-      const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${post.title || 'analysis'}.mp4`;
-      a.click();
-      toast(busy.stop ? '멈춘 곳까지 영상으로 저장했어요' : `고화질 영상을 저장했어요 (${Math.round(blob.size / 1e6)}MB)`);
+      if (ws) {
+        await writing;
+        if (writeErr) throw writeErr;
+        await ws.close(); closed = true;
+        const f = await fileHandle.getFile();
+        toast(`${busy.stop ? '멈춘 곳까지' : '고화질 영상을'} 저장했어요 — ${fileHandle.name} (${Math.round(f.size / 1e6)}MB)`);
+      } else {
+        const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${post.title || 'analysis'}.mp4`;
+        a.click();
+        toast(busy.stop ? '멈춘 곳까지 영상으로 저장했어요' : `고화질 영상을 저장했어요 (${Math.round(blob.size / 1e6)}MB)`);
+      }
       return true;
     } finally {
       try { enc.close(); } catch { /* */ }
+      if (ws && !closed) { try { await ws.abort(); } catch { /* */ } }
       clearInterval(watchdog);
       if (onVis) document.removeEventListener('visibilitychange', onVis);
       video.muted = muted0; video.playbackRate = rate0; video.pause();
@@ -2636,7 +2674,7 @@ export async function studio(el, { id, mode }) {
         <label>화질<select data-xq>${opts.map(([h, l]) => `<option value="${h}">${l}</option>`).join('')}</select></label>
         <label>부드러움<select data-xf><option value="30">30fps (보통)</option><option value="60">60fps (더 부드럽게 · 2배 오래 걸림)</option></select></label>
       </div>
-      <p class="muted small">※ 만드는 동안 <b>이 창을 띄워 두세요</b> — 다른 창으로 가면 잠깐 멈췄다가 돌아오면 이어서 해요.<br>※ 트래킹이 정확하지 않으면 먼저 [AI 정밀 추적]을 해 두세요 (만들 때는 화면에서 본 그대로 들어가요).<br>※ 소리는 들어가지 않아요.</p>
+      <p class="muted small">※ [만들기]를 누르면 <b>저장할 곳</b>을 먼저 골라요 — 만드는 동안 그 파일에 바로 저장돼서 긴 영상도 괜찮아요.<br>※ 만드는 동안 <b>이 창을 띄워 두세요</b> — 다른 창으로 가면 잠깐 멈췄다가 돌아오면 이어서 해요.<br>※ 트래킹이 정확하지 않으면 먼저 [AI 정밀 추적]을 해 두세요 (만들 때는 화면에서 본 그대로 들어가요).<br>※ 소리는 들어가지 않아요.</p>
       <div class="row end"><button class="btn" data-xgo>🎬 만들기</button></div>`);
     const toSec = (v) => { const p = String(v).trim().split(':').map(Number); return p.some(isNaN) ? NaN : p.reduce((x, y) => x * 60 + y, 0); };
     m.el.querySelectorAll('[data-xnow]').forEach((b) => (b.onclick = () => { m.el.querySelector(b.dataset.xnow === 'a' ? '[data-xa]' : '[data-xb]').value = fmtT1(t()); }));
@@ -2644,9 +2682,17 @@ export async function studio(el, { id, mode }) {
     m.el.querySelector('[data-xgo]').onclick = async () => {
       const from = toSec(m.el.querySelector('[data-xa]').value); const to = toSec(m.el.querySelector('[data-xb]').value);
       if (!(from >= 0) || !(to > from)) { toast('시작 · 끝 시간을 확인해 주세요 (예: 3:15.0)'); return; }
+      const maxH = +m.el.querySelector('[data-xq]').value; const fps = +m.el.querySelector('[data-xf]').value;
+      // 저장할 곳을 먼저 고름 → 만드는 동안 그 파일에 바로 씀 (긴 영상도 컴퓨터 메모리가 버팀)
+      let fileHandle = null;
+      if (window.showSaveFilePicker) {
+        try {
+          fileHandle = await window.showSaveFilePicker({ suggestedName: `${(post.title || 'analysis').replace(/[\\/:*?"<>|]/g, '_')}.mp4`, types: [{ description: 'MP4 영상', accept: { 'video/mp4': ['.mp4'] } }] });
+        } catch (e) { if (e?.name === 'AbortError') return; fileHandle = null; } // 취소하면 그만
+      }
       m.close();
       try {
-        await exportHQ({ from, to: Math.min(dur(), to), maxH: +m.el.querySelector('[data-xq]').value, fps: +m.el.querySelector('[data-xf]').value });
+        await exportHQ({ from, to: Math.min(dur(), to), maxH, fps, fileHandle });
         if (canEdit && post.video.local) setTimeout(() => shareModal(post), 600);
       } catch (err) { toast(`영상을 만들 수 없어요: ${err.message || err}`); }
     };
