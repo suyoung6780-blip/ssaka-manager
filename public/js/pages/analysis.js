@@ -398,7 +398,10 @@ export async function studio(el, { id, mode }) {
   }
 
   // ── 좌표 ──
-  const t = () => video.currentTime || 0;
+  let vtime = null; // 영상 파일을 직접 풀어 만들 때의 지금 시각(초)
+  let frameSrc = null; // 그때 쓰는 프레임 (원본 크기 캔버스)
+  const SRC = () => frameSrc || video;
+  const t = () => (vtime != null ? vtime : video.currentTime || 0);
   const resolve = (p) => {
     if (!p) return { x: 0, y: 0 };
     if (p.tr) {
@@ -497,14 +500,14 @@ export async function studio(el, { id, mode }) {
     lastProcessed = now;
     // 재생 중엔 필요할 때만 분석 (따라갈 선수 · 바닥 그림이 없으면 건너뛰어 영상이 끊기지 않게)
     if (playing && !needAnalysis(now)) return;
-    if (!fa.grab(video, tele.set)) return;
+    if (!fa.grab(SRC(), tele.set)) return;
     if (!fa.hz || performance.now() - hzAt > 500) { fa.hz = fa.horizon(); hzAt = performance.now(); }
     msctx.clearRect(0, 0, maskSoft.width, maskSoft.height);
     msctx.drawImage(fa.mask, 0, 0, maskSoft.width, maskSoft.height);
     if (!tele.set.hueManual && !autoHued) {
       autoHued = true;
       const h = fa.autoHue();
-      if (h != null && Math.abs(h - tele.set.hue) > 3) { tele.set.hue = h; fa.grab(video, tele.set); }
+      if (h != null && Math.abs(h - tele.set.hue) > 3) { tele.set.hue = h; fa.grab(SRC(), tele.set); }
     }
     if (!forward || !tele.set.autoTrack) return;
     // 화면이 크게 바뀌어도(카메라 급회전 · 줌 · 편집 컷) 멈추지 않고 계속 따라감 — 예측 속도만 초기화
@@ -517,8 +520,8 @@ export async function studio(el, { id, mode }) {
       if (now > trackUntil(tr)) continue; // 이 선수에 붙은 그림의 표시 시간이 끝나면 더 따라가지 않음
       try {
         let st = trk.get(tr.id);
-        if (!st) { const q = trackerPos(tr, lastT); st = pt.init(video, q.x, q.y, tele.set, fa.horizon()); trk.set(tr.id, st); }
-        const r = pt.step(video, st, tele.set, dt, fa.cut ? { dx: 0, dy: 0 } : fa.cam);
+        if (!st) { const q = trackerPos(tr, lastT); st = pt.init(SRC(), q.x, q.y, tele.set, fa.horizon()); trk.set(tr.id, st); }
+        const r = pt.step(SRC(), st, tele.set, dt, fa.cut ? { dx: 0, dy: 0 } : fa.cam);
         tr.lost = !r.ok;
         tr.h = +(st.ph / video.videoHeight).toFixed(4);
         if (now - lastT >= 1 / 15) tr.path.push([+now.toFixed(3), +r.x.toFixed(4), +r.y.toFixed(4), tr.h]);
@@ -703,7 +706,7 @@ export async function studio(el, { id, mode }) {
     ctx.save();
     path(); ctx.clip();
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(video, (c.x - half) * (vw / w), (c.y - hh) * (vh / h), 2 * half * (vw / w), 2 * hh * (vh / h), c.x - R, c.y - H2, 2 * R, 2 * H2);
+    ctx.drawImage(SRC(), (c.x - half) * (vw / w), (c.y - hh) * (vh / h), 2 * half * (vw / w), 2 * hh * (vh / h), c.x - R, c.y - H2, 2 * R, 2 * H2);
     ctx.drawImage(ground, c.x - half, c.y - hh, 2 * half, 2 * hh, c.x - R, c.y - H2, 2 * R, 2 * H2);
     ctx.restore();
     ctx.save();
@@ -2351,6 +2354,127 @@ export async function studio(el, { id, mode }) {
     }
     return null;
   }
+  // ── 빠른 방식: mp4 를 직접 풀기 (mp4box.js 로 꺼내 → 브라우저 하드웨어 디코더) ──
+  // 못 쓰는 파일(회전 정보 · 지원 안 되는 코덱 등)이면 'none' 을 돌려주고 재생 방식으로
+  const MP4BOX = 'https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js';
+  const loadMp4box = () => (window.MP4Box ? Promise.resolve() : new Promise((res, rej) => {
+    const sc = document.createElement('script'); sc.src = MP4BOX; sc.onload = res; sc.onerror = () => rej(new Error('mp4box 를 불러오지 못했어요'));
+    document.head.appendChild(sc);
+  }));
+  async function decodeExport({ from, to, fps, emit, VW, VH }) {
+    if (typeof VideoDecoder === 'undefined') return 'none';
+    await loadMp4box();
+    const blob = post.video.local ? localFiles.get(id) : await (await fetch(vsrc)).blob();
+    if (!blob) return 'none';
+    const mp4 = window.MP4Box.createFile();
+    let info = null; let demuxErr = null;
+    mp4.onReady = (i) => { info = i; };
+    mp4.onError = (e) => { demuxErr = e; };
+    let off = 0; const CH = 8 << 20;
+    const feed = async () => {
+      const buf = await blob.slice(off, off + CH).arrayBuffer();
+      if (!buf.byteLength) { off = blob.size; return; }
+      buf.fileStart = off;
+      const next = mp4.appendBuffer(buf);
+      off = typeof next === 'number' && next > off ? next : off + buf.byteLength;
+    };
+    while (!info && !demuxErr && off < blob.size) await feed();
+    if (!info || demuxErr) return 'none';
+    const tr = info.videoTracks?.[0];
+    if (!tr) return 'none';
+    // 회전 · 비율이 다른 영상은 화면과 다르게 풀리므로 재생 방식으로
+    const ident = !tr.matrix || [65536, 0, 0, 0, 65536, 0].every((v, i) => tr.matrix[i] === v);
+    if (!ident || tr.video.width !== VW || tr.video.height !== VH) return 'none';
+    const trak = mp4.getTrackById(tr.id);
+    // 편집 목록(elst): 재생기는 앞부분을 건너뛰거나(media_time) 늦게 시작(빈 구간) → 같은 시각이 되게 맞춤
+    let tShift = 0;
+    for (const e of trak.edts?.elst?.entries || []) {
+      if (e.media_time === -1) tShift += e.segment_duration / info.timescale; // 빈 구간 = 늦게 시작
+      else { tShift -= e.media_time / trak.mdia.mdhd.timescale; break; }
+    }
+    const entry = trak.mdia.minf.stbl.stsd.entries[0];
+    const box = entry.avcC || entry.hvcC || entry.vpcC || entry.av1C;
+    let description;
+    if (box) { const ds = new window.DataStream(undefined, 0, window.DataStream.BIG_ENDIAN); box.write(ds); description = new Uint8Array(ds.buffer, 8); }
+    const dcfg = { codec: tr.codec, codedWidth: tr.video.width, codedHeight: tr.video.height, description, hardwareAcceleration: 'prefer-hardware' };
+    let sup = false;
+    try { sup = (await VideoDecoder.isConfigSupported(dcfg)).supported; } catch { sup = false; }
+    if (!sup) { delete dcfg.hardwareAcceleration; try { sup = (await VideoDecoder.isConfigSupported(dcfg)).supported; } catch { sup = false; } }
+    if (!sup) return 'none';
+
+    const src = document.createElement('canvas');
+    src.width = VW; src.height = VH; src.videoWidth = VW; src.videoHeight = VH;
+    const sctx = src.getContext('2d', { willReadFrequently: true });
+    const queue = []; let decErr = null;
+    const dec = new VideoDecoder({ output: (f) => queue.push(f), error: (e) => { decErr = e; } });
+    dec.configure(dcfg);
+    let samplesDone = false;
+    mp4.onSamples = (tid, _u, samples) => {
+      for (const sm of samples) {
+        const ts = (sm.cts * 1e6) / sm.timescale + tShift * 1e6;
+        if (ts / 1e6 > to + 1.5) { samplesDone = true; break; }
+        dec.decode(new EncodedVideoChunk({ type: sm.is_sync ? 'key' : 'delta', timestamp: ts, duration: (sm.duration * 1e6) / sm.timescale, data: sm.data }));
+      }
+      if (samples.length) mp4.releaseUsedSamples(tid, samples[samples.length - 1].number + 1);
+      if (samplesDone) mp4.stop();
+    };
+    mp4.setExtractionOptions(tr.id, null, { nbSamples: 30 });
+    const sk = mp4.seek(Math.max(0, from - tShift - 0.05), true); // 시작점 바로 앞 키프레임부터
+    off = sk.offset;
+    mp4.start();
+    busy.msg = busy.msg.replace('🎬', '⚡');
+    drawPanel();
+    frameSrc = src;
+    const done = new Set();
+    let lastM = from - 1e-3; let ticks = 0; let flushed = false; let finished = false;
+    const t0w = performance.now();
+    const frameAt = async (m) => {
+      vtime = m;
+      const hits = tele.items.filter((it) => it.hold > 0 && !done.has(it) && it.t0 > lastM && it.t0 <= m + 1e-3);
+      if (hits.length) {
+        hits.forEach((it) => done.add(it));
+        processFrameInner(true, m);
+        const hold = Math.max(...hits.map((it) => it.hold));
+        freeze = { start: 0, items: hits, until: hold * 1000 };
+        for (let f = 0; f < Math.round(hold * fps) && !busy.stop; f++) { vclock = (f * 1000) / fps; render(); await emit(); }
+        freeze = null; vclock = null;
+      }
+      processFrameInner(true, m);
+      render();
+      while (from + ticks / fps <= m + 1e-4 && from + ticks / fps <= to + 1e-4) { await emit(); ticks++; }
+      lastM = m;
+      busy.p = (m - from) / Math.max(0.01, to - from);
+      if (ticks % 10 === 0) drawPanel();
+    };
+    try {
+      lastProcessed = from - 1 / fps;
+      while (!finished) {
+        if (decErr) throw decErr;
+        if (busy.stop) break;
+        if (queue.length) {
+          const f = queue.shift();
+          const m = f.timestamp / 1e6;
+          if (m >= from - 1e-3 && m <= to + 1e-3) { sctx.drawImage(f, 0, 0, VW, VH); f.close(); await frameAt(m); } else f.close();
+          if (m > to) finished = true;
+          continue;
+        }
+        if (samplesDone || off >= blob.size) {
+          if (!flushed) { flushed = true; await dec.flush(); continue; }
+          break;
+        }
+        if (dec.decodeQueueSize > 24) { await new Promise((r) => setTimeout(r, 1)); continue; }
+        await feed();
+      }
+      if (ticks === 0) return 'none';
+      console.info('[영상 만들기] 빠른 방식', `${ticks}프레임 · ${((performance.now() - t0w) / 1000).toFixed(1)}초 · 시각 보정 ${tShift.toFixed(3)}초`);
+      return 'done';
+    } finally {
+      queue.forEach((f) => f.close());
+      try { dec.close(); } catch { /* */ }
+      try { mp4.stop(); mp4.flush?.(); } catch { /* */ }
+      frameSrc = null; vtime = null;
+    }
+  }
   async function exportHQ({ from, to, maxH, fps }) {
     await loadMuxer();
     const VW = video.videoWidth; const VH = video.videoHeight;
@@ -2372,7 +2496,7 @@ export async function studio(el, { id, mode }) {
     let n = 0;
     const emit = async () => {
       cctx.imageSmoothingQuality = 'high';
-      cctx.drawImage(video, 0, 0, outW, outH);
+      cctx.drawImage(SRC(), 0, 0, outW, outH);
       cctx.drawImage(canvas, 0, 0);
       const vf = new VideoFrame(comp, { timestamp: Math.round(n * us), duration: Math.round(us) });
       enc.encode(vf, { keyFrame: n % (fps * 2) === 0 });
@@ -2385,26 +2509,59 @@ export async function studio(el, { id, mode }) {
     freeze = null; video.pause();
     const muted0 = video.muted; const rate0 = video.playbackRate;
     let watchdog = null;
+    let onVis = null;
     try {
+      // 1순위: 영상 파일을 직접 풀어서(디코딩) 프레임을 바로 꺼내 씀 — 재생을 기다리지 않아 몇 배 빠름
+      let fast = 'none';
+      try { fast = await decodeExport({ from, to, fps, emit, VW, VH, onFail: () => n === 0 }); } catch (e) { if (n > 0) throw e; console.info('[영상 만들기] 빠른 방식 실패 → 재생 방식', e?.message || e); fast = 'none'; }
+      if (fast === 'none') {
       await seekTo(from);
       lastProcessed = t(); prevPlayT = from;
       // 탐색(건너뛰기)을 쓰지 않음: 실제로 재생하면서 새 프레임이 나올 때마다 잠깐 멈추고 그려서 굽기
       // → 긴 영상 · 무거운 파일에서도 영상이 멈추지 않음 (예전엔 탐색이 밀리면 화면이 멈춘 채 그림만 나왔음)
-      video.muted = true; video.playbackRate = 1;
+      // 다음 프레임을 기다리는 시간이 대부분이라 빠르게 넘김 (프레임마다 멈추므로 빠뜨리진 않음). 밀리면 자동으로 느리게
+      let rateNow = 4;
+      video.muted = true; video.playbackRate = rateNow;
       const done = new Set();
       let lastM = from - 1e-3;
       let ticks = 0; // 영상 시간 기준으로 낸 프레임 수 (멈춤 프레임 제외)
       let lastCb = performance.now();
       let lastFrameAt = from;
+      let fixes = 0;
+      const prf = { wait: 0, proc: 0, render: 0, emit: 0, n: 0, playAt: performance.now() };
       await new Promise((resolve, reject) => {
         let finished = false;
         const finish = (err) => { if (finished) return; finished = true; clearInterval(watchdog); video.pause(); if (err) reject(err); else resolve(); };
+        let srcStep = 1 / 24; // 원본 프레임 간격 (지나가며 추정)
+        let retry = 0;
+        const resume = async () => {
+          if (finished) return;
+          if (document.hidden) { waiting = true; busy.msg = busy.msg.replace(/^(⏸ 다른 창에 있어서 잠깐 멈춤 — )?/, '⏸ 다른 창에 있어서 잠깐 멈춤 — '); drawPanel(); return; } // 다른 창이면 돌아올 때까지 기다림
+          prf.playAt = performance.now();
+          video.requestVideoFrameCallback(onCb);
+          // 버퍼링 중엔 '재생'과 '잠깐 멈춤'이 겹쳐 재생 요청이 취소될 수 있음 → 오류로 보지 않음 (안 넘어가면 감시가 다시 재생)
+          video.play().catch(() => {});
+        };
+        let waiting = false;
+        onVis = () => { if (!document.hidden && waiting && !finished) { waiting = false; busy.msg = busy.msg.replace('⏸ 다른 창에 있어서 잠깐 멈춤 — ', ''); lastCb = performance.now(); resume().catch(finish); } };
+        document.addEventListener('visibilitychange', onVis);
         const onCb = async (_now, md) => {
           if (finished) return;
           video.pause(); // 그리는 동안 영상은 그 프레임에 멈춰 둠 (프레임이 빠지지 않게)
           lastCb = performance.now();
           const m = md?.mediaTime ?? video.currentTime;
           try {
+            const step = m - lastM;
+            if (step > 1e-4 && step < srcStep && lastM >= from) srcStep = step;
+            // 영상이 몇 프레임을 건너뛰었으면 되돌아가서 그 프레임부터 다시 (같은 장면으로 채우지 않음)
+            if (lastM >= from && step > Math.max(3 / fps, srcStep * 2.5) && retry < 3) {
+              retry++; fixes++;
+              if (rateNow > 1) { rateNow = Math.max(1, rateNow / 2); video.playbackRate = rateNow; } // 컴퓨터가 못 따라가면 속도 낮춤
+              await seekTo(lastM + srcStep * 0.5);
+              await resume();
+              return;
+            }
+            retry = 0;
             // 이 사이에 나타나는 그림 → 그 장면에서 멈춤 시간만큼 같은 장면 반복 (그림이 그려지는 효과 포함)
             const hits = tele.items.filter((it) => it.hold > 0 && !done.has(it) && it.t0 > lastM && it.t0 <= m + 1e-3);
             if (hits.length) {
@@ -2415,16 +2572,20 @@ export async function studio(el, { id, mode }) {
               for (let f = 0; f < Math.round(hold * fps) && !busy.stop; f++) { vclock = (f * 1000) / fps; render(); await emit(); }
               freeze = null; vclock = null;
             }
+            let q0 = performance.now();
+            prf.wait += q0 - prf.playAt;
             processFrameInner(true, m);
+            let q1 = performance.now(); prf.proc += q1 - q0;
             render();
+            q0 = performance.now(); prf.render += q0 - q1;
             // 영상 시간에 맞춰 프레임 내기 (원본이 30fps 이고 60fps 로 만들면 같은 장면을 두 번)
             while (from + ticks / fps <= m + 1e-4 && from + ticks / fps <= to + 1e-4) { await emit(); ticks++; }
+            prf.emit += performance.now() - q0; prf.n++;
             lastM = m; lastFrameAt = m;
             busy.p = (m - from) / Math.max(0.01, to - from);
             if (ticks % 6 === 0) drawPanel();
             if (m >= to - 1e-3 || busy.stop || encErr || video.ended) { finish(encErr); return; }
-            video.requestVideoFrameCallback(onCb);
-            await video.play();
+            await resume();
           } catch (e) { finish(e); }
         };
         // 다음 프레임이 한참 안 나오면 다시 재생 · 그래도 안 되면 멈춘 곳까지 저장
@@ -2432,12 +2593,15 @@ export async function studio(el, { id, mode }) {
           if (finished) return;
           const idle = performance.now() - lastCb;
           if (video.ended || lastFrameAt >= to - 0.05) { finish(); return; }
-          if (idle > 4000 && video.paused) video.play().catch(() => {});
+          if (document.hidden || waiting) { lastCb = performance.now(); return; } // 다른 창에 있는 동안은 기다림
+          if (idle > 4000 && video.paused) resume().catch(() => {});
           if (idle > 15000) { busy.stop = true; toast(`${fmtT(lastFrameAt)}에서 영상이 더 진행되지 않아 거기까지 저장해요`); finish(); }
         }, 1000);
         video.requestVideoFrameCallback(onCb);
-        video.play().catch(finish);
+        video.play().catch(() => {});
       });
+      console.info('[영상 만들기] 재생 방식 · 건너뛴 프레임 바로잡음', fixes, '· 프레임당 ms', JSON.stringify(Object.fromEntries(['wait', 'proc', 'render', 'emit'].map((k) => [k, +(prf[k] / Math.max(1, prf.n)).toFixed(1)]))));
+      }
       await enc.flush();
       if (encErr) throw encErr;
       muxer.finalize();
@@ -2451,15 +2615,16 @@ export async function studio(el, { id, mode }) {
     } finally {
       try { enc.close(); } catch { /* */ }
       clearInterval(watchdog);
+      if (onVis) document.removeEventListener('visibilitychange', onVis);
       video.muted = muted0; video.playbackRate = rate0; video.pause();
-      recording = null; freeze = null; vclock = null; busy = null; sel = was;
+      recording = null; freeze = null; vclock = null; vtime = null; frameSrc = null; busy = null; sel = was;
       drawPanel(); fit(); render();
     }
   }
   function exportModal() {
     const [a0, b0] = exportRange();
     const VH = video.videoHeight || 720;
-    const opts = [[VH, `원본 화질 (${VH}p)`], ...[1080, 720].filter((h) => h < VH).map((h) => [h, `${h}p (파일이 더 작음)`])];
+    const opts = [...(VH > 1080 ? [[1080, '1080p (추천 · 빠름)']] : []), [VH, `원본 화질 (${VH}p)${VH > 1080 ? ' · 오래 걸림' : ''}`], ...[1080, 720].filter((h) => h < VH && !(h === 1080 && VH > 1080)).map((h) => [h, `${h}p (파일이 더 작음)`])];
     const m = modal(`<span class="eyebrow">EXPORT</span><h2>영상으로 내보내기</h2>
       <p class="muted small">한 프레임씩 그려서 mp4로 만들어요 — 원본 해상도 그대로, 끊김 없이, 멈춤도 정확히 들어가요. 만드는 동안 영상이 천천히 넘어가요 (소리는 꺼져요).</p>
       <div class="grid2">
@@ -2471,7 +2636,7 @@ export async function studio(el, { id, mode }) {
         <label>화질<select data-xq>${opts.map(([h, l]) => `<option value="${h}">${l}</option>`).join('')}</select></label>
         <label>부드러움<select data-xf><option value="30">30fps (보통)</option><option value="60">60fps (더 부드럽게 · 2배 오래 걸림)</option></select></label>
       </div>
-      <p class="muted small">※ 소리는 들어가지 않아요. 원본 영상이 30fps 면 60fps 로 해도 더 부드러워지진 않아요.</p>
+      <p class="muted small">※ 만드는 동안 <b>이 창을 띄워 두세요</b> — 다른 창으로 가면 잠깐 멈췄다가 돌아오면 이어서 해요.<br>※ 트래킹이 정확하지 않으면 먼저 [AI 정밀 추적]을 해 두세요 (만들 때는 화면에서 본 그대로 들어가요).<br>※ 소리는 들어가지 않아요.</p>
       <div class="row end"><button class="btn" data-xgo>🎬 만들기</button></div>`);
     const toSec = (v) => { const p = String(v).trim().split(':').map(Number); return p.some(isNaN) ? NaN : p.reduce((x, y) => x * 60 + y, 0); };
     m.el.querySelectorAll('[data-xnow]').forEach((b) => (b.onclick = () => { m.el.querySelector(b.dataset.xnow === 'a' ? '[data-xa]' : '[data-xb]').value = fmtT1(t()); }));
@@ -2489,8 +2654,7 @@ export async function studio(el, { id, mode }) {
   el.querySelector('[data-export]').onclick = async () => {
     if (busy || recording) return;
     if (!canHQ() || !video.requestVideoFrameCallback) { toast('이 브라우저에서는 영상 만들기를 할 수 없어요 — 크롬이나 엣지에서 해 주세요'); return; }
-    if (!(await prepTracks())) return; // 트래킹을 먼저 계산해 둠 (여기선 내보내기를 누른 거라 AI 사용)
-    exportModal();
+    exportModal(); // 만들기 전에 AI 계산을 돌리지 않음 (느려지는 원인) — 화면에서 본 트래킹 그대로
   };
 
   if (edit) setTool('select'); else drawSide();
