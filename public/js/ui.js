@@ -118,3 +118,28 @@ export function youtubeId(url) {
   const m = String(url || '').match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([\w-]{11})/);
   return m ? m[1] : null;
 }
+
+// ── 선수 나열 순서: 번호순 · 이름순 · 출생연도순 (화면마다 마지막에 고른 순서 기억) ──
+export const SORTS = [['number', '번호순'], ['name', '이름순'], ['birth', '출생연도순']];
+export const getSort = (k) => { try { return localStorage.getItem(`ssaka-sort:${k}`) || 'number'; } catch { return 'number'; } };
+export const setSort = (k, v) => { try { localStorage.setItem(`ssaka-sort:${k}`, v); } catch { /* */ } };
+export const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ko');
+const byNum = (a, b) => (+a.number || 999) - (+b.number || 999) || byName(a, b);
+export function sortPeople(list, mode) {
+  const l = [...list];
+  if (mode === 'name') return l.sort(byName);
+  if (mode === 'birth') return l.sort((a, b) => (+a.birthYear || 9999) - (+b.birthYear || 9999) || byNum(a, b));
+  return l.sort(byNum);
+}
+// 출생연도순일 때 연도별 묶음 [[제목, 사람들], ...] — 다른 순서면 한 묶음
+export function sortGroups(list, mode) {
+  const l = sortPeople(list, mode);
+  if (mode !== 'birth') return [[null, l]];
+  const out = [];
+  l.forEach((p) => { const k = p.birthYear ? `${p.birthYear}년생` : '출생연도 미입력'; const g = out[out.length - 1]; if (g && g[0] === k) g[1].push(p); else out.push([k, [p]]); });
+  return out;
+}
+export const sortBar = (k, cur) => `<div class="seg sm sort-bar" data-sortbar="${k}" title="나열 순서">${SORTS.map(([v, l]) => `<button type="button" class="${v === cur ? 'on' : ''}" data-sortv="${v}">${l}</button>`).join('')}</div>`;
+export function bindSortBar(root, k, onChange) {
+  root.querySelectorAll(`[data-sortbar="${k}"] [data-sortv]`).forEach((b) => (b.onclick = () => { setSort(k, b.dataset.sortv); onChange(b.dataset.sortv); }));
+}

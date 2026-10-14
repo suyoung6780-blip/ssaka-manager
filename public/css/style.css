@@ -1834,3 +1834,10 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
   .modal-wrap { align-items: flex-start; padding: 16px 12px calc(16px + env(safe-area-inset-bottom)); }
   .modal-wrap > .modal { margin: auto 0; max-height: none; }
 }
+/* 선수 나열 순서 (번호 · 이름 · 출생연도) */
+.sec-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 6px 0 10px; }
+.sec-row .sec-title { margin: 0; }
+.sort-bar button { white-space: nowrap; }
+.sort-h { font-size: 14px; color: var(--sub); margin: 14px 0 8px; }
+.sort-h small { color: var(--muted); font-weight: 500; }
+.jcards .sort-h { margin: 10px 0 0; }

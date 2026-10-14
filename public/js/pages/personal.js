@@ -2,8 +2,7 @@ import {
   db, collection, doc, query, where, orderBy, limit, getDoc, getDocs, setDoc, updateDoc, deleteDoc, serverTimestamp,
 } from '../fb.js';
 import {
-  esc, text, toast, fail, formData, modal, confirmBox, todayStr, pageHead, empty, avatar, ROLES, MATCH_TYPES, options,
-} from '../ui.js';
+  esc, text, toast, fail, formData, modal, confirmBox, todayStr, pageHead, empty, avatar, ROLES, MATCH_TYPES, options, sortGroups, sortBar, bindSortBar, getSort } from '../ui.js';
 import { state, inTeam, isOwner, loadContext, publicProfile, go, hooks, hasFeature, isCoach, refreshFeatures } from '../store.js';
 import { exportModal, dailyFields, SLEEP_Q } from '../wellness.js';
 import { profileFields, bindPhoto, profileData } from './auth.js';
@@ -116,6 +115,13 @@ export async function daily(el, _p, date = todayStr()) {
   const l = cur.data() || {};
   const myLogs = hist.docs.map((d) => d.data());
   const logs = myLogs.slice(0, 14).reverse();
+  // 키는 매달 첫 기록에, 몸무게는 매주(월요일 시작) 첫 기록에 — 이미 적은 날이 있으면 안 물어봄
+  const weekStart = (d) => { const x = new Date(`${d}T00:00`); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+  const others = myLogs.filter((x) => x.date !== date);
+  const bodyNeed = {
+    needHeight: !others.some((x) => x.height && x.date.slice(0, 7) === date.slice(0, 7)),
+    needWeight: !others.some((x) => x.weight && weekStart(x.date) === weekStart(date)),
+  };
   // 코치가 훈련장에 올린 이 날의 훈련 안내 (오전/오후 여러 개일 수 있음)
   const plans = ps.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
   const sessions = l.sessions || {};
@@ -153,7 +159,7 @@ export async function daily(el, _p, date = todayStr()) {
           <label>기상 시간<input type="time" name="wakeTime" value="${esc(l.wakeTime || '')}"></label>
         </div>
         <p class="muted small" data-sleep></p>
-        ${hasFeature('wellness') ? `${dailyFields(l, plans.reduce((a, p) => a + (p.blocks || []).reduce((x, b) => x + (+b.min || 0), 0), 0))}${scale('sleepQ', 5, l.sleepQ, SLEEP_Q)}` : ''}
+        ${hasFeature('wellness') ? `${dailyFields(l, plans.reduce((a, p) => a + (p.blocks || []).reduce((x, b) => x + (+b.min || 0), 0), 0), bodyNeed)}${scale('sleepQ', 5, l.sleepQ, SLEEP_Q)}` : ''}
         <h4>자각도 <small class="muted">운동 강도를 스스로 느낀 정도 (RPE · 1 매우 쉬움 ~ 10 최대)</small></h4>
         ${scale('rpe', 10, l.rpe)}
         <h4>부상도 <small class="muted">0 없음 ~ 10 출전 불가</small></h4>
@@ -242,6 +248,13 @@ export async function daily(el, _p, date = todayStr()) {
   </form>`;
 
   const form = el.querySelector('form');
+  // 운동 불참: 사유 칸 보이기 · 운동시간 0
+  const absentBox = form.querySelector('[data-absent]');
+  absentBox?.addEventListener('change', () => {
+    form.querySelector('[data-absent-why]').hidden = !absentBox.checked;
+    const tm = form.querySelector('[name=trainMin]');
+    if (tm) { tm.disabled = absentBox.checked; if (absentBox.checked) tm.value = 0; }
+  });
   const upd = () => {
     const m = sleepMin(form.bedtime.value, form.wakeTime.value);
     el.querySelector('[data-sleep]').textContent = m ? `수면 ${sleepLong(m)}` : '';
@@ -331,7 +344,12 @@ export async function daily(el, _p, date = todayStr()) {
       ...d, date, uid: state.user.uid, name: state.profile.name,
       condition: +d.condition || null, rpe: +d.rpe || null, injury: +d.injury || 0, goalScore: +d.goalScore || null,
       sleep: sleepHours(d.bedtime, d.wakeTime), sleepMin: sleepMin(d.bedtime, d.wakeTime), updatedAt: serverTimestamp(),
-      ...(hasFeature('wellness') ? { trainMin: d.trainMin === '' || d.trainMin == null ? null : +d.trainMin, sleepQ: +d.sleepQ || null } : {}),
+      ...(hasFeature('wellness') ? {
+        trainMin: d.absent ? 0 : d.trainMin === '' || d.trainMin == null ? null : +d.trainMin, sleepQ: +d.sleepQ || null,
+        absent: !!d.absent, absentReason: d.absent ? (d.absentReason || '').trim() : '',
+        ...(d.height ? { height: +(+d.height).toFixed(1) } : {}), ...(d.weight ? { weight: +(+d.weight).toFixed(1) } : {}),
+        ...(d.absent ? { rpe: 0 } : {}),
+      } : {}),
       ...(hasPlan ? { sessions: sess } : {}),
       match,
       ...(submit ? { submitted: true, submittedAt: serverTimestamp() } : {}),
@@ -424,8 +442,9 @@ export async function journalCheck(el, _p, date = todayStr()) {
     logs[p.id].condition <= 2 && `컨디션 ${logs[p.id].condition}`,
     sleepOf(logs[p.id]) != null && sleepOf(logs[p.id]) < SHORT_SLEEP && `수면 ${fmtSleep(sleepOf(logs[p.id]))}`,
   ].filter(Boolean).join(', ')})`).join(' · ')}</div>` : ''}
+  <div class="sec-row jsort"><span class="muted small">선수 ${players.length}명</span>${sortBar('journal', getSort('journal'))}</div>
   <div class="jcards">
-    ${players.map((p) => {
+    ${sortGroups(players, getSort('journal')).map(([gt, ps]) => `${gt ? `<h3 class="sort-h">${esc(gt)} <small>${ps.length}명</small></h3>` : ''}${ps.map((p) => {
       const l = logs[p.id];
       const st = !l ? ['none', '작성 안 함'] : !l.submitted ? ['draft', '작성 중 · 미제출'] : l.checked ? ['done', '검사 완료'] : ['sent', '제출함 · 검사 대기'];
       const warn = l && (l.injury >= 5 || l.condition <= 2 || (sleepOf(l) != null && sleepOf(l) < SHORT_SLEEP));
@@ -442,11 +461,12 @@ export async function journalCheck(el, _p, date = todayStr()) {
         <div class="jmeta"><span class="jbadge ${st[0]}">${st[1]}</span><p class="jwhat">${kind === 'match' ? '<span class="tag solid">⚽ 경기 일지</span>' : `<span class="tag solid">🏃 훈련 일지</span>${l.sessions ? ` <span class="tag">세션 ${wrote}/${Object.keys(l.sessions).length}</span>` : ''}`}</p></div>` : `<p class="muted">아직 오늘 기록을 쓰지 않았어요.</p><div class="jmeta"><span class="jbadge ${st[0]}">${st[1]}</span></div>`}
         ${l?.submitted ? `<button class="btn full ${l.checked ? 'ghost' : ''}" data-open>${l.checked ? '검사 완료 · 다시 보기' : '일지 검사하기'}</button>` : ''}
       </article>`;
-    }).join('')}
+    }).join('')}`).join('')}
   </div>
   ${players.length ? '' : empty('선수가 없습니다.')}`;
 
   el.querySelector('[data-date]').onchange = (e) => journalCheck(el, _p, e.target.value);
+  bindSortBar(el, 'journal', () => journalCheck(el, _p, date));
   el.querySelector('[data-xlsx]')?.addEventListener('click', exportModal);
   el.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => {
     const l = logs[b.closest('[data-uid]').dataset.uid];

@@ -3,8 +3,7 @@ import {
 } from '../fb.js';
 import {
   esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, options, avatar,
-  ROLES, MATCH_TYPES,
-} from '../ui.js';
+  ROLES, MATCH_TYPES, sortGroups, sortBar, bindSortBar, getSort, byName } from '../ui.js';
 import { state, isCoach, isOwner } from '../store.js';
 import { createPad, formationData, is8 } from '../tactic.js';
 
@@ -178,9 +177,13 @@ export async function locker(el) {
     ${['coach', 'player'].map((r) => {
       const g = group(r);
       if (!g.length) return '';
-      return `<h2 class="sec-title">${ROLES[r]} <small>${g.length}</small></h2>
-      <div class="roster">${g.map((m) => playerCard(m, { manage: isOwner() && m.id !== state.user.uid })).join('')}</div>`;
+      const mode = getSort('locker');
+      const card = (m) => playerCard(m, { manage: isOwner() && m.id !== state.user.uid });
+      return `<div class="sec-row"><h2 class="sec-title">${ROLES[r]} <small>${g.length}</small></h2>${r === 'player' ? sortBar('locker', mode) : ''}</div>
+      ${r === 'player' ? sortGroups(g, mode).map(([t, ps]) => `${t ? `<h3 class="sort-h">${esc(t)} <small>${ps.length}명</small></h3>` : ''}<div class="roster">${ps.map(card).join('')}</div>`).join('')
+        : `<div class="roster">${g.map(card).join('')}</div>`}`;
     }).join('')}`;
+  bindSortBar(el, 'locker', () => locker(el));
 
   el.querySelector('[data-code]')?.addEventListener('click', () => navigator.clipboard.writeText(code).then(() => toast('팀 코드를 복사했습니다.')));
   // 만 14세 미만: 보호자 정보(이름 · 관계 · 연락처)
@@ -357,7 +360,7 @@ export async function records(el) {
       <div data-rows>${arr.map((s) => pickRow(s)).join('')}</div>
       <button type="button" class="link-btn small" data-add>+ 추가</button>
     </fieldset>`;
-  const pickRow = (s = {}) => `<div class="pick"><select><option value="">선수 선택</option>${options(players.map((p) => p.name), s.name)}<option value="자책골" ${s.name === '자책골' ? 'selected' : ''}>상대 자책골</option></select>
+  const pickRow = (s = {}) => `<div class="pick"><select><option value="">선수 선택</option>${options([...players].sort(byName).map((p) => p.name), s.name)}<option value="자책골" ${s.name === '자책골' ? 'selected' : ''}>상대 자책골</option></select>
     <input type="number" min="1" max="20" value="${esc(s.goals || 1)}"><button type="button" class="link-btn" data-rm>✕</button></div>`;
 
   function matchForm(m = {}) {

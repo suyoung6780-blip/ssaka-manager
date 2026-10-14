@@ -6,7 +6,8 @@ import { state } from './store.js';
 import { sleepOf } from './sleep.js';
 
 export const SLEEP_Q = ['', '매우 나쁨', '나쁨', '보통', '좋음', '매우 좋음'];
-const XLSX_JS = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+// 칸 색 · 글꼴까지 넣을 수 있는 엑셀 도구 (SheetJS 와 같은 사용법)
+const XLSX_JS = 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js';
 const loadXlsx = () => new Promise((res, rej) => {
   if (window.XLSX) { res(); return; }
   const sc = document.createElement('script');
@@ -30,7 +31,7 @@ export function exportModal() {
     <form class="stack"><div class="grid2">
       <label>시작일<input type="date" name="from" required value="${pre['최근 7일'][0]}" max="${todayStr()}"></label>
       <label>종료일<input type="date" name="to" required value="${pre['최근 7일'][1]}" max="${todayStr()}"></label></div>
-      <p class="muted small">시트: 기록(날짜별 전체) · 선수별 평균 · 자각도 · 훈련시간 · 훈련부하 · 수면시간 · 수면질 (선수 × 날짜 표)</p>
+      <p class="muted small">첫 시트 <b>설문지 응답</b>: 타임스탬프 · 이름 · 수면시간(분) · 수면질 체크 · 운동강도 · 운동시간(분) · 불참 사유 (· 키 · 몸무게)<br>그 밖에: 기록 · 선수별 평균 · 선수 × 날짜 표</p>
       <div class="row end"><button class="btn">엑셀 받기</button></div></form>`);
   const f = m.el.querySelector('form');
   m.el.querySelectorAll('[data-pre]').forEach((b) => (b.onclick = () => { [f.from.value, f.to.value] = pre[b.dataset.pre]; }));
@@ -59,8 +60,41 @@ async function makeExcel(from, to) {
   const wb = X.utils.book_new();
   const sheet = (name, rows, widths) => { const ws = X.utils.aoa_to_sheet(rows); ws['!cols'] = widths.map((w) => ({ wch: w })); X.utils.book_append_sheet(wb, ws, name); };
 
-  // 1) 기록: 날짜별 한 줄
   const nameOf = (uid) => players.find((p) => p.id === uid);
+  // 0) 설문지 응답: 구글 설문 응답 시트와 같은 모양 (제출한 기록을 제출 시각 순으로)
+  const tsOf = (l) => (l.submittedAt?.toDate ? l.submittedAt.toDate() : l.updatedAt?.toDate ? l.updatedAt.toDate() : null);
+  const fmtTs = (d) => {
+    if (!d) return '';
+    const h = d.getHours(); const ap = h < 12 ? '오전' : '오후'; const h12 = h % 12 || 12;
+    return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()} ${ap} ${h12}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+  };
+  const resp = logs.filter((l) => l.submitted).sort((a, b) => (tsOf(a)?.getTime() || 0) - (tsOf(b)?.getTime() || 0) || a.date.localeCompare(b.date));
+  const withBody = resp.some((l) => l.height || l.weight);
+  const head = ['타임스탬프', '이름', '수면시간', '수면질 체크', '운동강도', '운동시간', '불참 사유', ...(withBody ? ['키(cm)', '몸무게(kg)'] : [])];
+  const rows = resp.map((l) => {
+    const p = nameOf(l.uid);
+    return [fmtTs(tsOf(l)) || l.date, p?.name || l.name, sleepOf(l) ?? '', l.sleepQ ?? '', l.absent ? 0 : (l.rpe ?? ''), l.absent ? 0 : (l.trainMin ?? ''), l.absent ? (l.absentReason || '불참') : '',
+      ...(withBody ? [l.height ?? '', l.weight ?? ''] : [])];
+  });
+  {
+    const ws = X.utils.aoa_to_sheet([head, ...rows]);
+    ws['!cols'] = [24, 10, 10, 11, 10, 10, 20, ...(withBody ? [9, 11] : [])].map((w) => ({ wch: w }));
+    ws['!rows'] = [{ hpt: 24 }];
+    ws['!autofilter'] = { ref: X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: head.length - 1 } }) };
+    const line = { style: 'thin', color: { rgb: 'D9D6E3' } };
+    for (let c = 0; c < head.length; c++) {
+      const hc = ws[X.utils.encode_cell({ r: 0, c })];
+      hc.s = { fill: { fgColor: { rgb: '5B3E8F' } }, font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 }, alignment: { vertical: 'center' }, border: { bottom: line } };
+      for (let r = 1; r <= rows.length; r++) {
+        const cell = ws[X.utils.encode_cell({ r, c })];
+        if (!cell) continue;
+        cell.s = { fill: { fgColor: { rgb: r % 2 ? 'FFFFFF' : 'F3F2F7' } }, font: { sz: 10 }, border: { bottom: line }, alignment: { vertical: 'center', horizontal: typeof cell.v === 'number' ? 'right' : 'left' } };
+      }
+    }
+    X.utils.book_append_sheet(wb, ws, '설문지 응답');
+  }
+
+  // 1) 기록: 날짜별 한 줄
   sheet('기록', [
     ['날짜', '이름', '등번호', '포지션', '자각도(RPE 1~10)', '훈련 시간(분)', '훈련 부하(RPE×분)', '취침', '기상', '수면 시간(분)', '수면 질(1~5)', '컨디션(1~5)', '통증(0~10)', '통증 부위', '제출'],
     ...logs.map((l) => { const p = nameOf(l.uid); return [l.date, p?.name || l.name, p?.number || '', p?.position || '', l.rpe || '', l.trainMin ?? '', load(l), l.bedtime || '', l.wakeTime || '', sleepOf(l) ?? '', l.sleepQ || '', l.condition || '', l.injury ?? '', l.injuryPart || '', l.submitted ? 'O' : '작성 중']; }),
@@ -95,9 +129,14 @@ async function makeExcel(from, to) {
 }
 
 // 오늘 기록에 들어가는 칸 (기능이 켜진 팀만)
-export function dailyFields(l, planMin) {
+// needHeight: 이번 달 첫 기록(아직 키를 안 적음) · needWeight: 이번 주(월요일 시작) 첫 기록
+export function dailyFields(l, planMin, { needHeight = false, needWeight = false } = {}) {
   return `<div class="grid2 wellness-fields">
-      <label>훈련 시간 <small class="muted">(분)</small><input type="number" name="trainMin" min="0" max="600" step="5" inputmode="numeric" value="${esc(l.trainMin ?? (planMin || ''))}" placeholder="예) 90"></label>
+      <label>훈련 시간 <small class="muted">(분)</small><input type="number" name="trainMin" min="0" max="600" step="5" inputmode="numeric" value="${esc(l.trainMin ?? (planMin || ''))}" placeholder="예) 90" ${l.absent ? 'disabled' : ''}></label>
+      ${needHeight || l.height ? `<label>키 <small class="muted">(cm · 이번 달 첫 기록)</small><input type="number" name="height" min="100" max="230" step="0.1" inputmode="decimal" value="${esc(l.height ?? '')}" placeholder="예) 165.4"></label>` : ''}
+      ${needWeight || l.weight ? `<label>몸무게 <small class="muted">(kg · 이번 주 첫 기록)</small><input type="number" name="weight" min="20" max="150" step="0.1" inputmode="decimal" value="${esc(l.weight ?? '')}" placeholder="예) 52.3"></label>` : ''}
     </div>
+    <label class="mini-switch wellness-absent"><input type="checkbox" name="absent" ${l.absent ? 'checked' : ''} data-absent> 오늘 운동 불참 <small class="muted">(운동강도 · 운동시간은 0으로)</small></label>
+    <label data-absent-why ${l.absent ? '' : 'hidden'}>불참 사유<input name="absentReason" maxlength="60" value="${esc(l.absentReason || '')}" placeholder="예) 휴식 · 오른쪽 무릎 골절 · 개인사정"></label>
     <h4>수면 질 <small class="muted">어젯밤 얼마나 푹 잤나요?</small></h4>`;
 }
