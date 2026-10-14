@@ -2042,3 +2042,13 @@ details.legacy { margin-top: 10px; }
 .morning .m-stats a:hover { border-color: #111; }
 .morning .m-stats small { color: #6b6b6b; }
 .cm-thumb .cm-noimg { font-size: 14px; font-weight: 800; color: var(--muted); letter-spacing: .1em; }
+.inbox-search { margin-bottom: 14px; } .inbox-found { margin: 4px 0 0; }
+.op-notice { margin-bottom: 14px; border-width: 2px; }
+.op-notice h3 { margin: 8px 0 6px; }
+.op-notice p { margin: 0 0 6px; line-height: 1.6; }
+.op-notice.warn { border-color: #ffb020; }
+.op-notice.warn .tag.solid { background: #ffb020; border-color: #ffb020; color: #1a1200; }
+.op-notice.danger { border-color: #e5484d; }
+.op-notice.danger .tag.solid { background: #e5484d; border-color: #e5484d; color: #fff; }
+.op-notice a { text-decoration: underline; }
+#team-notice .banner { margin: 16px 0 0; }

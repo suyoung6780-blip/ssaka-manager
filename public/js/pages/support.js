@@ -4,17 +4,17 @@ import {
   onSnapshot, serverTimestamp,
 } from '../fb.js';
 import { esc, toast, fail, pageHead, fmtDate, empty, confirmBox } from '../ui.js';
-import { state, isCoach } from '../store.js';
+import { state, isCoach, go } from '../store.js';
 
 const KINDS = ['질문', '개선 제안', '오류 신고'];
 const STATUS = { 접수: '', '답변 완료': 'solid', '반영 완료': 'comp' };
 const text = (s) => esc(s || '').replace(/\n/g, '<br>');
 
 // ───────── 대화 상자 (팀 쪽 · 운영자 쪽 공통) ─────────
-function thread(box, teamId, { asAdmin }) {
+function thread(box, teamId, { asAdmin, meta = null }) {
   box.innerHTML = `<div class="support-room">
     <div class="msgs" data-msgs><p class="muted center">불러오는 중…</p></div>
-    <form class="chat-input"><input name="text" autocomplete="off" required placeholder="${asAdmin ? '팀에 답장' : '운영자에게 메시지'}"><button class="btn">전송</button></form>
+    <form class="chat-input"><input name="text" autocomplete="off" required placeholder="${asAdmin ? '팀에 메시지 보내기' : '운영자에게 메시지'}"><button class="btn">전송</button></form>
   </div>`;
   const msgsBox = box.querySelector('[data-msgs]');
   const col = collection(db, 'support', teamId, 'messages');
@@ -42,7 +42,7 @@ function thread(box, teamId, { asAdmin }) {
     try {
       await addDoc(col, { text: t, uid: state.user.uid, name: state.profile.name, from: asAdmin ? 'admin' : 'team', createdAt: serverTimestamp() });
       await setDoc(doc(db, 'support', teamId), {
-        teamId, ...(asAdmin ? {} : { teamName: state.team.name, category: state.team.category }),
+        teamId, ...(asAdmin ? (meta ? { teamName: meta.teamName || '', category: meta.category || '' } : {}) : { teamName: state.team.name, category: state.team.category }),
         lastMessage: t.slice(0, 80), lastFrom: asAdmin ? 'admin' : 'team', updatedAt: serverTimestamp(),
         ...(asAdmin ? { unreadTeam: true, unreadAdmin: false } : { unreadAdmin: true, unreadTeam: false }),
       }, { merge: true });
@@ -123,17 +123,19 @@ export const qna = (el) => page(el, { tab: 'qna' });
 
 // ───────── 운영자 쪽: #/admin/inbox ─────────
 export async function inbox(el, { id } = {}) {
-  const [ts, fs] = await Promise.all([
+  const [ts, fs, tms] = await Promise.all([
     getDocs(query(collection(db, 'support'), orderBy('updatedAt', 'desc'), limit(200))),
     getDocs(query(collection(db, 'feedback'), orderBy('createdAt', 'desc'), limit(300))),
+    getDocs(collection(db, 'teams')).catch(() => null),
   ]);
+  const teams = tms ? tms.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko')) : [];
   const threads = ts.docs.map((d) => ({ id: d.id, ...d.data() }));
   const fbs = fs.docs.map((d) => ({ id: d.id, ...d.data() }));
   const tab = id ? 'talk' : (location.hash.includes('qna') ? 'qna' : 'talk');
   const unread = threads.filter((t) => t.unreadAdmin).length;
   const open = fbs.filter((f) => f.status === '접수').length;
 
-  el.innerHTML = `${pageHead('ADMIN', '문의함')}
+  el.innerHTML = `${pageHead('ADMIN', '소통')}
     <div class="tabs admin-tabs">
       <a href="#/admin/inbox" class="${tab === 'talk' ? 'active' : ''}">팀 대화 ${unread ? `<b class="dot-n">${unread}</b>` : ''}</a>
       <a href="#/admin/inbox/qna" class="${tab === 'qna' ? 'active' : ''}">Q&A · 개선 제안 ${open ? `<b class="dot-n">${open}</b>` : ''}</a>
@@ -142,16 +144,26 @@ export async function inbox(el, { id } = {}) {
   const body = el.querySelector('[data-body]');
 
   if (tab === 'talk') {
-    const cur = threads.find((t) => t.id === id);
-    body.innerHTML = `<div class="inbox ${cur ? 'has-cur' : ''}">
-      <ul class="list chats inbox-list">${threads.map((t) => `
+    // 아직 대화가 없는 팀도 검색해서 운영자가 먼저 말을 걸 수 있음
+    let cur = threads.find((t) => t.id === id);
+    if (!cur && id) { const tm = teams.find((t) => t.id === id); if (tm) cur = { id, teamName: tm.name, category: tm.category, fresh: true }; }
+    body.innerHTML = `<div class="inbox-search"><input type="search" placeholder="팀 이름 · 대표 이름으로 검색해서 대화 시작" data-tq><ul class="team-results inbox-found" data-found></ul></div>
+      <div class="inbox ${cur ? 'has-cur' : ''}">
+      <ul class="list chats inbox-list">${cur?.fresh ? `<li class="on"><a href="#/admin/inbox/${cur.id}"><div><strong>${esc(cur.teamName)}</strong> <small>${esc(cur.category || '')}</small><small class="last">새 대화</small></div><small></small></a></li>` : ''}${threads.map((t) => `
         <li class="${t.id === id ? 'on' : ''}"><a href="#/admin/inbox/${t.id}">
           <div><strong>${esc(t.teamName || t.teamId)}</strong> <small>${esc(t.category || '')}</small>
           <small class="last">${t.lastFrom === 'admin' ? '나: ' : ''}${esc(t.lastMessage || '')}</small></div>
-          <small>${t.unreadAdmin ? '<b class="dot-n">새 글</b>' : ''}${fmtDate(t.updatedAt, true).slice(5)}</small></a></li>`).join('') || '<li class="muted">아직 팀에서 온 대화가 없습니다.</li>'}</ul>
+          <small>${t.unreadAdmin ? '<b class="dot-n">새 글</b>' : ''}${fmtDate(t.updatedAt, true).slice(5)}</small></a></li>`).join('') || (cur?.fresh ? '' : '<li class="muted">아직 팀에서 온 대화가 없습니다. 위에서 팀을 찾아 먼저 말을 걸 수 있어요.</li>')}</ul>
       <div class="inbox-room">${cur ? `<div class="chat-head"><a href="#/admin/inbox" class="icon-btn">‹</a><div><strong>${esc(cur.teamName)}</strong><small>${esc(cur.category || '')} · <a href="#/teams/${cur.id}">팀 보기</a></small></div></div><div data-thread></div>` : '<p class="muted center">왼쪽에서 팀을 고르세요.</p>'}</div>
     </div>`;
-    if (cur) thread(body.querySelector('[data-thread]'), cur.id, { asAdmin: true });
+    if (cur) thread(body.querySelector('[data-thread]'), cur.id, { asAdmin: true, meta: { teamName: cur.teamName, category: cur.category } });
+    const found = body.querySelector('[data-found]');
+    body.querySelector('[data-tq]').oninput = (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      const list = q ? teams.filter((t) => `${t.name || ''} ${t.ownerName || ''}`.toLowerCase().includes(q)).slice(0, 8) : [];
+      found.innerHTML = !q ? '' : list.length ? list.map((t) => `<li class="talk"><a href="#/teams/${t.id}"><span class="cat">${esc(t.category || '')}</span><strong>${esc(t.name)}</strong><span class="lock">${esc(t.ownerName || '')}</span></a><button type="button" class="btn sm" data-go="${t.id}">대화하기</button></li>`).join('') : '<li class="muted">검색 결과가 없습니다.</li>';
+      found.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => go(`/admin/inbox/${b.dataset.go}`)));
+    };
     return;
   }
 

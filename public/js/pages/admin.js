@@ -147,7 +147,7 @@ export async function teams(el) {
     el.querySelector('[data-rows]').innerHTML = rows.map((t) => {
       const [u, cls] = usage(t);
       return `<tr>
-        <td data-l="팀"><a href="#/teams/${t.id}"><strong>${esc(t.name)}</strong></a>${t.restricted ? '<br><span class="tag danger">기능 제한</span>' : ''}${t.nameWarn && t.nameWarn.name === t.name ? '<br><span class="tag warn">팀명 주의 보냄</span>' : ''}</td>
+        <td data-l="팀"><a href="#/teams/${t.id}"><strong>${esc(t.name)}</strong></a>${t.restricted ? '<br><span class="tag danger">기능 제한</span>' : ''}${t.nameWarn ? '<br><span class="tag warn">팀명 주의 중</span>' : ''}</td>
         <td data-l="구분">${esc(t.category || '')}</td>
         <td data-l="대표">${esc(t.ownerName || '-')}</td>
         <td data-l="지도자 · 선수">${t.coaches == null ? '-' : `${t.coaches} · ${t.players}`}</td>
@@ -156,7 +156,7 @@ export async function teams(el) {
         <td data-l="만든 날">${fmtDate(t.createdAt) || '-'}</td>
         <td data-l=""><div class="acts"><button class="btn ghost sm" data-feat="${t.id}">기능${Object.values(feats[t.id] || {}).filter(Boolean).length ? ` <b class="dot-n">${Object.values(feats[t.id]).filter(Boolean).length}</b>` : ''}</button>
           <button class="btn ${t.comp ? 'ghost' : ''} sm" data-comp="${t.id}">${t.comp ? '무료 제공 변경' : '무료 제공'}</button>
-          <button class="btn ghost sm" data-nwarn="${t.id}">팀명 주의</button>
+          <button class="btn ${t.nameWarn ? '' : 'ghost'} sm" data-nwarn="${t.id}">${t.nameWarn ? '팀명 주의 풀기' : '팀명 주의'}</button>
           <button class="btn ${t.restricted ? '' : 'ghost'} sm" data-restrict="${t.id}">${t.restricted ? '제한 풀기' : '기능 제한'}</button></div></td></tr>`;
     }).join('') || '<tr><td colspan="9" class="muted center">조건에 맞는 팀이 없습니다.</td></tr>';
     el.querySelectorAll('[data-comp]').forEach((b) => (b.onclick = () => toggleComp(list.find((t) => t.id === b.dataset.comp))));
@@ -167,9 +167,14 @@ export async function teams(el) {
 
   // 팀 이름 주의: 팀 화면 위에 알림 띠 + 운영자 문의방에 메시지 (팀이 이름을 바꾸면 띠는 저절로 사라짐)
   async function nameWarn(t) {
+    if (t.nameWarn) { // 이미 주의 중이면 풀기
+      if (!(await confirmBox(`${t.name} 팀의 팀명 주의를 풀까요? 전체 팀 목록의 표시만 사라져요.`))) return;
+      try { await updateDoc(doc(db, 'teams', t.id), { nameWarn: null }); t.nameWarn = null; toast('팀명 주의를 풀었어요.'); draw(); } catch (err) { fail(err); }
+      return;
+    }
     const msg = `[운영자 안내] 팀 이름 '${t.name}'(으)로는 어떤 팀인지 알아보기 어려워요. 팀 설정에서 실제 팀 이름(예: OO FC U15, OO초 축구부)으로 고쳐 주세요. 고치지 않으면 기능이 제한될 수 있어요.`;
     const m = modal(`<span class="eyebrow">NAME WARNING</span><h2>${esc(t.name)} 팀명 주의 보내기</h2>
-      <p class="muted small">이 팀 지도자 화면 위에 주의 띠가 뜨고, 운영자 문의방에 아래 메시지가 가요. 팀 이름을 바꾸면 띠는 저절로 사라져요.</p>
+      <p class="muted small">이 팀의 운영자 문의방에 아래 메시지가 가요. 전체 팀 목록에는 <b>팀명 주의 중</b> 표시가 남아요.</p>
       <label>보낼 메시지<textarea rows="4" data-msg maxlength="1000">${esc(msg)}</textarea></label>
       <div class="row end"><button class="btn" data-send>보내기</button></div>`);
     m.el.querySelector('[data-send]').onclick = async () => {

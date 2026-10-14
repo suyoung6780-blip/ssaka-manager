@@ -15,9 +15,8 @@ export const isAdminEmail = () => ADMIN_EMAILS.includes((state.user?.email || ''
 export const isAdmin = () => isAdminEmail() && !!state.user?.emailVerified;
 export const isOwner = () => !!(state.team && state.user && state.team.ownerUid === state.user.uid);
 // 운영자 무료 제공: compUntil 이 없으면 평생
-// 운영자가 기능을 막은 팀 · 팀 이름 주의를 받은 팀 (이름을 바꾸면 주의는 저절로 사라짐)
+// 운영자가 기능을 막은 팀 (운영자가 풀 때까지)
 export const teamRestricted = () => state.team?.restricted === true;
-export const nameWarned = () => !!state.team?.nameWarn && state.team.nameWarn.name === state.team.name;
 export const compActive = (t) => t?.comp === true && (!t.compUntil || t.compUntil.toMillis() > Date.now());
 // 이용 가능: 무료(시범) · 운영자 무료 제공(홍보) · 결제 기간 안
 export const teamActive = () => !!state.team && (state.team.free === true || compActive(state.team) || (!!state.team.paidUntil && state.team.paidUntil.toMillis() > Date.now()));

@@ -5,7 +5,7 @@ import { startNews, stopNews, markSeen, paint } from './news.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
 import { $, $$, esc, avatar, ROLES, pageHead, toast, isQuota, quotaNotice, quotaHooks } from './ui.js';
 import {
-  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, waitApproval, teamRestricted, nameWarned,
+  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, waitApproval, teamRestricted,
 } from './store.js';
 import * as authPages from './pages/auth.js';
 import * as admin from './pages/admin.js';
@@ -172,8 +172,8 @@ async function route() {
   const view = $('#view');
   // 운영자가 기능을 제한한 팀: 홈 · 팀 설정 · 운영자 문의 · 내 프로필만
   if (teamRestricted() && !isAdmin() && !RESTRICT_OK.includes(path)) {
-    view.innerHTML = `${pageHead('LIMITED', '기능이 제한된 팀이에요')}<section class="card"><p>운영자가 이 팀의 기능을 잠시 제한했어요. ${isOwner() ? '<b>팀 설정</b>에서 팀 이름을 정확하게 고친 뒤 <b>운영자 문의</b>로 알려 주세요.' : '팀 대표 지도자에게 문의해 주세요.'}</p>
-      <div class="row">${isOwner() ? '<a class="btn" href="#/settings">팀 설정으로</a>' : ''}${isCoach() ? '<a class="btn ghost" href="#/support">운영자 문의</a>' : ''}</div></section>`;
+    view.innerHTML = `${pageHead('LIMITED', '기능이 제한된 팀이에요')}<section class="card"><p>운영자가 이 팀의 기능을 제한했어요. 운영자에게 문의해 주세요.</p>
+      <div class="row"><a class="btn" href="#/support">운영자에게 문의하기</a></div></section>`;
     window.scrollTo(0, 0);
     return;
   }
@@ -205,7 +205,7 @@ function navItems() {
   sec('NOTICE', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄']] : []);
   sec('COMMUNITY', isCoach() ? [['/community/training', '훈련 공유'], ['/community/talk', '지도자 게시판'], ['/chat', '팀 대화']] : []);
   sec('NETWORK', [...(isCoach() ? [['/scout', '스카웃 노트']] : []), ['/support', '운영자 문의']]);
-  if (isAdmin()) sec('운영자', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '문의함']]);
+  if (isAdmin()) sec('운영자', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '소통']]);
   else if (isAdminEmail()) sec('운영자', [['/admin/verify', '운영자 인증']]);
   if (isOwner()) sec('ADMIN', [['/settings', FREE_MODE ? '팀 설정' : '팀 설정 · 결제']]);
   return items;
@@ -257,9 +257,8 @@ function updateShell(path = location.hash.slice(1) || '/') {
   $('[data-logout]').onclick = () => signOut(auth);
   bindInstall($('.me-box'));
   // 팀 알림 띠: 기능 제한 · 팀 이름 주의
-  $('#team-notice').innerHTML = !inTeam() ? '' : teamRestricted()
-    ? `<div class="banner danger">⛔ 운영자가 이 팀의 기능을 제한했어요. ${isOwner() ? '<a href="#/settings">팀 이름 고치기 →</a>' : '팀 대표 지도자에게 문의해 주세요.'}</div>`
-    : nameWarned() && isCoach() ? `<div class="banner warn">⚠️ 팀 이름을 정확하게 적어 주세요 (예: OO FC U15, OO초 축구부). 고치지 않으면 기능이 제한될 수 있어요. ${isOwner() ? '<a href="#/settings">팀 설정에서 고치기 →</a>' : '팀 대표 지도자에게 알려 주세요.'}</div>` : '';
+  $('#team-notice').innerHTML = inTeam() && teamRestricted()
+    ? '<div class="banner danger">운영자가 이 팀의 기능을 제한했어요. <a href="#/support">운영자에게 문의하기 →</a></div>' : '';
   paint();
 }
 

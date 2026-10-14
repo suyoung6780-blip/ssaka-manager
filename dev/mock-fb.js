@@ -183,6 +183,9 @@ export const app = {}; export const storage = {}; export const functions = {}; e
 // ?new 로 열면 방금 가입한 새 계정(개인계정 · 팀 없음)으로 시작 — 가입 흐름 미리보기용
 // ?out 으로 열면 로그아웃 상태(로그인 · 회원가입 화면부터) — 가입하면 새 계정, 로그인하면 김코치
 const QS = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+// ?warn 팀명 주의 받은 상태 · ?limit 기능 제한된 상태로 미리보기 (FC 블랙)
+if (QS.has('warn')) Object.assign(store.get('teams/T1'), { nameWarn: { name: 'FC 블랙', at: Timestamp.now ? Timestamp.fromMillis(Date.now()) : null } });
+if (QS.has('limit')) Object.assign(store.get('teams/T1'), { restricted: true });
 const FRESH = QS.has('new');
 // 데모 계정: 이메일 · 비밀번호 · 인증 여부를 이 브라우저에 기억 (새로고침해도 유지)
 // 김코치 c@x.com / coach123 · 박선수(선수) p@x.com / player123
