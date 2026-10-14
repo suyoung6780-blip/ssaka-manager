@@ -157,13 +157,67 @@ let vertical = false;
 export const isVertical = (type) => type === 'half' || type === 'box';
 const upright = (x, y) => (vertical ? `rotate(90 ${x} ${y})` : '');
 
-// 곡선 화살표: 시작(x1,y1) · 끝(x2,y2) · 가운데 조절점(cx,cy, 없으면 직선)
-const ctrlOf = (it) => ({ x: it.cx ?? (it.x1 + it.x2) / 2, y: it.cy ?? (it.y1 + it.y2) / 2 });
-export function bez(it, t) {
-  const c = ctrlOf(it); const u = 1 - t;
-  return { x: u * u * it.x1 + 2 * u * t * c.x + t * t * it.x2, y: u * u * it.y1 + 2 * u * t * c.y + t * t * it.y2 };
+// 곡선: 시작 → 지나가는 점들 → 끝을 부드럽게 잇기 (Catmull-Rom). 점을 늘릴수록 더 자유롭게 휘고 길어짐 (사이드 스텝 · 지그재그)
+const SEG = 14; // 점 사이마다 촘촘히 나눌 개수
+function crPts(P) {
+  if (P.length < 3) return P.map((p) => ({ x: p.x, y: p.y }));
+  const out = [];
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[Math.max(0, i - 1)]; const p1 = P[i]; const p2 = P[i + 1]; const p3 = P[Math.min(P.length - 1, i + 2)];
+    for (let k = 0; k < SEG; k++) {
+      const t = k / SEG; const t2 = t * t; const t3 = t2 * t;
+      const f = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+      out.push({ x: f(p0.x, p1.x, p2.x, p3.x), y: f(p0.y, p1.y, p2.y, p3.y) });
+    }
+  }
+  out.push({ x: P[P.length - 1].x, y: P[P.length - 1].y });
+  return out;
 }
-const bezPts = (it, upto = 1, n = 28) => Array.from({ length: n + 1 }, (_, i) => bez(it, (i / n) * upto));
+const quadPts = (a, c, b, n = 28) => Array.from({ length: n + 1 }, (_, i) => { const t = i / n; const u = 1 - t; return { x: u * u * a.x + 2 * u * t * c.x + t * t * b.x, y: u * u * a.y + 2 * u * t * c.y + t * t * b.y }; });
+// 촘촘한 점들 → 길이 비율(0~1)로 위치 찾기 (속도 일정)
+function sampler(pts) {
+  const L = [0];
+  for (let k = 1; k < pts.length; k++) L.push(L[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y));
+  const tot = L[L.length - 1] || 1e-6;
+  return (t) => {
+    const want = Math.max(0, Math.min(1, t)) * tot;
+    let k = 1; while (k < L.length - 1 && L[k] < want) k++;
+    const f = (want - L[k - 1]) / Math.max(1e-6, L[k] - L[k - 1]);
+    const a = pts[k - 1]; const b = pts[k] || a;
+    return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+  };
+}
+// 화살표: 시작(x1,y1) · 지나가는 점 via[{x,y}] · 끝(x2,y2) — 예전 곡선(cx,cy)도 그대로 그림
+const arrowCtl = (it) => [{ x: it.x1, y: it.y1 }, ...(it.via || []), { x: it.x2, y: it.y2 }];
+function arrowDense(it) {
+  if (it.via?.length) return crPts(arrowCtl(it));
+  if (it.cx != null) return quadPts({ x: it.x1, y: it.y1 }, { x: it.cx, y: it.cy }, { x: it.x2, y: it.y2 });
+  return [{ x: it.x1, y: it.y1 }, { x: it.x2, y: it.y2 }];
+}
+export function bez(it, t) { return sampler(arrowDense(it))(t); }
+const bezPts = (it, upto = 1, n = 28) => { const f = sampler(arrowDense(it)); return Array.from({ length: n + 1 }, (_, i) => f((i / n) * upto)); };
+// 점과 점 사이 가운데 (여기를 끌면 새 점이 생김)
+function segMids(P) {
+  if (P.length < 3) return [{ x: (P[0].x + P[1].x) / 2, y: (P[0].y + P[1].y) / 2 }];
+  const d = crPts(P);
+  return Array.from({ length: P.length - 1 }, (_, i) => d[i * SEG + SEG / 2]);
+}
+// 장면 사이 움직임 길: steps 값 [x, y] 직선 · [x, y, cx, cy] 예전 곡선 · [x, y, 'v', x1, y1, x2, y2 …] 지나가는 점들
+const stepVia = (st) => (st?.[2] === 'v' ? Array.from({ length: Math.floor((st.length - 3) / 2) }, (_, k) => ({ x: st[3 + 2 * k], y: st[4 + 2 * k] })) : null);
+function stepDense(q, b, st) {
+  const a = { x: q[0], y: q[1] }; const e = { x: b[0], y: b[1] };
+  const v = stepVia(st);
+  if (v?.length) return crPts([a, ...v, e]);
+  if (st && st.length > 3 && typeof st[2] === 'number') return quadPts(a, { x: st[2], y: st[3] }, e);
+  return [a, e];
+}
+// 화면에서 끌 점 목록 (예전 곡선은 곡선 가운데 한 점으로)
+function stepPoints(q, b, st) {
+  const v = stepVia(st);
+  if (v) return v;
+  if (st && st.length > 3 && typeof st[2] === 'number') return [{ x: 0.25 * q[0] + 0.5 * st[2] + 0.25 * b[0], y: 0.25 * q[1] + 0.5 * st[3] + 0.25 * b[1] }];
+  return [];
+}
 // 꺾은선을 따라 물결 (드리블)
 function wavyPts(pts, u) {
   const out = [pts[0]];
@@ -186,13 +240,14 @@ const ptsD = (pts) => pts.map((p, i) => `${i ? 'L' : 'M'} ${p.x.toFixed(2)} ${p.
 // 기구 기본 색
 const KIND_COLOR = { cone: '#ff8a00', marker: '#f5c400', pole: '#ffd400', hurdle: '#ff3b30', ladder: '#ffd400', gmarker: '#ff9f0a', gymball: '#4ea1ff', bosu: '#5e5ce6', vision: '#ffd400' };
 export const TOOL_COLORS = ['', '#ffd400', '#ff3b30', '#ff9f0a', '#34c759', '#00d1ff', '#4ea1ff', '#bf5af2', '#ff6fb5', '#ffffff', '#111111'];
-const COLORABLE = ['arrow', 'zone', 'text', 'cone', 'marker', 'pole', 'hurdle', 'ladder', 'gmarker', 'gymball', 'bosu', 'vision'];
+const COLORABLE = ['arrow', 'zone', 'text', 'num', 'cone', 'marker', 'pole', 'hurdle', 'ladder', 'gmarker', 'gymball', 'bosu', 'vision'];
 const ROTATABLE = ['goal', 'minigoal', 'hurdle', 'ladder'];
 
 // o: { prog: 화살표가 그어진 정도(0~1), op: 투명도, badge: 순서 번호 표시, origin: 시야 기준점(선수 위치) }
 function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
   const z = it.k === 'zone' ? 1 : (it.s || 1); // 아이템 크기 (기본 1)
-  const u = u0 * z;
+  const u = u0 * z * (it.k === 'zone' || it.k === 'player' ? 1 : ITEM_SCALE); // 그림 크기 (선수는 원래 크기 · 나머지는 예전 65% 크기가 지금의 100%)
+  const uh = u0 * Math.max(1, z); // 끄는 점(손잡이)은 누르기 쉽게 원래 크기
   const g = el('g', { 'data-i': i, class: `it it-${it.k}${selected ? ' sel' : ''}`, opacity: o.op != null && o.op < 1 ? Math.max(0, o.op).toFixed(2) : '' }, layer);
   const ring = (r) => selected && el('circle', { cx: it.x, cy: it.y, r, fill: 'none', stroke: '#4ea1ff', 'stroke-width': 0.3 * u, 'stroke-dasharray': `${u} ${u * 0.6}` }, g);
   const col = it.c || KIND_COLOR[it.k] || T.ink;
@@ -291,11 +346,15 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
     case 'zone': {
       const dash = it.style === 'dash';
       const zc = it.c || (dash ? '#e5484d' : '');
-      el('rect', {
-        x: it.x, y: it.y, width: it.w, height: it.h,
+      const look = {
         fill: zc ? `${zc}${dash ? '14' : '33'}` : T.zone,
         stroke: dash || it.c ? zc : 'none', 'stroke-width': 0.35 * u, 'stroke-dasharray': dash ? `${u * 1.2} ${u * 0.8}` : '',
-      }, g);
+      };
+      // 모양: 네모(기본) · 동그라미 · 세모 · 마름모
+      if (it.shape === 'ellipse') el('ellipse', { cx: it.x + it.w / 2, cy: it.y + it.h / 2, rx: it.w / 2, ry: it.h / 2, ...look }, g);
+      else if (it.shape === 'tri') el('polygon', { points: `${it.x + it.w / 2},${it.y} ${it.x + it.w},${it.y + it.h} ${it.x},${it.y + it.h}`, 'stroke-linejoin': 'round', ...look }, g);
+      else if (it.shape === 'diamond') el('polygon', { points: `${it.x + it.w / 2},${it.y} ${it.x + it.w},${it.y + it.h / 2} ${it.x + it.w / 2},${it.y + it.h} ${it.x},${it.y + it.h / 2}`, 'stroke-linejoin': 'round', ...look }, g);
+      else el('rect', { x: it.x, y: it.y, width: it.w, height: it.h, ...look }, g);
       if (selected) {
         el('rect', { x: it.x, y: it.y, width: it.w, height: it.h, fill: 'none', stroke: '#4ea1ff', 'stroke-width': 0.3 * u, 'stroke-dasharray': `${u} ${u * 0.6}` }, g);
         el('circle', { cx: it.x + it.w, cy: it.y + it.h, r: 1.1 * u, fill: '#4ea1ff', 'data-handle': 'size' }, g);
@@ -339,7 +398,7 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
       const hw = hl * 0.55;
       el('path', { d: `M ${tip.x} ${tip.y} L ${tip.x - Math.cos(ang) * hl - Math.sin(ang) * hw} ${tip.y - Math.sin(ang) * hl + Math.cos(ang) * hw} L ${tip.x - Math.cos(ang) * hl + Math.sin(ang) * hw} ${tip.y - Math.sin(ang) * hl - Math.cos(ang) * hw} Z`, fill: col, stroke: 'none' }, g);
       void mkFor;
-      el('path', { d: ptsD(bezPts(it)), stroke: 'transparent', 'stroke-width': 2.4 * u, fill: 'none' }, g);
+      el('path', { d: ptsD(bezPts(it)), stroke: 'transparent', 'stroke-width': 2.4 * uh, fill: 'none' }, g);
       if (o.badge) { // 순서 번호
         const m = bez(it, 0.5);
         el('circle', { cx: m.x, cy: m.y, r: 1.2 * u, fill: col, stroke: '#000', 'stroke-width': 0.18 * u }, g);
@@ -347,10 +406,16 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
         t.textContent = it.order || 1;
       }
       if (selected) {
-        const m = bez(it, 0.5);
-        el('circle', { cx: it.x1, cy: it.y1, r: 1 * u, fill: '#4ea1ff', 'data-handle': 'p1' }, g);
-        el('circle', { cx: it.x2, cy: it.y2, r: 1 * u, fill: '#4ea1ff', 'data-handle': 'p2' }, g);
-        el('circle', { cx: m.x, cy: m.y, r: 0.9 * u, fill: '#fff', stroke: '#4ea1ff', 'stroke-width': 0.3 * u, 'data-handle': 'pc' }, g); // 끌면 곡선
+        el('circle', { cx: it.x1, cy: it.y1, r: 1 * uh, fill: '#4ea1ff', 'data-handle': 'p1' }, g);
+        el('circle', { cx: it.x2, cy: it.y2, r: 1 * uh, fill: '#4ea1ff', 'data-handle': 'p2' }, g);
+        if (it.cx != null && !it.via) { // 예전 곡선: 가운데 한 점 (끌면 새 방식으로)
+          const m = bez(it, 0.5);
+          el('circle', { cx: m.x, cy: m.y, r: 0.9 * uh, fill: '#fff', stroke: '#4ea1ff', 'stroke-width': 0.3 * uh, 'data-handle': 'q0' }, g);
+        } else {
+          // 점과 점 사이 작은 점: 끌면 꺾는 점이 하나 더 생김 → 사이드 스텝 · 지그재그도 자유롭게
+          segMids(arrowCtl(it)).forEach((m, k) => el('circle', { cx: m.x, cy: m.y, r: 0.6 * uh, fill: 'rgba(255,255,255,.55)', stroke: '#4ea1ff', 'stroke-width': 0.22 * uh, 'data-handle': `n${k}`, class: 'h-add' }, g));
+          (it.via || []).forEach((v, k) => el('circle', { cx: v.x, cy: v.y, r: 0.95 * uh, fill: '#fff', stroke: '#4ea1ff', 'stroke-width': 0.32 * uh, 'data-handle': `q${k}` }, g)); // 끌어서 옮김 · 더블클릭하면 지움
+        }
       }
       break;
     }
@@ -362,9 +427,19 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
       el('path', { d: `M ${O.x} ${O.y} L ${A.x} ${A.y} A ${L} ${L} 0 0 1 ${B.x} ${B.y} Z`, fill: col, 'fill-opacity': 0.16, stroke: 'none' }, g);
       el('path', { d: `M ${A.x} ${A.y} L ${O.x} ${O.y} L ${B.x} ${B.y}`, fill: 'none', stroke: col, 'stroke-width': 0.4 * u, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': `${u * 1.1} ${u * 0.6}` }, g);
       if (selected) {
-        el('circle', { cx: O.x + Math.cos(a) * L, cy: O.y + Math.sin(a) * L, r: 1 * u, fill: '#4ea1ff', 'data-handle': 'vh' }, g);
+        el('circle', { cx: O.x + Math.cos(a) * L, cy: O.y + Math.sin(a) * L, r: 1 * uh, fill: '#4ea1ff', 'data-handle': 'vh' }, g);
         if (!it.who) el('circle', { cx: O.x, cy: O.y, r: 0.8 * u, fill: '#4ea1ff' }, g);
       }
+      break;
+    }
+    case 'num': { // 설명용 번호 1 · 2 · 3 (네모) — 그림 위에 순서를 붙여서 설명
+      const r = 1.6 * u; // 네모 반 크기 — 동그란 선수와 헷갈리지 않게 네모로
+      const fill = it.c || '#ffd400';
+      el('rect', { x: it.x - r, y: it.y - r, width: 2 * r, height: 2 * r, rx: 0.35 * u, fill, stroke: '#000', 'stroke-width': 0.22 * u, transform: upright(it.x, it.y) }, g);
+      const dark = ['#111111', '#5e5ce6', '#bf5af2', '#ff3b30', '#4ea1ff'].includes(fill);
+      const t = el('text', { x: 0, y: 0, 'text-anchor': 'middle', 'font-size': (String(it.n).length > 1 ? 1.6 : 2) * u * 20, 'font-weight': 900, fill: dark ? '#fff' : '#000', transform: `${upright(it.x, it.y)} translate(${it.x} ${it.y + 0.7 * u}) scale(0.05)` }, g);
+      t.textContent = it.n ?? '';
+      if (selected) { const R2 = r + 0.8 * u; el('rect', { x: it.x - R2, y: it.y - R2, width: 2 * R2, height: 2 * R2, rx: 0.5 * u, fill: 'none', stroke: '#4ea1ff', 'stroke-width': 0.3 * u, 'stroke-dasharray': `${u} ${u * 0.6}` }, g); }
       break;
     }
     case 'text': {
@@ -406,9 +481,15 @@ const TOOLS = [
   ['bosu', '밸런스볼', '◓'],
   ['minigoal', '미니골대', '⊓'],
   ['goal', '골대', '⊔'],
-  ['zone', '영역', '▭'],
-  ['zone-dash', '점선 영역', '⬚'],
+  ['zone', '네모', '▭'],
+  ['zone-dash', '점선 네모', '⬚'],
+  ['zone-o', '동그라미', '◯'],
+  ['zone-o-dash', '점선 동그라미', '◌'],
+  ['zone-tri', '세모', '△'],
+  ['zone-tri-dash', '점선 세모', '△'],
+  ['zone-dia', '마름모', '◇'],
   ['text', '글자', 'T'],
+  ['num', '순서', '□'],
 ];
 
 // 도구 묶음 — [이름, 아이콘, 들어 있는 도구들]
@@ -419,13 +500,16 @@ const TOOL_GROUPS = [
   ['화살표', '→', ['pass', 'run', 'dribble']],
   ['시야', '∨', ['vision']],
   ['기구', '▲', ['cone', 'marker', 'gmarker', 'pole', 'hurdle', 'ladder', 'gymball', 'bosu', 'minigoal', 'goal']],
-  ['영역', '▭', ['zone', 'zone-dash']],
+  ['영역', '▭', ['zone', 'zone-dash', 'zone-o', 'zone-o-dash', 'zone-tri', 'zone-tri-dash', 'zone-dia']],
   ['글자', 'T', ['text']],
+  ['순서', '□', ['num']],
 ];
+const ITEM_SCALE = 0.65; // 공 · 기구 · 번호 · 글자 · 화살표 기본 크기 (선수는 그대로)
+const ARROW_HINT = '끌어서 화살표 · 고른 뒤 선 위의 작은 점을 끌면 휘는 점이 하나씩 늘어나요 (사이드 스텝 · 지그재그) · 흰 점 더블클릭하면 그 점만 지움';
 const TOOL_INFO = Object.fromEntries(TOOLS.map(([k, l, ic]) => [k, { l, ic }]));
 
 // 움직임(장면): data.steps[k] = { 아이템id: [x, y] } — 장면 1은 기본 위치, 장면 2부터 바뀐 위치만 저장
-const MOVABLE = ['player', 'ball', 'cone', 'marker', 'text', 'gmarker', 'pole', 'hurdle', 'ladder', 'gymball', 'bosu', 'vision'];
+const MOVABLE = ['player', 'ball', 'cone', 'marker', 'text', 'num', 'gmarker', 'pole', 'hurdle', 'ladder', 'gymball', 'bosu', 'vision'];
 const EQUIP = ['cone', 'marker', 'ball', 'minigoal', 'goal', 'gmarker', 'pole', 'hurdle', 'ladder', 'gymball', 'bosu'];
 let idSeq = 0;
 let clipboard = null; // Ctrl+C 한 아이템들 (다른 작전판에도 붙여넣기 가능)
@@ -488,7 +572,7 @@ export function createPad(container, initial, { editable = true, motion = false,
       <span class="pad-ord" data-order title="같은 번호끼리 한꺼번에 움직여요 · 기본 1">순서 <input type="number" min="1" max="20" form="_pad" data-ordin> <small>번째</small></span>
     </div>
     <div class="pad-acts pad-sel" data-selbar>
-      <span class="pad-num" data-pnum>번호 <input data-pnin maxlength="4" title="선수 번호 (또는 짧은 이름) 적고 Enter"></span>
+      <span class="pad-num" data-pnum><b data-pnlab>번호</b> <input data-pnin maxlength="4" title="선수 번호 (또는 짧은 이름) 적고 Enter"></span>
       <span class="pad-num pad-txt" data-ptxt>글자 <input data-ptin maxlength="30" title="글자를 고치고 Enter (더블클릭해도 돼요)"></span>
       <span class="pad-teams" data-teams>${Object.entries(TEAMS).map(([k, t]) => `<button type="button" class="pteam" data-team="${k}" style="--c:${t.fill};--t:${t.text}">${t.label}</button>`).join('')}</span>
       <span class="pad-colors" data-colors>${TOOL_COLORS.map((c) => `<button type="button" class="pcol ${c ? '' : 'def'}" data-col="${c}" style="--c:${c || 'transparent'}" title="${c || '기본색'}"></button>`).join('')}</span>
@@ -587,20 +671,26 @@ export function createPad(container, initial, { editable = true, motion = false,
         const q = prev[id];
         if (!q || (q[0] === x && q[1] === y)) return;
         const st = data.steps[scene - 1]?.[id];
-        const c = st && st.length > 2 ? { x: st[2], y: st[3] } : { x: (q[0] + x) / 2, y: (q[1] + y) / 2 };
-        el('path', { d: `M ${q[0]} ${q[1]} Q ${c.x} ${c.y} ${x} ${y}`, fill: 'none', stroke: '#ffd400', 'stroke-width': 0.35 * u, 'stroke-dasharray': `${u} ${u * 0.7}`, opacity: 0.7 }, gl);
+        const dense = stepDense(q, [x, y], st);
+        el('path', { d: ptsD(dense), fill: 'none', stroke: '#ffd400', 'stroke-width': 0.35 * u, 'stroke-dasharray': `${u} ${u * 0.7}`, opacity: 0.7 }, gl);
         el('circle', { cx: q[0], cy: q[1], r: 1.4 * u, fill: editable ? 'rgba(255,212,0,.12)' : 'none', stroke: '#ffd400', 'stroke-width': 0.3 * u, opacity: 0.8, ...(editable ? { 'data-gs': id, class: 'ghost-s' } : {}) }, gl);
         if (editable) {
-          const m = { x: 0.25 * q[0] + 0.5 * c.x + 0.25 * x, y: 0.25 * q[1] + 0.5 * c.y + 0.25 * y };
-          const on = ordOf(scene - 1, id);
-          el('circle', { cx: m.x, cy: m.y, r: (orderUsed ? 1.2 : 0.85) * u, fill: '#fff', stroke: '#ffd400', 'stroke-width': 0.35 * u, 'data-gh': id, class: 'ghost-h' }, gl);
-          if (orderUsed) { const t = el('text', { x: m.x, y: m.y + 0.5 * u, 'text-anchor': 'middle', 'font-size': 1.45 * u, 'font-weight': 900, fill: '#000', 'pointer-events': 'none', transform: upright(m.x, m.y) }, gl); t.textContent = on; }
+          // 노란 점선 위: 작은 점(점 사이)을 끌면 꺾는 점이 생기고, 흰 점은 끌어서 옮기거나 더블클릭해서 지움
+          const vs = stepPoints(q, [x, y], st);
+          const P = [{ x: q[0], y: q[1] }, ...vs, { x, y }];
+          segMids(P).forEach((m, k) => el('circle', { cx: m.x, cy: m.y, r: 0.6 * u, fill: 'rgba(255,255,255,.55)', stroke: '#ffd400', 'stroke-width': 0.25 * u, 'data-gh': id, 'data-ga': k, class: 'ghost-h h-add' }, gl));
+          vs.forEach((v, k) => el('circle', { cx: v.x, cy: v.y, r: 0.9 * u, fill: '#fff', stroke: '#ffd400', 'stroke-width': 0.35 * u, 'data-gh': id, 'data-gv': k, class: 'ghost-h' }, gl));
+          if (orderUsed) {
+            const m = sampler(dense)(0.5); const on = ordOf(scene - 1, id);
+            el('circle', { cx: m.x, cy: m.y - 2 * u, r: 1.2 * u, fill: '#ffd400', stroke: '#000', 'stroke-width': 0.2 * u, 'pointer-events': 'none' }, gl);
+            const t = el('text', { x: m.x, y: m.y - 1.5 * u, 'text-anchor': 'middle', 'font-size': 1.45 * u, 'font-weight': 900, fill: '#000', 'pointer-events': 'none', transform: upright(m.x, m.y - 2 * u) }, gl); t.textContent = on;
+          }
         }
       });
     }
     const layer = el('g', {}, world);
     // 그리는 순서: 영역 → 화살표 → 장비 → 선수 → 공 → 글자
-    const order = { zone: 0, ladder: 0.5, vision: 0.8, arrow: 1, cone: 2, marker: 2, gmarker: 2, pole: 2, hurdle: 2, gymball: 2, bosu: 2, minigoal: 2, goal: 2, player: 3, ball: 4, text: 5 };
+    const order = { zone: 0, ladder: 0.5, vision: 0.8, arrow: 1, cone: 2, marker: 2, gmarker: 2, pole: 2, hurdle: 2, gymball: 2, bosu: 2, minigoal: 2, goal: 2, player: 3, ball: 4, text: 5, num: 6 };
     const badges = editable && data.items.some((x) => x.k === 'arrow' && (x.order || 1) > 1);
     const zOf = (x) => (x.z != null ? x.z : order[x.k] ?? 2);
     list.map((it, i) => [it, i]).sort((a, b) => zOf(a[0]) - zOf(b[0]))
@@ -622,9 +712,11 @@ export function createPad(container, initial, { editable = true, motion = false,
   mbar.className = 'pad-motion';
   container.appendChild(mbar);
   if (!editable) mbar.classList.add('view');
-  const hasMotion = () => data.steps.length > 0 || data.items.some((x) => x.k === 'arrow');
+  // 기본은 그림(이미지)으로만 · '애니메이션 사용'을 켜야 장면 1 · 2 · 3 움직임 (예전에 장면을 만든 작전판은 켜진 채로)
+  const animOn = () => data.anim === true || (data.anim !== false && data.steps.length > 0);
+  const hasMotion = () => animOn() && (data.steps.length > 0 || data.items.some((x) => x.k === 'arrow'));
   function drawMotion() {
-    const key = [editable, motion, play, !!anim, !!paused, scene, anim?.scene, data.steps.length, hasMotion()].map((v) => (v && typeof v === 'object' ? 1 : v)).join('|');
+    const key = [editable, motion, play, !!anim, !!paused, scene, anim?.scene, data.steps.length, hasMotion(), animOn()].map((v) => (v && typeof v === 'object' ? 1 : v)).join('|');
     if (key === mkey && mbar.innerHTML) return;
     mkey = key;
     const N1 = data.steps.length + 1;
@@ -639,14 +731,21 @@ export function createPad(container, initial, { editable = true, motion = false,
         <span class="pm-dots" title="누르면 그 장면부터 재생">${Array.from({ length: N1 }, (_, k) => `<i class="${k === cur ? 'on' : ''}" data-dot="${k}"></i>`).join('')}</span>`;
     } else {
       if (!motion) { mbar.hidden = true; return; }
+      mbar.hidden = false;
+      if (!animOn()) {
+        mbar.innerHTML = `<b>움직임</b><button type="button" class="chip" data-animon>애니메이션 사용</button>
+          <small class="muted">지금은 그림 한 장이에요 · 켜면 장면 1 · 2 · 3을 추가해서 선수 · 공이 움직이게 만들 수 있어요</small>`;
+        mbar.querySelector('[data-animon]').onclick = () => { snapshot(); data.anim = true; render(); };
+        return;
+      }
       const n = N1;
-      mbar.innerHTML = `<b>🎬 움직임</b>
+      mbar.innerHTML = `<b>움직임</b><button type="button" class="chip on" data-animoff title="누르면 그림 한 장으로 돌아가요">애니메이션 사용 중</button>
         <span class="pm-scenes">${Array.from({ length: n }, (_, k) => `<button type="button" class="chip ${k === (anim ? anim.scene : scene) ? 'on' : ''}" data-sc="${k}">장면 ${k + 1}</button>`).join('')}
         <button type="button" class="chip" data-addsc>+ 장면</button></span>
         ${hasMotion() ? (anim ? '<button type="button" class="chip on" data-pause title="지금 장면에서 멈추고 바로 고칠 수 있어요">❚❚ 멈춤 · 여기서 수정</button>'
           : `<button type="button" class="chip" data-playhere title="이 장면으로 오는 움직임부터 재생">▶ ${scene > 0 ? '이 장면부터 재생' : '재생'}</button>${scene > 0 ? '<button type="button" class="chip" data-play0>⏮ 처음부터</button>' : ''}`) : ''}
         ${scene > 0 && !anim ? '<button type="button" class="chip" data-delsc>이 장면 삭제</button>' : ''}
-        <small class="muted">${anim ? '재생 중 — 멈추면 그 장면에서 바로 고칠 수 있어요' : n === 1 ? '<b>+ 장면</b>을 누르고 선수 · 공 · 기구를 끌어서 옮기면 ▶ 재생할 때 그 자리로 움직여요' : scene > 0 ? `장면 ${scene + 1}: 끌어서 옮겨요 · <b>노란 점선 가운데 흰 점</b>을 끌면 곡선으로 움직여요(더블클릭하면 직선) · 여기서 지우면 이 장면부터 안 나와요 (앞 장면엔 남아요)` : '장면 1: 처음 위치예요'}</small>`;
+        <small class="muted">${anim ? '재생 중 — 멈추면 그 장면에서 바로 고칠 수 있어요' : n === 1 ? '<b>+ 장면</b>을 누르고 선수 · 공 · 기구를 끌어서 옮기면 ▶ 재생할 때 그 자리로 움직여요' : scene > 0 ? `장면 ${scene + 1}: 끌어서 옮겨요 · <b>노란 점선 위 작은 점</b>을 끌면 휘는 점이 하나씩 늘어나요(사이드 스텝도 표현) · 흰 점 더블클릭하면 그 점만 지움 · 여기서 지우면 이 장면부터 안 나와요 (앞 장면엔 남아요)` : '장면 1: 처음 위치예요'}</small>`;
       mbar.querySelectorAll('[data-sc]').forEach((b) => (b.onclick = () => { stop(); scene = +b.dataset.sc; sel = -1; render(); }));
       mbar.querySelector('[data-addsc]').onclick = () => { stop(); snapshot(); data.steps.splice(scene, 0, {}); if (data.stepOrder) data.stepOrder.splice(scene, 0, {}); shiftScenes(scene + 1, 1); scene += 1; sel = -1; extra.clear(); render(); };
       mbar.querySelector('[data-delsc]')?.addEventListener('click', () => {
@@ -656,6 +755,13 @@ export function createPad(container, initial, { editable = true, motion = false,
         data.steps.splice(scene - 1, 1); data.stepOrder?.splice(scene - 1, 1); shiftScenes(scene, -1); scene -= 1; sel = -1; extra.clear(); render();
       });
       mbar.querySelector('[data-playhere]')?.addEventListener('click', () => playAll(Math.max(0, scene - 1))); // 이 장면으로 오는 움직임부터
+      mbar.querySelector('[data-animoff]').onclick = () => {
+        // 끄면 장면 1(처음 그림)만 남김
+        if (data.steps.length && !confirm('애니메이션을 끄면 장면 2부터의 움직임이 지워지고 장면 1 그림만 남아요. 끌까요?')) return;
+        stop(); snapshot();
+        data.items = data.items.filter((x) => (x.from || 0) === 0).map((x) => { const c = { ...x }; delete c.until; delete c.hide; return c; });
+        data.steps = []; delete data.stepOrder; data.anim = false; scene = 0; sel = -1; extra.clear(); render();
+      };
     }
     mbar.querySelector('[data-play0]')?.addEventListener('click', () => { stop(); scene = 0; playAll(0); });
     mbar.querySelector('[data-pause]')?.addEventListener('click', pauseAnim);
@@ -728,7 +834,7 @@ export function createPad(container, initial, { editable = true, motion = false,
         if (mo < o) { pos[id] = b0; return; }
         if (mo > o) return;
         const st = data.steps[s0]?.[id];
-        if (st && st.length > 2) { const u2 = 1 - e; pos[id] = [u2 * u2 * a0[0] + 2 * u2 * e * st[2] + e * e * b0[0], u2 * u2 * a0[1] + 2 * u2 * e * st[3] + e * e * b0[1]]; } // 노란 점선을 휘어 둔 곡선
+        if (st && st.length > 2) { const q = sampler(stepDense(a0, b0, st))(e); pos[id] = [q.x, q.y]; } // 노란 점선을 휘어 둔 길 그대로
         else pos[id] = [a0[0] + (b0[0] - a0[0]) * e, a0[1] + (b0[1] - a0[1]) * e];
       });
       // 다음 장면으로 바뀔 때: 이 장면에만 있던 화살표 등은 흐려지고, 다음 장면 것은 나타남
@@ -790,7 +896,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     const szin = container.querySelector('[data-szin]');
     if (document.activeElement !== szin) szin.value = Math.round((canSize ? s.s || 1 : curSize()) * 100);
     // 색: 고른 것(또는 지금 도구)이 색을 바꿀 수 있을 때
-    const colorTool = COLORABLE.includes(kindOf(tool === 'zone-dash' ? 'zone' : tool));
+    const colorTool = COLORABLE.includes(kindOf(tool.startsWith('zone') ? 'zone' : tool));
     const colSel = selected().some((x) => COLORABLE.includes(x.k));
     container.querySelector('[data-colors]').hidden = !(colorTool || colSel);
     const curCol = colSel ? (selected().find((x) => COLORABLE.includes(x.k)).c || '') : ccol;
@@ -799,8 +905,9 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.querySelector('[data-order]').hidden = !(s && (s.k === 'arrow' || movedHere));
     const curOrd = s?.k === 'arrow' ? (s.order || 1) : movedHere ? ordOf(scene - 1, s.id) : 0;
     // 선수 번호 고치기 (선수 하나만 골랐을 때)
-    const onePlayer = s && s.k === 'player' && !extra.size;
+    const onePlayer = s && (s.k === 'player' || s.k === 'num') && !extra.size;
     container.querySelector('[data-pnum]').hidden = !onePlayer;
+    if (onePlayer) container.querySelector('[data-pnlab]').textContent = s.k === 'num' ? '순서' : '번호';
     const pnin = container.querySelector('[data-pnin]');
     if (onePlayer && document.activeElement !== pnin) pnin.value = s.n ?? '';
     const oneText = s && s.k === 'text' && !extra.size;
@@ -809,7 +916,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     if (oneText && document.activeElement !== ptin) ptin.value = s.t ?? '';
     const ordin = container.querySelector('[data-ordin]');
     if (document.activeElement !== ordin) ordin.value = curOrd || 1;
-    container.querySelector('[data-straight]').hidden = !(s?.k === 'arrow' && s.cx != null);
+    container.querySelector('[data-straight]').hidden = !(s?.k === 'arrow' && (s.cx != null || s.via?.length));
     container.querySelector('[data-spread]').hidden = !(s && s.k === 'vision');
     container.querySelectorAll('[data-sp]').forEach((b) => b.classList.toggle('on', s?.k === 'vision' && +b.dataset.sp === (s.spread || 50)));
     const selbar = container.querySelector('[data-selbar]');
@@ -818,8 +925,9 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.querySelector('[data-hint]').textContent = {
       select: '끌어서 이동 · Ctrl(⌘)+클릭 여러 개 · Ctrl+C/V 복사·붙여넣기 · Ctrl+Z 되돌리기 · Delete 삭제 · +/- 크기 · 더블클릭 번호 수정',
       player: '필드를 누르면 선수가 놓입니다 (번호 자동) · Enter 키로 선택·이동',
-      zone: '끌어서 영역 그리기', 'zone-dash': '끌어서 영역 그리기',
-      pass: '끌어서 화살표 · 고른 뒤 가운데 흰 점을 끌면 곡선', run: '끌어서 화살표 · 고른 뒤 가운데 흰 점을 끌면 곡선', dribble: '끌어서 화살표 · 고른 뒤 가운데 흰 점을 끌면 곡선',
+      ...Object.fromEntries(TOOLS.filter(([k]) => k.startsWith('zone')).map(([k]) => [k, '끌어서 영역 그리기 · 고른 뒤 오른쪽 아래 점으로 크기 조절'])),
+      pass: ARROW_HINT, run: ARROW_HINT, dribble: ARROW_HINT,
+      num: '필드를 누르면 순서 1 · 2 · 3 이 차례로 놓여요 · 두 번 누르면 아래 칸에서 숫자 고치기',
       vision: '선수를 누른 채 바라보는 쪽으로 끌어요 → V 모양 시야 (선수를 따라다녀요)',
       text: '필드를 누르고 글자 입력',
     }[tool] || '필드를 누르면 놓입니다 · Enter 키로 선택·이동';
@@ -864,6 +972,7 @@ export function createPad(container, initial, { editable = true, motion = false,
       if (it.k === 'arrow') {
         it.x1 = round(it.x1 * sx); it.y1 = round(it.y1 * sy); it.x2 = round(it.x2 * sx); it.y2 = round(it.y2 * sy);
         if (it.cx != null) { it.cx = round(it.cx * sx); it.cy = round(it.cy * sy); }
+        if (it.via) it.via = it.via.map((v) => ({ x: round(v.x * sx), y: round(v.y * sy) }));
       }
       if (it.k === 'vision' && it.len) it.len = round(it.len * (sx + sy) / 2);
     });
@@ -987,7 +1096,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     render();
   };
   // 맨 앞으로 · 맨 뒤로 (공과 선수가 겹칠 때 등)
-  const KIND_Z = { zone: 0, ladder: 0.5, vision: 0.8, arrow: 1, player: 3, ball: 4, text: 5 };
+  const KIND_Z = { zone: 0, ladder: 0.5, vision: 0.8, arrow: 1, player: 3, ball: 4, text: 5, num: 6 };
   const zNow = (x) => (x.z != null ? x.z : KIND_Z[x.k] ?? 2);
   const toZ = (front) => {
     const list = selected();
@@ -1021,9 +1130,9 @@ export function createPad(container, initial, { editable = true, motion = false,
   pnIn.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); pnIn.blur(); } e.stopPropagation(); };
   pnIn.onchange = () => {
     const x = items()[sel];
-    if (x?.k !== 'player') return;
+    if (x?.k !== 'player' && x?.k !== 'num') return;
     snapshot();
-    x.n = pnIn.value.trim().slice(0, 4);
+    x.n = pnIn.value.trim().slice(0, x.k === 'num' ? 3 : 4);
     render();
   };
   // 글자 고치기 (고른 글자 → 아래 칸에서 바로)
@@ -1055,7 +1164,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     });
     render();
   };
-  container.querySelector('[data-straight]').onclick = () => { const x = items()[sel]; if (x?.k !== 'arrow') return; snapshot(); delete x.cx; delete x.cy; render(); };
+  container.querySelector('[data-straight]').onclick = () => { const x = items()[sel]; if (x?.k !== 'arrow') return; snapshot(); delete x.cx; delete x.cy; delete x.via; render(); };
   container.querySelectorAll('[data-sp]').forEach((b) => (b.onclick = () => {
     const list = selected().filter((x) => x.k === 'vision');
     if (!list.length) return;
@@ -1105,14 +1214,14 @@ export function createPad(container, initial, { editable = true, motion = false,
     const off = 2 * unit();
     const added = clipboard.map((x) => {
       const c = clone(x);
-      if ('x1' in c) { c.x1 = round(c.x1 + off); c.y1 = round(c.y1 + off); c.x2 = round(c.x2 + off); c.y2 = round(c.y2 + off); if (c.cx != null) { c.cx = round(c.cx + off); c.cy = round(c.cy + off); } } else { c.x = round(c.x + off); c.y = round(c.y + off); }
+      if ('x1' in c) { c.x1 = round(c.x1 + off); c.y1 = round(c.y1 + off); c.x2 = round(c.x2 + off); c.y2 = round(c.y2 + off); if (c.cx != null) { c.cx = round(c.cx + off); c.cy = round(c.cy + off); } if (c.via) c.via = c.via.map((v) => ({ x: round(v.x + off), y: round(v.y + off) })); } else { c.x = round(c.x + off); c.y = round(c.y + off); }
       if (c.k === 'player') c.n = nextNum(c.team);
       delete c.who; delete c.until; delete c.hide; // 붙여넣은 건 지금 장면부터 · 따로
       if (scene) c.from = scene; else delete c.from;
       return c;
     });
     data.items.push(...added);
-    clipboard = clipboard.map((x) => { const c = clone(x); if ('x1' in c) { c.x1 += off; c.y1 += off; c.x2 += off; c.y2 += off; } else { c.x += off; c.y += off; } return c; }); // 또 붙이면 조금씩 비켜서
+    clipboard = clipboard.map((x) => { const c = clone(x); if ('x1' in c) { c.x1 += off; c.y1 += off; c.x2 += off; c.y2 += off; if (c.via) c.via = c.via.map((v) => ({ x: v.x + off, y: v.y + off })); } else { c.x += off; c.y += off; } return c; }); // 또 붙이면 조금씩 비켜서
     tool = 'select';
     sel = data.items.indexOf(added[0]); extra.clear(); added.slice(1).forEach((x) => extra.add(x));
     render();
@@ -1204,7 +1313,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     // 같은 글자 · 선수를 0.4초 안에 두 번 누르면 바로 고치기 (화면을 다시 그려서 브라우저 더블클릭이 안 잡히던 것)
     const tg = e.target.closest?.('[data-i]');
     const tit = tg && items()[+tg.dataset.i];
-    if (tit && (tit.k === 'text' || tit.k === 'player')) {
+    if (tit && (tit.k === 'text' || tit.k === 'player' || tit.k === 'num')) {
       const now = performance.now();
       if (lastTap.id === tit.id && now - lastTap.t < 400) {
         lastTap = { t: 0, id: null };
@@ -1221,7 +1330,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     const gh = e.target.closest?.('[data-gh]');
     if (gh && scene > 0) {
       snapshot();
-      drag = { ghost: gh.dataset.gh, start: p };
+      drag = { ghost: gh.dataset.gh, start: p, gv: gh.dataset.gv != null ? +gh.dataset.gv : null, ga: gh.dataset.ga != null ? +gh.dataset.ga : null };
       svg.setPointerCapture(e.pointerId);
       return;
     }
@@ -1272,13 +1381,17 @@ export function createPad(container, initial, { editable = true, motion = false,
     let it;
     if (tool === 'player') it = { k: 'player', team, n: nextNum(team), x: p.x, y: p.y };
     else if (EQUIP.includes(tool)) it = { k: tool, x: p.x, y: p.y };
+    else if (tool === 'num') { const ns = items().filter((x) => x.k === 'num').map((x) => +x.n).filter((n) => !isNaN(n)); it = { k: 'num', n: String(ns.length ? Math.max(...ns) + 1 : 1), x: p.x, y: p.y }; }
     else if (tool === 'vision') {
       // 선수를 누르고 시작하면 그 선수를 따라다니는 시야
       const pl = nearest(p, ['player'], 3.2);
       const o = pl ? { x: pl.p[0], y: pl.p[1] } : p;
       it = { k: 'vision', x: o.x, y: o.y, ang: 0, len: 12 * unit(), spread: 50, ...(pl ? { who: pl.it.id } : {}) };
     }
-    else if (tool === 'zone' || tool === 'zone-dash') it = { k: 'zone', style: tool === 'zone-dash' ? 'dash' : 'fill', x: p.x, y: p.y, w: 0, h: 0 };
+    else if (tool.startsWith('zone')) {
+      const shape = tool.includes('-o') ? 'ellipse' : tool.includes('-tri') ? 'tri' : tool.includes('-dia') ? 'diamond' : '';
+      it = { k: 'zone', style: tool.endsWith('-dash') ? 'dash' : 'fill', ...(shape ? { shape } : {}), x: p.x, y: p.y, w: 0, h: 0 };
+    }
     else if (['pass', 'run', 'dribble'].includes(tool)) it = { k: 'arrow', style: tool, x1: p.x, y1: p.y, x2: p.x, y2: p.y };
     else if (tool === 'text') {
       const t = prompt('필드에 쓸 글자');
@@ -1323,7 +1436,7 @@ export function createPad(container, initial, { editable = true, motion = false,
       const xy = [round(p.x), round(p.y)];
       if (scene - 1 === 0) { const it0 = data.items.find((x) => x.id === id); if (it0) { it0.x = xy[0]; it0.y = xy[1]; } } else {
         const old = data.steps[scene - 2][id];
-        data.steps[scene - 2][id] = old?.length > 2 ? [...xy, old[2], old[3]] : xy;
+        data.steps[scene - 2][id] = old?.length > 2 ? [...xy, ...old.slice(2)] : xy;
       }
       render();
       return;
@@ -1333,7 +1446,10 @@ export function createPad(container, initial, { editable = true, motion = false,
       const id = drag.ghost;
       const q = posAt(scene - 1)[id]; const b = posAt(scene)[id];
       const st = data.steps[scene - 1][id];
-      data.steps[scene - 1][id] = [st[0], st[1], round(2 * p.x - (q[0] + b[0]) / 2), round(2 * p.y - (q[1] + b[1]) / 2)];
+      const vs = stepPoints(q, b, st);
+      if (drag.ga != null) { vs.splice(drag.ga, 0, { x: p.x, y: p.y }); drag.gv = drag.ga; drag.ga = null; } // 점 사이를 끌면 새 점
+      if (drag.gv != null) vs[drag.gv] = { x: round(p.x), y: round(p.y) };
+      data.steps[scene - 1][id] = [st[0], st[1], 'v', ...vs.flatMap((v) => [round(v.x), round(v.y)])];
       render();
       return;
     }
@@ -1341,7 +1457,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     const dx = p.x - start.x;
     const dy = p.y - start.y;
     if (drag.stepMove) {
-      const keepC = (id, xy) => { const old = data.steps[scene - 1][id]; data.steps[scene - 1][id] = old?.length > 2 ? [...xy, old[2], old[3]] : xy; };
+      const keepC = (id, xy) => { const old = data.steps[scene - 1][id]; data.steps[scene - 1][id] = old?.length > 2 ? [...xy, ...old.slice(2)] : xy; };
       keepC(it.id, [round(orig.x + dx), round(orig.y + dy)]);
       drag.group?.forEach(({ m, o }) => keepC(m.id, [round(o.x + dx), round(o.y + dy)]));
     } else if (drag.creating) {
@@ -1352,18 +1468,23 @@ export function createPad(container, initial, { editable = true, motion = false,
       else { it.x2 = p.x; it.y2 = p.y; }
     } else if (handle === 'size') {
       it.w = round(Math.max(1, orig.w + dx)); it.h = round(Math.max(1, orig.h + dy));
-    } else if (handle === 'p1') { it.x1 = p.x; it.y1 = p.y; } else if (handle === 'p2') { it.x2 = p.x; it.y2 = p.y; } else if (handle === 'pc') {
-      // 끈 점을 곡선이 지나가도록 조절점 계산
-      it.cx = round(2 * p.x - (it.x1 + it.x2) / 2); it.cy = round(2 * p.y - (it.y1 + it.y2) / 2);
+    } else if (handle === 'p1') { it.x1 = p.x; it.y1 = p.y; } else if (handle === 'p2') { it.x2 = p.x; it.y2 = p.y; } else if (/^[nq]\d+$/.test(handle || '')) {
+      // 곡선 점: n = 점 사이에서 새로 만들기, q = 있는 점 옮기기 (예전 곡선은 처음 끌 때 새 방식으로 바꿈)
+      if (it.cx != null && !it.via) { it.via = [bez(it, 0.5)]; delete it.cx; delete it.cy; }
+      it.via ||= [];
+      let k = +handle.slice(1);
+      if (handle[0] === 'n') { it.via.splice(k, 0, { x: p.x, y: p.y }); drag.handle = `q${k}`; }
+      it.via[k] = { x: round(p.x), y: round(p.y) };
     } else if (handle === 'vh') aimVision(it, p);
     else if (it.k === 'arrow') {
       it.x1 = round(orig.x1 + dx); it.y1 = round(orig.y1 + dy); it.x2 = round(orig.x2 + dx); it.y2 = round(orig.y2 + dy);
       if (orig.cx != null) { it.cx = round(orig.cx + dx); it.cy = round(orig.cy + dy); }
+      if (orig.via) it.via = orig.via.map((v) => ({ x: round(v.x + dx), y: round(v.y + dy) }));
     } else if (it.k === 'vision' && it.who) { /* 선수에 붙은 시야는 선수를 따라감 */ } else { it.x = round(orig.x + dx); it.y = round(orig.y + dy); }
     // 함께 고른 것들도 같이 옮기기
     if (!drag.stepMove && !drag.creating && !handle) {
       drag.group?.forEach(({ m, o }) => {
-        if (m.k === 'arrow') { m.x1 = round(o.x1 + dx); m.y1 = round(o.y1 + dy); m.x2 = round(o.x2 + dx); m.y2 = round(o.y2 + dy); if (o.cx != null) { m.cx = round(o.cx + dx); m.cy = round(o.cy + dy); } } else if (!(m.k === 'vision' && m.who)) { m.x = round(o.x + dx); m.y = round(o.y + dy); }
+        if (m.k === 'arrow') { m.x1 = round(o.x1 + dx); m.y1 = round(o.y1 + dy); m.x2 = round(o.x2 + dx); m.y2 = round(o.y2 + dy); if (o.cx != null) { m.cx = round(o.cx + dx); m.cy = round(o.cy + dy); } if (o.via) m.via = o.via.map((v) => ({ x: round(v.x + dx), y: round(v.y + dy) })); } else if (!(m.k === 'vision' && m.who)) { m.x = round(o.x + dx); m.y = round(o.y + dy); }
       });
     }
     render();
@@ -1404,10 +1525,26 @@ export function createPad(container, initial, { editable = true, motion = false,
 
   svg.addEventListener('dblclick', (e) => {
     const gh = e.target.closest?.('[data-gh]');
-    if (gh && scene > 0) { const st = data.steps[scene - 1][gh.dataset.gh]; if (st?.length > 2) { snapshot(); data.steps[scene - 1][gh.dataset.gh] = [st[0], st[1]]; render(); } return; }
+    if (gh && scene > 0) { // 흰 점 더블클릭 → 그 점만 지움 (다 지우면 직선)
+      const id = gh.dataset.gh; const st = data.steps[scene - 1][id];
+      if (st?.length > 2 && gh.dataset.gv != null) {
+        snapshot();
+        const vs = stepPoints(posAt(scene - 1)[id], posAt(scene)[id], st); vs.splice(+gh.dataset.gv, 1);
+        data.steps[scene - 1][id] = vs.length ? [st[0], st[1], 'v', ...vs.flatMap((v) => [round(v.x), round(v.y)])] : [st[0], st[1]];
+        render();
+      }
+      return;
+    }
     const g = e.target.closest('[data-i]');
     if (!g) return;
     const it = items()[+g.dataset.i];
+    const hq = e.target.getAttribute('data-handle');
+    if (it.k === 'arrow' && /^q\d+$/.test(hq || '')) { // 화살표 흰 점 더블클릭 → 그 점만 지움
+      snapshot();
+      if (it.via) { it.via.splice(+hq.slice(1), 1); if (!it.via.length) delete it.via; } else { delete it.cx; delete it.cy; }
+      render();
+      return;
+    }
     if (it.k === 'player') {
       const v = prompt('번호 또는 이름 (짧게)', it.n);
       if (v !== null) { snapshot(); it.n = v.slice(0, 4); render(); }
