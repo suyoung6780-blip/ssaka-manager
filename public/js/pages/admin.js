@@ -40,6 +40,10 @@ export async function page(el) {
       <div><span>무료(시범) 팀</span><strong>${free}</strong></div>
       <a href="#/admin/teams" class="admin-more">팀 목록 보기 →</a>
     </div>
+    <section class="card usage-card">
+      <div class="card-head"><h3>오늘 Firebase 사용량 <small class="muted">모든 팀이 함께 쓰는 무료 한도</small></h3><button type="button" class="link-btn small" data-urefresh>새로고침</button></div>
+      <div data-ubody class="muted small">불러오는 중…</div>
+    </section>
     <form class="card">
       <div class="card-head"><h3>공지 쓰기</h3><span class="tag ${n.on ? 'solid' : ''}">${n.on ? '지금 띄우는 중' : '내려간 상태'}</span></div>
       <fieldset><legend>종류</legend><div class="pick-chips">
@@ -56,6 +60,8 @@ export async function page(el) {
       </div>
       ${n.updatedAt ? `<p class="muted small">마지막 저장 ${fmtDate(n.updatedAt, true)} · ${esc(n.by || '')}</p>` : ''}
     </form>`;
+  loadUsage(el);
+  el.querySelector('[data-urefresh]').onclick = () => loadUsage(el);
 
   const form = el.querySelector('form');
   const val = () => ({ level: form.level.value, title: form.title.value.trim(), body: form.body.value.trim() });
@@ -302,4 +308,39 @@ export async function users(el) {
   el.querySelector('[data-q]').oninput = (e) => { q = e.target.value.trim().toLowerCase(); draw(); };
   el.querySelector('[data-only]').onchange = (e) => { only = e.target.value; draw(); };
   draw();
+}
+
+// ── 오늘 Firebase 사용량 (운영자만) — /api/usage 가 Google Cloud Monitoring 에서 읽어 옴 ──
+const USAGE_NAMES = { read: '읽기', write: '쓰기', delete: '삭제' };
+async function loadUsage(el) {
+  const box = el.querySelector('[data-ubody]');
+  if (!box) return;
+  box.textContent = '불러오는 중…';
+  let d;
+  try {
+    const tok = await auth.currentUser?.getIdToken?.();
+    const r = await fetch('/api/usage', { headers: tok ? { Authorization: `Bearer ${tok}` } : {} });
+    d = await r.json();
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  } catch (e) { box.innerHTML = `<p>사용량을 불러오지 못했어요: ${esc(e.message || e)}</p>`; return; }
+  if (!d.configured) {
+    box.innerHTML = `<p><b>아직 연결 설정이 안 됐어요.</b> Google Cloud 에서 '모니터링 뷰어' 서비스 계정 키를 만들어 Vercel 환경 변수 <code>GOOGLE_SA_JSON</code> 에 넣으면 여기서 보여요.</p>`;
+    return;
+  }
+  if (d.error) { box.innerHTML = `<p>사용량을 읽는 중 문제가 생겼어요: ${esc(d.error)}</p>`; return; }
+  const reset = new Date(d.reset); const at = new Date(d.at);
+  const left = Math.max(0, reset - Date.now());
+  const hm = `${Math.floor(left / 3600000)}시간 ${Math.floor((left % 3600000) / 60000)}분`;
+  const kst = (x) => x.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Seoul' });
+  const rows = Object.keys(USAGE_NAMES).map((k) => {
+    const used = d.used[k] || 0; const lim = d.limits[k];
+    const pct = Math.min(100, Math.round((used / lim) * 100));
+    const lv = pct >= 85 ? 'hot' : pct >= 60 ? 'warm' : 'ok';
+    return `<div class="usage-row ${lv}"><div class="usage-top"><b>${USAGE_NAMES[k]}</b><span>${used.toLocaleString()} / ${lim.toLocaleString()} <small>(${pct}%)</small></span><em>남은 ${Math.max(0, lim - used).toLocaleString()}번</em></div>
+      <div class="usage-bar"><i style="width:${pct}%"></i></div></div>`;
+  }).join('');
+  const worst = Math.max(...Object.keys(USAGE_NAMES).map((k) => (d.used[k] || 0) / d.limits[k]));
+  box.innerHTML = `${worst >= 0.85 ? '<p class="usage-warn">⚠️ 곧 무료 한도가 다 차요 — 다 차면 모든 사용자가 불러오기 · 저장을 못 해요. 종량제(Blaze)로 바꾸는 걸 생각해 보세요.</p>' : ''}
+    ${rows}
+    <p class="muted small">한국 시간 <b>${kst(reset)}</b>에 다시 채워져요 (${hm} 남음) · ${kst(at)} 기준 · 숫자는 몇 분 늦게 반영돼요${d.demo ? ' · 데모 예시 숫자' : ''}</p>`;
 }

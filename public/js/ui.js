@@ -21,8 +21,22 @@ export function toast(msg) {
   toast.t = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
+// 무료 사용량(Firebase 하루 한도)이 다 찼을 때: 화면 맨 위에 계속 보이는 안내 (한 번만)
+// 한도는 미국 서부 자정에 풀림 → 한국 시간 오후 4시(서머타임) ~ 5시
+export const isQuota = (e) => e?.code === 'resource-exhausted' || /quota|resource.?exhausted/i.test(String(e?.message || ''));
+// 운영자만 봄 (모든 팀이 함께 쓰는 한도라 선수 · 코치에게 알릴 필요 없음) — app.js 에서 isAdmin 을 넣어 줌
+export const quotaHooks = { isAdmin: () => false };
+export function quotaNotice() {
+  if (!quotaHooks.isAdmin() || document.querySelector('.quota-bar')) return;
+  const bar = document.createElement('div');
+  bar.className = 'quota-bar';
+  bar.innerHTML = '<b>⚠️ [운영자] Firebase 무료 사용량 초과</b><span>모든 팀이 함께 쓰는 하루 한도(읽기 5만 · 쓰기 2만)가 다 찼어요. 지금 모든 사용자가 불러오기 · 저장을 못 해요. 한국 시간 <b>오후 4~5시쯤</b> 자동으로 풀려요 — 바로 풀려면 Firebase 를 <b>종량제(Blaze)</b>로 바꾸세요.</span><button type="button" aria-label="닫기">✕</button>';
+  bar.querySelector('button').onclick = () => bar.remove();
+  document.body.prepend(bar);
+}
 export function fail(e) {
   console.error(e);
+  if (isQuota(e)) { quotaNotice(); toast(quotaHooks.isAdmin() ? 'Firebase 무료 사용량 초과 — 맨 위 안내를 보세요' : '지금 연결이 원활하지 않아요. 잠시 후 다시 시도해 주세요.'); return; }
   const msg = {
     'permission-denied': '권한이 없습니다.',
     'auth/invalid-credential': '이메일 또는 비밀번호가 올바르지 않습니다.',

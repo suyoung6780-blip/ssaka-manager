@@ -21,6 +21,7 @@ const avg = (a) => (a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixe
 export function exportModal() {
   const t = new Date();
   const pre = {
+    '오늘': [ymd(t), ymd(t)],
     '최근 7일': [ymd(new Date(t.getFullYear(), t.getMonth(), t.getDate() - 6)), ymd(t)],
     '이번 달': [ymd(new Date(t.getFullYear(), t.getMonth(), 1)), ymd(t)],
     '지난 달': [ymd(new Date(t.getFullYear(), t.getMonth() - 1, 1)), ymd(new Date(t.getFullYear(), t.getMonth(), 0))],
@@ -29,8 +30,8 @@ export function exportModal() {
     <p class="muted">선수 전체의 <b>자각도(RPE) · 훈련 시간 · 훈련 부하 · 수면 시간 · 수면 질</b>을 기간별 엑셀 파일로 받아요.</p>
     <div class="chips wrap">${Object.keys(pre).map((k) => `<button type="button" class="chip" data-pre="${k}">${k}</button>`).join('')}</div>
     <form class="stack"><div class="grid2">
-      <label>시작일<input type="date" name="from" required value="${pre['최근 7일'][0]}" max="${todayStr()}"></label>
-      <label>종료일<input type="date" name="to" required value="${pre['최근 7일'][1]}" max="${todayStr()}"></label></div>
+      <label>시작일<input type="date" name="from" required value="${pre['오늘'][0]}" max="${todayStr()}"></label>
+      <label>종료일<input type="date" name="to" required value="${pre['오늘'][1]}" max="${todayStr()}"></label></div>
       <p class="muted small">첫 시트 <b>설문지 응답</b>: 타임스탬프 · 이름 · 수면시간(분) · 수면질 체크 · 운동강도 · 운동시간(분) · 불참 사유 (· 키 · 몸무게)<br>그 밖에: 기록 · 선수별 평균 · 선수 × 날짜 표</p>
       <div class="row end"><button class="btn">엑셀 받기</button></div></form>`);
   const f = m.el.querySelector('form');
@@ -123,7 +124,9 @@ async function makeExcel(from, to) {
   grid('수면시간(분)', (l) => sleepOf(l) ?? '');
   grid('수면질', (l) => l.sleepQ || '');
 
-  const file = `${(state.team.name || 'team').replace(/[\\/:*?"<>|]/g, '')}_컨디션_${from}~${to}.xlsx`;
+  // 파일 이름: 날짜만 (예: 2026년10월10일.xlsx) · 여러 날이면 시작~끝
+  const kd = (d) => `${d.slice(0, 4)}년${d.slice(5, 7)}월${d.slice(8, 10)}일`;
+  const file = `${from === to ? kd(from) : `${kd(from)}~${kd(to)}`}.xlsx`;
   X.writeFile(wb, file);
   toast(`엑셀을 저장했어요 — 선수 ${players.length}명 · 기록 ${logs.length}개`);
 }

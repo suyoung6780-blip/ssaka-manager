@@ -3,9 +3,23 @@
   "buildCommand": "",
   "outputDirectory": "public",
   "functions": {
-    "api/feeds.py": { "includeFiles": "feedbot/**", "maxDuration": 30 }
+    "api/feeds.py": {
+      "includeFiles": "feedbot/**",
+      "maxDuration": 30
+    },
+    "api/usage.py": {
+      "maxDuration": 20
+    }
   },
   "headers": [
-    { "source": "/(.*)\\.(js|css)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    {
+      "source": "/(.*)\\.(js|css)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    }
   ]
 }

@@ -1841,3 +1841,19 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
 .sort-h { font-size: 14px; color: var(--sub); margin: 14px 0 8px; }
 .sort-h small { color: var(--muted); font-weight: 500; }
 .jcards .sort-h { margin: 10px 0 0; }
+/* 무료 사용량 초과 안내 */
+.quota-bar { position: sticky; top: 0; z-index: 60; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; background: #3a2a00; color: #ffe08a; border-bottom: 1px solid #a67c00; font-size: 13px; }
+.quota-bar span { flex: 1; min-width: 200px; }
+.quota-bar button { background: none; border: 0; color: inherit; font-size: 16px; }
+/* 운영자: 오늘 Firebase 사용량 */
+.usage-card .card-head h3 small { font-weight: 500; font-size: 12px; margin-left: 6px; }
+.usage-row { margin: 10px 0 14px; }
+.usage-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+.usage-top span { color: var(--text); font-weight: 700; }
+.usage-top small { color: var(--muted); font-weight: 500; }
+.usage-top em { margin-left: auto; font-style: normal; color: var(--sub); font-size: 13px; }
+.usage-bar { height: 10px; border-radius: 5px; background: var(--surface3); overflow: hidden; margin-top: 6px; }
+.usage-bar i { display: block; height: 100%; background: #34c759; border-radius: 5px; }
+.usage-row.warm .usage-bar i { background: #ff9f0a; }
+.usage-row.hot .usage-bar i { background: #ff3b30; }
+.usage-warn { padding: 10px 12px; border-radius: var(--r-sm); background: rgba(255,59,48,.12); border: 1px solid #b91c1c; color: #fca5a5; margin: 0 0 8px; }

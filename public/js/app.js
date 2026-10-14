@@ -3,7 +3,7 @@ import { installButton, bindInstall } from './install.js';
 import { attachHelp } from './help.js';
 import { startNews, stopNews, markSeen, paint } from './news.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
-import { $, $$, esc, avatar, ROLES, toast } from './ui.js';
+import { $, $$, esc, avatar, ROLES, toast, isQuota, quotaNotice, quotaHooks } from './ui.js';
 import {
   state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, waitApproval,
 } from './store.js';
@@ -174,7 +174,8 @@ async function route() {
     if (view.isConnected) attachHelp(view, path);
   } catch (e) {
     console.error(e);
-    view.innerHTML = `<div class="empty">페이지를 불러오지 못했습니다.<br><small>${esc(e.message)}</small></div>`;
+    if (isQuota(e)) { quotaNotice(); view.innerHTML = `<div class="empty">${isAdmin() ? 'Firebase 무료 사용량이 다 차서 불러올 수 없어요 (맨 위 안내 참고).' : '지금 연결이 원활하지 않아요.<br><small>잠시 후 다시 시도해 주세요.</small>'}</div>`; }
+    else view.innerHTML = `<div class="empty">페이지를 불러오지 못했습니다.<br><small>${esc(e.message)}</small></div>`;
   }
   window.scrollTo(0, 0);
 }
@@ -285,6 +286,9 @@ if (!isConfigured) {
     app.innerHTML = '';
     route();
   });
+  quotaHooks.isAdmin = isAdmin;
+  // 어디서 났든 무료 사용량 초과 오류면 위에 안내 (운영자에게만)
+  window.addEventListener('unhandledrejection', (e) => { if (isQuota(e.reason)) quotaNotice(); });
   // 화면 이동(뒤로가기 포함) 전에, 저장 안 한 수정이 있는 화면이면 한 번 물어봄
   let lastHash = location.hash;
   let skipNext = false;

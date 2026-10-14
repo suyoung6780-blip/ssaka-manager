@@ -461,7 +461,7 @@ export function createPad(container, initial, { editable = true, motion = false,
       <span class="pad-opt" data-spread>시야 ${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="chip" data-sp="${v}">${l}</button>`).join('')}</span>
       <button type="button" class="chip" data-straight>직선으로</button>
       <span class="pad-grp"><button type="button" class="chip" data-act="front" title="맨 앞으로 (Ctrl+])">⬆ 맨 앞으로</button><button type="button" class="chip" data-act="back" title="맨 뒤로 (Ctrl+[)">⬇ 맨 뒤로</button><button type="button" class="chip" data-act="rotate">회전</button></span>
-      <span class="pad-grp"><button type="button" class="chip" data-act="delete">선택 삭제</button><button type="button" class="chip" data-act="delall">모든 장면 삭제</button><button type="button" class="chip" data-act="unmove">움직임 취소</button></span>
+      <span class="pad-grp"><button type="button" class="chip" data-act="delete">선택 삭제</button><button type="button" class="chip" data-act="delonly">이 장면에서만 삭제</button><button type="button" class="chip" data-act="delall">모든 장면 삭제</button><button type="button" class="chip" data-act="unmove">움직임 취소</button></span>
     </div>
     <small class="muted pad-hint" data-hint></small>` : '';
 
@@ -612,7 +612,7 @@ export function createPad(container, initial, { editable = true, motion = false,
         ${hasMotion() ? (anim ? '<button type="button" class="chip on" data-pause title="지금 장면에서 멈추고 바로 고칠 수 있어요">❚❚ 멈춤 · 여기서 수정</button>'
           : `<button type="button" class="chip" data-playhere title="이 장면으로 오는 움직임부터 재생">▶ ${scene > 0 ? '이 장면부터 재생' : '재생'}</button>${scene > 0 ? '<button type="button" class="chip" data-play0>⏮ 처음부터</button>' : ''}`) : ''}
         ${scene > 0 && !anim ? '<button type="button" class="chip" data-delsc>이 장면 삭제</button>' : ''}
-        <small class="muted">${anim ? '재생 중 — 멈추면 그 장면에서 바로 고칠 수 있어요' : n === 1 ? '<b>+ 장면</b>을 누르고 선수 · 공 · 기구를 끌어서 옮기면 ▶ 재생할 때 그 자리로 움직여요' : scene > 0 ? `장면 ${scene + 1}: 끌어서 옮겨요 · <b>노란 점선 가운데 흰 점</b>을 끌면 곡선으로 움직여요(더블클릭하면 직선) · 여기서 지우면 이 장면에서만 지워져요` : '장면 1: 처음 위치예요'}</small>`;
+        <small class="muted">${anim ? '재생 중 — 멈추면 그 장면에서 바로 고칠 수 있어요' : n === 1 ? '<b>+ 장면</b>을 누르고 선수 · 공 · 기구를 끌어서 옮기면 ▶ 재생할 때 그 자리로 움직여요' : scene > 0 ? `장면 ${scene + 1}: 끌어서 옮겨요 · <b>노란 점선 가운데 흰 점</b>을 끌면 곡선으로 움직여요(더블클릭하면 직선) · 여기서 지우면 이 장면부터 안 나와요 (앞 장면엔 남아요)` : '장면 1: 처음 위치예요'}</small>`;
       mbar.querySelectorAll('[data-sc]').forEach((b) => (b.onclick = () => { stop(); scene = +b.dataset.sc; sel = -1; render(); }));
       mbar.querySelector('[data-addsc]').onclick = () => { stop(); snapshot(); data.steps.splice(scene, 0, {}); if (data.stepOrder) data.stepOrder.splice(scene, 0, {}); shiftScenes(scene + 1, 1); scene += 1; sel = -1; extra.clear(); render(); };
       mbar.querySelector('[data-delsc]')?.addEventListener('click', () => {
@@ -739,8 +739,11 @@ export function createPad(container, initial, { editable = true, motion = false,
     const s = items()[sel];
     container.querySelector('[data-act="rotate"]').hidden = !(s && ROTATABLE.includes(s.k));
     const multiScene = data.steps.length > 0;
-    container.querySelector('[data-act="delete"]').hidden = !s;
-    container.querySelector('[data-act="delete"]').textContent = multiScene ? `장면 ${scene + 1} 삭제` : '삭제';
+    // 장면이 여러 개: [장면 N부터 삭제] [장면 N에서만 삭제] [모든 장면 삭제] (장면 1에선 '부터'가 '모든 장면'과 같아서 숨김)
+    container.querySelector('[data-act="delete"]').hidden = !s || (multiScene && scene === 0);
+    container.querySelector('[data-act="delete"]').textContent = multiScene ? `장면 ${scene + 1}부터 삭제` : '삭제';
+    container.querySelector('[data-act="delonly"]').hidden = !(s && multiScene);
+    container.querySelector('[data-act="delonly"]').textContent = `장면 ${scene + 1}에서만 삭제`;
     container.querySelector('[data-act="delall"]').hidden = !(s && multiScene);
     ['front', 'back'].forEach((k) => { container.querySelector(`[data-act="${k}"]`).hidden = !s; });
     container.querySelector('[data-act="unmove"]').hidden = !(s && scene > 0 && selected().some((x) => data.steps[scene - 1]?.[x.id]));
@@ -911,15 +914,15 @@ export function createPad(container, initial, { editable = true, motion = false,
     sel = -1; extra.clear();
     render();
   };
-  const del = () => { // 장면이 여러 개면 지금 장면에서만 숨김
+  const del = () => { // 장면이 여러 개면 지금 장면부터 안 나오게 (앞 장면엔 그대로 남음 — 뒤 장면에서 다시 생기지 않게)
     if (sel < 0) return;
     if (!data.steps.length) { delAll(); return; }
     snapshot();
     const gone = [];
     selected().forEach((x) => {
-      const onlyHere = (x.from || 0) === scene && (x.until === scene || (scene === data.steps.length && (x.from || 0) === scene));
-      if (onlyHere) gone.push(x);
-      else x.hide = [...new Set([...(x.hide || []), scene])];
+      if ((x.from || 0) >= scene) { gone.push(x); return; } // 이 장면에서 처음 나온 것 → 완전히 지움
+      x.until = x.until == null ? scene - 1 : Math.min(x.until, scene - 1);
+      if (x.hide) { x.hide = x.hide.filter((h) => h < scene); if (!x.hide.length) delete x.hide; }
     });
     gone.forEach((x) => { if (x.k === 'arrow') unlinkArrow(x); });
     data.items = data.items.filter((x) => !gone.includes(x));
@@ -927,6 +930,14 @@ export function createPad(container, initial, { editable = true, motion = false,
     render();
   };
   container.querySelector('[data-act="delall"]').onclick = delAll;
+  // 이 장면에서만 숨김 (앞 · 뒤 장면엔 그대로)
+  container.querySelector('[data-act="delonly"]').onclick = () => {
+    if (sel < 0) return;
+    snapshot();
+    selected().forEach((x) => { x.hide = [...new Set([...(x.hide || []), scene])]; });
+    sel = -1; extra.clear();
+    render();
+  };
   // 맨 앞으로 · 맨 뒤로 (공과 선수가 겹칠 때 등)
   const KIND_Z = { zone: 0, ladder: 0.5, vision: 0.8, arrow: 1, player: 3, ball: 4, text: 5 };
   const zNow = (x) => (x.z != null ? x.z : KIND_Z[x.k] ?? 2);

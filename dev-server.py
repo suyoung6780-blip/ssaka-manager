@@ -49,6 +49,9 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split('?')[0]
+        if DEMO and path == '/api/usage':  # 데모: 운영자 사용량 화면 미리보기용 예시 숫자
+            return self.send_bytes(json.dumps({'configured': True, 'used': {'read': 18342, 'write': 2210, 'delete': 41}, 'limits': {'read': 50000, 'write': 20000, 'delete': 20000},
+                                               'since': '2026-10-14T07:00:00Z', 'reset': '2026-10-15T07:00:00Z', 'at': '2026-10-14T13:20:00Z', 'demo': True}).encode(), 'application/json; charset=utf-8')
         if path == '/api/feeds':
             return self.send_bytes(json.dumps(collect(), ensure_ascii=False).encode(), 'application/json; charset=utf-8')
         if DEMO and path == '/js/fb.js':
