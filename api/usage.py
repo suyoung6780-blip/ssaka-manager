@@ -31,6 +31,9 @@ def today_usage(creds_info):
             'aggregation.alignmentPeriod': f'{secs}s', 'aggregation.perSeriesAligner': 'ALIGN_SUM',
             'aggregation.crossSeriesReducer': 'REDUCE_SUM',
         }, timeout=10)
+        if r.status_code == 403 and 'billing' in r.text.lower():
+            # 무료(Spark) 요금제: Google 이 사용량 읽기를 결제 계정이 연결된 프로젝트에만 열어 줌
+            return {'configured': True, 'needBilling': True}
         r.raise_for_status()
         total = 0
         for ts in r.json().get('timeSeries', []):

@@ -1,8 +1,8 @@
 // 운영자 — 모든 팀 · 모든 사용자 화면 맨 위에 띄우는 '전체 공지' (system/notice 문서 하나)
 import {
-  auth, db, doc, getDoc, setDoc, getDocs, collection, query, where, serverTimestamp, writeBatch, Timestamp, sendEmailVerification,
+  auth, db, doc, getDoc, setDoc, getDocs, addDoc, deleteDoc, updateDoc, collection, query, where, serverTimestamp, writeBatch, Timestamp, sendEmailVerification,
 } from '../fb.js';
-import { esc, toast, fail, pageHead, fmtDate, CATEGORIES, confirmBox, modal } from '../ui.js';
+import { esc, toast, fail, pageHead, fmtDate, CATEGORIES, normCat, confirmBox, modal } from '../ui.js';
 import { genTeamCode } from './onboard.js';
 import { state, go, hooks, compActive } from '../store.js';
 
@@ -44,6 +44,18 @@ export async function page(el) {
       <div class="card-head"><h3>오늘 Firebase 사용량 <small class="muted">모든 팀이 함께 쓰는 무료 한도</small></h3><button type="button" class="link-btn small" data-urefresh>새로고침</button></div>
       <div data-ubody class="muted small">불러오는 중…</div>
     </section>
+    <section class="card">
+      <div class="card-head"><h3>팀 구분 정리 <small class="muted">예전 구분을 새 구분으로</small></h3></div>
+      <p class="muted small">학교동아리 · 아마추어 조기회 → <b>기타</b>, K5 · K6 · K7 → <b>K5·6·7</b> 로 바꿔요.</p>
+      <div class="row"><button type="button" class="btn ghost sm" data-catcount>바꿀 팀 찾기</button><button type="button" class="btn sm" data-catfix hidden>모두 바꾸기</button></div>
+      <p class="small" data-catinfo></p>
+    </section>
+    <section class="card" data-counsel-clean>
+      <div class="card-head"><h3>상담실 데이터 정리 <small class="muted">상담실 기능을 없앤 뒤 남은 글</small></h3></div>
+      <p class="muted small">모든 팀의 상담 글과 답변을 지워요. <b>되돌릴 수 없어요.</b></p>
+      <div class="row"><button type="button" class="btn ghost sm" data-ccount>남은 상담 글 세어 보기</button><button type="button" class="btn sm" data-cdel hidden>모두 지우기</button></div>
+      <p class="small" data-cinfo></p>
+    </section>
     <form class="card">
       <div class="card-head"><h3>공지 쓰기</h3><span class="tag ${n.on ? 'solid' : ''}">${n.on ? '지금 띄우는 중' : '내려간 상태'}</span></div>
       <fieldset><legend>종류</legend><div class="pick-chips">
@@ -61,6 +73,59 @@ export async function page(el) {
       ${n.updatedAt ? `<p class="muted small">마지막 저장 ${fmtDate(n.updatedAt, true)} · ${esc(n.by || '')}</p>` : ''}
     </form>`;
   loadUsage(el);
+  // 상담실 데이터 정리 (한 번만 쓰는 도구)
+  let found = [];
+  el.querySelector('[data-ccount]').onclick = async () => {
+    const info = el.querySelector('[data-cinfo]');
+    info.textContent = '세는 중…';
+    found = [];
+    try {
+      for (const t of ts.docs) {
+        const cs = await getDocs(collection(db, 'teams', t.id, 'counsel'));
+        for (const c of cs.docs) {
+          const rs = await getDocs(collection(db, 'teams', t.id, 'counsel', c.id, 'replies'));
+          found.push({ team: t.id, id: c.id, replies: rs.docs.map((r) => r.id) });
+        }
+      }
+      const rn = found.reduce((a, x) => a + x.replies.length, 0);
+      info.innerHTML = found.length ? `상담 글 <b>${found.length}개</b> · 답변 <b>${rn}개</b>가 남아 있어요.` : '남은 상담 글이 없어요. 정리할 게 없어요.';
+      el.querySelector('[data-cdel]').hidden = !found.length;
+    } catch (e) { info.textContent = `세지 못했어요: ${e.message || e} (보안 규칙을 먼저 올려야 해요)`; }
+  };
+  el.querySelector('[data-cdel]').onclick = async () => {
+    if (!found.length) return;
+    if (!(await confirmBox(`상담 글 ${found.length}개와 답변을 모두 지울까요? 되돌릴 수 없어요.`))) return;
+    const info = el.querySelector('[data-cinfo]');
+    let n = 0;
+    try {
+      for (const x of found) {
+        for (const r of x.replies) await deleteDoc(doc(db, 'teams', x.team, 'counsel', x.id, 'replies', r));
+        await deleteDoc(doc(db, 'teams', x.team, 'counsel', x.id));
+        n++; info.textContent = `지우는 중… ${n}/${found.length}`;
+      }
+      info.textContent = `상담 글 ${n}개를 모두 지웠어요.`;
+      el.querySelector('[data-cdel]').hidden = true; found = [];
+    } catch (e) { info.textContent = `${n}개 지운 뒤 멈췄어요: ${e.message || e}`; }
+  };
+  // 팀 구분 정리 (한 번만 쓰는 도구)
+  let oldCat = [];
+  el.querySelector('[data-catcount]').onclick = () => {
+    oldCat = ts.docs.map((t) => ({ id: t.id, name: t.data().name, from: t.data().category || '' })).filter((t) => t.from && normCat(t.from) !== t.from);
+    el.querySelector('[data-catinfo]').innerHTML = oldCat.length
+      ? `바꿀 팀 <b>${oldCat.length}개</b>: ${oldCat.map((t) => `${esc(t.name)} (${esc(t.from)} → ${esc(normCat(t.from))})`).join(', ')}`
+      : '바꿀 팀이 없어요. 모두 새 구분이에요.';
+    el.querySelector('[data-catfix]').hidden = !oldCat.length;
+  };
+  el.querySelector('[data-catfix]').onclick = async () => {
+    if (!oldCat.length || !(await confirmBox(`팀 ${oldCat.length}개의 구분을 새 구분으로 바꿀까요?`))) return;
+    const info = el.querySelector('[data-catinfo]');
+    let n = 0;
+    try {
+      for (const t of oldCat) { await updateDoc(doc(db, 'teams', t.id), { category: normCat(t.from) }); n++; info.textContent = `바꾸는 중… ${n}/${oldCat.length}`; }
+      info.textContent = `팀 ${n}개의 구분을 바꿨어요.`;
+      el.querySelector('[data-catfix]').hidden = true; oldCat = [];
+    } catch (e) { info.textContent = `${n}개 바꾼 뒤 멈췄어요: ${e.message || e} (보안 규칙을 먼저 올려야 해요)`; }
+  };
   el.querySelector('[data-urefresh]').onclick = () => loadUsage(el);
 
   const form = el.querySelector('form');
@@ -141,13 +206,13 @@ export async function teams(el) {
       ${users ? `<div><span>전체 가입자</span><strong>${users.length}</strong><small>팀 없음 ${users.filter((u) => !u.teamId).length}</small></div>` : ''}
 `;
     const rows = list
-      .filter((t) => (cat === '전체' || t.category === cat)
+      .filter((t) => (cat === '전체' || normCat(t.category) === cat)
         && (!q || `${t.name} ${t.ownerName || ''}`.toLowerCase().includes(q.toLowerCase()) || t.code === q))
       .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     el.querySelector('[data-rows]').innerHTML = rows.map((t) => {
       const [u, cls] = usage(t);
       return `<tr>
-        <td data-l="팀"><a href="#/teams/${t.id}"><strong>${esc(t.name)}</strong></a></td>
+        <td data-l="팀"><a href="#/teams/${t.id}"><strong>${esc(t.name)}</strong></a>${t.restricted ? '<br><span class="tag danger">기능 제한</span>' : ''}${t.nameWarn && t.nameWarn.name === t.name ? '<br><span class="tag warn">팀명 주의 보냄</span>' : ''}</td>
         <td data-l="구분">${esc(t.category || '')}</td>
         <td data-l="대표">${esc(t.ownerName || '-')}</td>
         <td data-l="지도자 · 선수">${t.coaches == null ? '-' : `${t.coaches} · ${t.players}`}</td>
@@ -155,12 +220,47 @@ export async function teams(el) {
         <td data-l="팀 코드"><code class="tcode">${esc(t.code || '-')}</code></td>
         <td data-l="이용"><span class="tag ${cls}">${u}</span></td>
         <td data-l="만든 날">${fmtDate(t.createdAt) || '-'}</td>
-        <td data-l=""><button class="btn ghost sm" data-feat="${t.id}">기능${Object.values(feats[t.id] || {}).filter(Boolean).length ? ` <b class="dot-n">${Object.values(feats[t.id]).filter(Boolean).length}</b>` : ''}</button>
-          <button class="btn ${t.comp ? 'ghost' : ''} sm" data-comp="${t.id}">${t.comp ? '무료 제공 변경' : '무료 제공'}</button></td></tr>`;
+        <td data-l=""><div class="acts"><button class="btn ghost sm" data-feat="${t.id}">기능${Object.values(feats[t.id] || {}).filter(Boolean).length ? ` <b class="dot-n">${Object.values(feats[t.id]).filter(Boolean).length}</b>` : ''}</button>
+          <button class="btn ${t.comp ? 'ghost' : ''} sm" data-comp="${t.id}">${t.comp ? '무료 제공 변경' : '무료 제공'}</button>
+          <button class="btn ghost sm" data-nwarn="${t.id}">팀명 주의</button>
+          <button class="btn ${t.restricted ? '' : 'ghost'} sm" data-restrict="${t.id}">${t.restricted ? '제한 풀기' : '기능 제한'}</button></div></td></tr>`;
     }).join('') || '<tr><td colspan="9" class="muted center">조건에 맞는 팀이 없습니다.</td></tr>';
     el.querySelectorAll('[data-comp]').forEach((b) => (b.onclick = () => toggleComp(list.find((t) => t.id === b.dataset.comp))));
     el.querySelectorAll('[data-feat]').forEach((b) => (b.onclick = () => featModal(list.find((t) => t.id === b.dataset.feat))));
+    el.querySelectorAll('[data-nwarn]').forEach((b) => (b.onclick = () => nameWarn(list.find((t) => t.id === b.dataset.nwarn))));
+    el.querySelectorAll('[data-restrict]').forEach((b) => (b.onclick = () => restrict(list.find((t) => t.id === b.dataset.restrict))));
   };
+
+  // 팀 이름 주의: 팀 화면 위에 알림 띠 + 운영자 문의방에 메시지 (팀이 이름을 바꾸면 띠는 저절로 사라짐)
+  async function nameWarn(t) {
+    const msg = `[운영자 안내] 팀 이름 '${t.name}'(으)로는 어떤 팀인지 알아보기 어려워요. 팀 설정에서 실제 팀 이름(예: OO FC U15, OO초 축구부)으로 고쳐 주세요. 고치지 않으면 기능이 제한될 수 있어요.`;
+    const m = modal(`<span class="eyebrow">NAME WARNING</span><h2>${esc(t.name)} 팀명 주의 보내기</h2>
+      <p class="muted small">이 팀 지도자 화면 위에 주의 띠가 뜨고, 운영자 문의방에 아래 메시지가 가요. 팀 이름을 바꾸면 띠는 저절로 사라져요.</p>
+      <label>보낼 메시지<textarea rows="4" data-msg maxlength="1000">${esc(msg)}</textarea></label>
+      <div class="row end"><button class="btn" data-send>보내기</button></div>`);
+    m.el.querySelector('[data-send]').onclick = async () => {
+      const text = m.el.querySelector('[data-msg]').value.trim();
+      if (!text) return;
+      try {
+        await updateDoc(doc(db, 'teams', t.id), { nameWarn: { name: t.name, at: Timestamp.fromMillis(Date.now()) } });
+        await addDoc(collection(db, 'support', t.id, 'messages'), { text, uid: state.user.uid, name: state.profile.name, from: 'admin', createdAt: serverTimestamp() });
+        await setDoc(doc(db, 'support', t.id), { teamId: t.id, teamName: t.name, category: t.category || '', lastMessage: text.slice(0, 80), lastFrom: 'admin', updatedAt: serverTimestamp(), unreadTeam: true, unreadAdmin: false }, { merge: true });
+        t.nameWarn = { name: t.name };
+        m.close(); toast(`${t.name} 팀에 팀명 주의를 보냈어요.`); draw();
+      } catch (err) { fail(err); }
+    };
+  }
+
+  // 기능 제한: 홈 · 팀 설정 · 운영자 문의 · 내 프로필 말고는 못 씀
+  async function restrict(t) {
+    const on = !t.restricted;
+    if (!(await confirmBox(on ? `${t.name} 팀의 기능을 제한할까요? 이 팀은 홈 · 팀 설정 · 운영자 문의 · 내 프로필만 쓸 수 있어요.` : `${t.name} 팀의 기능 제한을 풀까요?`))) return;
+    try {
+      await updateDoc(doc(db, 'teams', t.id), { restricted: on, restrictedAt: Timestamp.fromMillis(Date.now()) });
+      t.restricted = on;
+      toast(on ? `${t.name} 팀의 기능을 제한했어요.` : `${t.name} 팀의 제한을 풀었어요.`); draw();
+    } catch (err) { fail(err); }
+  }
 
   // 팀별 추가 기능 켜기 · 끄기 (system/features — 이 팀 사람들에게만 보임)
   function featModal(t) {
@@ -325,6 +425,11 @@ async function loadUsage(el) {
   } catch (e) { box.innerHTML = `<p>사용량을 불러오지 못했어요: ${esc(e.message || e)}</p>`; return; }
   if (!d.configured) {
     box.innerHTML = `<p><b>아직 연결 설정이 안 됐어요.</b> Google Cloud 에서 '모니터링 뷰어' 서비스 계정 키를 만들어 Vercel 환경 변수 <code>GOOGLE_SA_JSON</code> 에 넣으면 여기서 보여요.</p>`;
+    return;
+  }
+  if (d.needBilling) {
+    box.innerHTML = `<p><b>무료 요금제(Spark)에서는 여기서 숫자를 볼 수 없어요.</b> Google 이 사용량 읽기를 결제 계정이 연결된(종량제 Blaze) 프로젝트에만 열어 줘요 — 종량제로 바꾸면 따로 설정 없이 바로 보여요.</p>
+      <p>그 전까지는 <a href="https://console.firebase.google.com/project/ssaka-manager/firestore/databases/-default-/usage" target="_blank" rel="noopener">Firebase 콘솔 → Firestore → 사용량 ↗</a> 에서 확인하세요. (하루 한도: 읽기 5만 · 쓰기 2만 · 삭제 2만)</p>`;
     return;
   }
   if (d.error) { box.innerHTML = `<p>사용량을 읽는 중 문제가 생겼어요: ${esc(d.error)}</p>`; return; }

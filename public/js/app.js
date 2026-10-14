@@ -3,14 +3,15 @@ import { installButton, bindInstall } from './install.js';
 import { attachHelp } from './help.js';
 import { startNews, stopNews, markSeen, paint } from './news.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
-import { $, $$, esc, avatar, ROLES, toast, isQuota, quotaNotice, quotaHooks } from './ui.js';
+import { $, $$, esc, avatar, ROLES, pageHead, toast, isQuota, quotaNotice, quotaHooks } from './ui.js';
 import {
-  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, waitApproval,
+  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, waitApproval, teamRestricted, nameWarned,
 } from './store.js';
 import * as authPages from './pages/auth.js';
 import * as admin from './pages/admin.js';
 import * as support from './pages/support.js';
 import * as privacy from './pages/privacy.js';
+import * as community from './pages/community.js';
 import * as home from './pages/home.js';
 import * as onboard from './pages/onboard.js';
 import * as team from './pages/team.js';
@@ -24,6 +25,7 @@ import * as personal from './pages/personal.js';
 import * as social from './pages/social.js';
 
 const app = $('#app');
+const RESTRICT_OK = ['/', '/settings', '/support', '/support/qna', '/me', '/privacy', '/pay'];
 
 // guard: auth(기본) / squad(팀원: 코치·선수) / coach / member / owner
 const routes = [
@@ -39,7 +41,6 @@ const routes = [
   ['/goals', goals.page, 'squad'],
   ['/records', team.records, 'squad'],
   ['/data', data.page, 'squad'],
-  ['/counsel', team.counsel, 'squad'],
   ['/training', trainingDaily.daily, 'squad'],
   ['/training/notes', trainingDaily.notes, 'coach'],
   ['/training/library', training.library, 'coach'],
@@ -65,6 +66,8 @@ const routes = [
   ['/admin/inbox/:id', support.inbox, 'admin'],
   ['/privacy', privacy.page, 'any'],
   ['/consent/:token', privacy.consentPage, 'any'],
+  ['/community', (el) => community.page(el, { cat: 'training' }), 'coach'],
+  ['/community/:cat', community.page, 'coach'],
   ['/support', support.page],
   ['/support/qna', support.qna],
 ];
@@ -167,6 +170,13 @@ async function route() {
   markSeen(path);
   updateShell(path);
   const view = $('#view');
+  // 운영자가 기능을 제한한 팀: 홈 · 팀 설정 · 운영자 문의 · 내 프로필만
+  if (teamRestricted() && !isAdmin() && !RESTRICT_OK.includes(path)) {
+    view.innerHTML = `${pageHead('LIMITED', '기능이 제한된 팀이에요')}<section class="card"><p>운영자가 이 팀의 기능을 잠시 제한했어요. ${isOwner() ? '<b>팀 설정</b>에서 팀 이름을 정확하게 고친 뒤 <b>운영자 문의</b>로 알려 주세요.' : '팀 대표 지도자에게 문의해 주세요.'}</p>
+      <div class="row">${isOwner() ? '<a class="btn" href="#/settings">팀 설정으로</a>' : ''}${isCoach() ? '<a class="btn ghost" href="#/support">운영자 문의</a>' : ''}</div></section>`;
+    window.scrollTo(0, 0);
+    return;
+  }
   view.innerHTML = '<div class="loading">LOADING</div>';
   $('.shell').classList.remove('nav-open', 'search-open');
   try {
@@ -185,7 +195,7 @@ function navItems() {
   const sec = (title, list) => list.length && items.push({ title, list });
   sec('TEAM', isSquad() ? [
     ['/', '홈'], ['/gamemodel', '게임모델'], ['/locker', '락커룸'], ['/training', '훈련장'],
-    ['/meeting', '미팅룸'], ['/analysis', '분석실'], ['/counsel', '상담실'], ['/goals', '목표'], ['/records', '기록실'], ['/data', '데이터실'],
+    ['/meeting', '미팅룸'], ['/analysis', '분석실'], ['/goals', '목표'], ['/records', '기록실'], ['/data', '데이터실'],
   ] : [['/', '홈']]);
   sec('MY', [
     ['/me', '프로필'],
@@ -193,6 +203,7 @@ function navItems() {
     ...(isCoach() ? [['/journal-check', '일지검사']] : []),
   ]);
   sec('NOTICE', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄']] : []);
+  sec('COMMUNITY', isCoach() ? [['/community/training', '훈련 공유'], ['/community/match', '경기'], ['/community/talk', '지도자 게시판']] : []);
   sec('NETWORK', [...(isCoach() ? [['/scout', '스카우터']] : []), ['/chat', '대화'], ['/support', '운영자 문의']]);
   if (isAdmin()) sec('운영자', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '문의함']]);
   else if (isAdminEmail()) sec('운영자', [['/admin/verify', '운영자 인증']]);
@@ -214,7 +225,7 @@ function renderShell() {
       <nav class="nav-list"></nav>
       <div class="me-box"></div>
     </aside>
-    <main class="main-col"><div id="sys-notice"></div><div id="view"></div>${FOOTER}</main>
+    <main class="main-col"><div id="sys-notice"></div><div id="team-notice"></div><div id="view"></div>${FOOTER}</main>
     <aside class="search-panel" id="search-panel"></aside>
     <div class="scrim"></div>
   </div>`;
@@ -245,6 +256,10 @@ function updateShell(path = location.hash.slice(1) || '/') {
     <span class="me-acts">${installButton('link-btn')}<button class="link-btn" data-logout>로그아웃</button></span>`;
   $('[data-logout]').onclick = () => signOut(auth);
   bindInstall($('.me-box'));
+  // 팀 알림 띠: 기능 제한 · 팀 이름 주의
+  $('#team-notice').innerHTML = !inTeam() ? '' : teamRestricted()
+    ? `<div class="banner danger">⛔ 운영자가 이 팀의 기능을 제한했어요. ${isOwner() ? '<a href="#/settings">팀 이름 고치기 →</a>' : '팀 대표 지도자에게 문의해 주세요.'}</div>`
+    : nameWarned() && isCoach() ? `<div class="banner warn">⚠️ 팀 이름을 정확하게 적어 주세요 (예: OO FC U15, OO초 축구부). 고치지 않으면 기능이 제한될 수 있어요. ${isOwner() ? '<a href="#/settings">팀 설정에서 고치기 →</a>' : '팀 대표 지도자에게 알려 주세요.'}</div>` : '';
   paint();
 }
 

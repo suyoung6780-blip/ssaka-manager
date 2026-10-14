@@ -136,12 +136,13 @@ export function detail(p, refresh) {
       <div class="row"><button class="btn" data-present>▶ 선수들에게 보여주기</button></div>
       ${p.body ? `<h4>훈련 방법</h4><div class="prose">${text(p.body)}</div>` : ''}
       ${pts.length ? `<h4>코칭 포인트</h4><ol class="points">${pts.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
-      ${isCoach() ? '<div class="row end"><button class="btn ghost" data-del>삭제</button><button class="btn ghost" data-edit>수정</button></div>' : ''}
+      ${isCoach() ? '<div class="row end"><button class="btn ghost" data-share-cm>🌐 커뮤니티에 공유</button><button class="btn ghost" data-del>삭제</button><button class="btn ghost" data-edit>수정</button></div>' : ''}
     </div>`, { wide: true });
   const padBox = m.el.querySelector('[data-pad]');
   if (padBox) createPad(padBox, p.pad, { editable: false });
   m.el.querySelector('[data-present]').onclick = () => present(p);
   m.el.querySelector('[data-edit]')?.addEventListener('click', () => { m.close(); editor(p, refresh); });
+  m.el.querySelector('[data-share-cm]')?.addEventListener('click', async () => { m.close(); (await import('./community.js')).shareProgram(p); });
   m.el.querySelector('[data-del]')?.addEventListener('click', async () => {
     if (!(await confirmBox('이 훈련을 삭제할까요?'))) return;
     try { await deleteDoc(doc(db, 'teams', state.team.id, 'posts', p.id)); m.close(); refresh(); } catch (e) { fail(e); }
@@ -259,7 +260,7 @@ export function editor(p, refresh) {
     };
     try {
       const col = collection(db, 'teams', state.team.id, 'posts');
-      if (p.id) await updateDoc(doc(col, p.id), { ...data, updatedAt: serverTimestamp() });
+      if (p.id) await updateDoc(doc(col, p.id), { ...data, updatedAt: serverTimestamp(), updatedBy: state.profile.name });
       else await addDoc(col, { ...data, authorUid: state.user.uid, authorName: state.profile.name, createdAt: serverTimestamp() });
       pad?.clearDraft();
       m.close();

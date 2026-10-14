@@ -1,4 +1,7 @@
-export const CATEGORIES = ['U12', 'U15', 'U18', 'U22', 'K5', 'K6', 'K7', '학교동아리', '아마추어 조기회'];
+export const CATEGORIES = ['U12', 'U15', 'U18', 'U22', 'K1·2', 'K3·4', 'K5·6·7', 'WK', '기타'];
+// 예전 구분 → 지금 구분 (K5 · K6 · K7 은 하나로, 동아리 · 조기회는 기타)
+const OLD_CAT = { K1: 'K1·2', K2: 'K1·2', K3: 'K3·4', K4: 'K3·4', K5: 'K5·6·7', K6: 'K5·6·7', K7: 'K5·6·7', 학교동아리: '기타', '아마추어 조기회': '기타' };
+export const normCat = (c) => OLD_CAT[c] || (CATEGORIES.includes(c) ? c : c ? '기타' : '');
 export const POSITIONS = ['GK', 'CB', 'LB', 'RB', 'CDM', 'CM', 'CAM', 'LW', 'RW', 'ST'];
 export const ROLES = { coach: '코치', player: '선수' };
 export const MATCH_TYPES = ['리그', '대회', '스토브리그', '연습경기'];

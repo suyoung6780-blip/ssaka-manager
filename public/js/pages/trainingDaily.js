@@ -191,7 +191,7 @@ function planEditor(p, programs, refresh) {
     };
     try {
       const col = collection(db, 'teams', state.team.id, 'posts');
-      if (p.id) await updateDoc(doc(col, p.id), { ...data, updatedAt: serverTimestamp() });
+      if (p.id) await updateDoc(doc(col, p.id), { ...data, updatedAt: serverTimestamp(), updatedBy: state.profile.name });
       else await addDoc(col, { ...data, authorUid: state.user.uid, authorName: state.profile.name, createdAt: serverTimestamp() });
       dailySel = data.date;
       m.close();

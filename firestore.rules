@@ -86,6 +86,8 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/teams/$(t)/members/$(request.resource.data.ownerUid)).data.role == 'coach'
         && get(/databases/$(database)/documents/teams/$(t)/members/$(request.resource.data.ownerUid)).data.get('approved', true) != false;
       // 운영자: 홍보용 무료 제공(comp) 지정 · 해제 — 결제와 상관없이 계속 이용
+      // 운영자: 팀 구분 정리 · 팀 이름 주의 · 기능 제한
+      allow update: if isAdmin() && changed().hasOnly(['category', 'nameWarn', 'restricted', 'restrictedAt']);
       allow update: if isAdmin() && changed().hasOnly(['comp', 'compMonths', 'compUntil', 'compBy', 'compAt', 'status']);
 
       match /members/{m} {
@@ -148,20 +150,22 @@ service cloud.firestore {
         allow create: if isSquad(t) && request.resource.data.uid == uid()
           && l == uid() + '_' + request.resource.data.date;
         allow update: if (isSquad(t) && resource.data.uid == uid() && request.resource.data.uid == uid()
-            && !changed().hasAny(['checked', 'coachComment', 'checkedBy', 'checkedAt']))
-          || (isCoach(t) && changed().hasOnly(['checked', 'coachComment', 'checkedBy', 'checkedAt']));
+            && !changed().hasAny(['checked', 'coachComment', 'checkedBy', 'checkedAt', 'answers']))
+          || (isCoach(t) && changed().hasOnly(['checked', 'coachComment', 'checkedBy', 'checkedAt', 'answers'])); // answers: 세션별 질문 답변
         allow delete: if isMember(t) && resource.data.uid == uid(); // 회원 탈퇴 시 내 일지 삭제
       }
 
+      // 상담실은 없앰 — 남은 글은 운영자가 한 번에 지울 수 있게 (운영자 페이지)
       match /counsel/{c} {
-        allow read: if isCoach(t) || (isMember(t) && resource.data.authorUid == uid());
+        allow read: if isCoach(t) || (isMember(t) && resource.data.authorUid == uid()) || isAdmin();
         allow create: if isSquad(t) && request.resource.data.authorUid == uid();
         allow update: if (isCoach(t) || (isMember(t) && resource.data.authorUid == uid()))
           && changed().hasOnly(['status', 'updatedAt', 'lastBy']);
-        allow delete: if isMember(t) && resource.data.authorUid == uid();
+        allow delete: if (isMember(t) && resource.data.authorUid == uid()) || isAdmin();
 
         match /replies/{r} {
-          allow read: if isCoach(t) || (isMember(t) && get(/databases/$(database)/documents/teams/$(t)/counsel/$(c)).data.authorUid == uid());
+          allow delete: if isAdmin();
+          allow read: if isCoach(t) || (isMember(t) && get(/databases/$(database)/documents/teams/$(t)/counsel/$(c)).data.authorUid == uid()) || isAdmin();
           allow create: if request.resource.data.uid == uid() && (isCoach(t)
             || (isMember(t) && get(/databases/$(database)/documents/teams/$(t)/counsel/$(c)).data.authorUid == uid()));
         }
@@ -188,6 +192,23 @@ service cloud.firestore {
         allow read: if signedIn() && uid() in get(/databases/$(database)/documents/chats/$(c)).data.participants;
         allow create: if signedIn() && request.resource.data.uid == uid()
           && uid() in get(/databases/$(database)/documents/chats/$(c)).data.participants;
+      }
+    }
+
+    // 커뮤니티 — 다른 팀 지도자끼리. 지도자 계정만 읽고 씀 (선수 계정은 볼 수 없음)
+    function isCoachUser() { return signedIn() && get(/databases/$(database)/documents/users/$(uid())).data.role == 'coach'; }
+    match /community/{p} {
+      allow read: if isCoachUser() || isAdmin();
+      allow create: if isCoachUser() && request.resource.data.authorUid == uid()
+        && isCoach(request.resource.data.teamId) && request.resource.data.get('commentN', 0) == 0
+        && teamDoc(request.resource.data.teamId).get('restricted', false) != true; // 기능 제한된 팀은 못 올림
+      allow update: if (signedIn() && resource.data.authorUid == uid() && !changed().hasAny(['authorUid', 'teamId', 'teamName', 'createdAt']))
+        || (isCoachUser() && changed().hasOnly(['commentN', 'lastAt']));
+      allow delete: if (signedIn() && resource.data.authorUid == uid()) || isAdmin();
+      match /comments/{c} {
+        allow read: if isCoachUser() || isAdmin();
+        allow create: if isCoachUser() && request.resource.data.uid == uid();
+        allow delete: if (signedIn() && resource.data.uid == uid()) || isAdmin();
       }
     }
 

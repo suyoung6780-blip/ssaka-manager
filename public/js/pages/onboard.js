@@ -3,7 +3,7 @@ import {
 } from '../fb.js';
 import { PLAN, TOSS_CLIENT_KEY, FREE_MODE } from '../config.js';
 import {
-  esc, toast, fail, formData, options, pageHead, modal, confirmBox, fmtDate, CATEGORIES, ROLES,
+  esc, toast, fail, formData, options, pageHead, modal, confirmBox, fmtDate, CATEGORIES, normCat, ROLES,
 } from '../ui.js';
 import { state, loadContext, go, publicProfile, teamActive, hooks, compActive } from '../store.js';
 
@@ -38,7 +38,8 @@ export function createTeam(el) {
   if (state.team) return go('/');
   el.innerHTML = `${pageHead('CREATE TEAM', '팀계정 만들기')}
   <form class="card narrow">
-    <label>팀 이름<input name="name" required maxlength="30"></label>
+    <label>팀 이름<input name="name" required minlength="2" maxlength="30" placeholder="예) 블랙 FC U15, 한빛초 축구부"></label>
+    <p class="name-note">⚠️ 실제 팀 이름을 정확하게 적어 주세요. <b>'ㅇ', '축구교실'처럼 팀을 알아볼 수 없는 이름</b>은 운영자가 확인 후 <b>기능이 제한될 수 있어요.</b></p>
     <label>팀 구분<select name="category" required>${options(CATEGORIES)}</select></label>
     <label>팀 소개<textarea name="intro" rows="3" maxlength="300"></textarea></label>
     <label class="switch"><input type="checkbox" name="isPublic" checked><span>팀 공개 — 다른 팀이 선수단·프로필을 볼 수 있어요</span></label>
@@ -206,8 +207,9 @@ export async function settings(el) {
     </section>
     <form class="card">
       <h3>팀 정보</h3>
-      <label>팀 이름<input name="name" required maxlength="30" value="${esc(t.name)}"></label>
-      <label>팀 구분<select name="category">${options(CATEGORIES, t.category)}</select></label>
+      <label>팀 이름<input name="name" required minlength="2" maxlength="30" value="${esc(t.name)}" placeholder="예) 블랙 FC U15, 한빛초 축구부"></label>
+      <p class="name-note${t.nameWarn && t.nameWarn.name === t.name ? ' on' : ''}">⚠️ 팀을 알아볼 수 있게 실제 팀 이름을 정확하게 적어 주세요. 알아볼 수 없는 이름은 기능이 제한될 수 있어요.</p>
+      <label>팀 구분 <small class="muted">(연령 · 리그 — 바꾸면 팀 검색에서 이 구분으로 보여요)</small><select name="category">${options(CATEGORIES, normCat(t.category))}</select></label>
       <label>팀 소개<textarea name="intro" rows="3" maxlength="300">${esc(t.intro || '')}</textarea></label>
       <label class="switch"><input type="checkbox" name="isPublic" ${t.isPublic ? 'checked' : ''}><span>팀 공개 (비공개면 다른 팀은 아무것도 볼 수 없어요)</span></label>
       <button class="btn">저장</button>

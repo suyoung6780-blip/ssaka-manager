@@ -128,7 +128,10 @@ export async function render(el) {
   const base = ['teams', t.id];
   const today = todayStr();
   const posts = collection(db, ...base, 'posts');
-  const [n, s, m, myLog, logsToday, members, plansToday] = await Promise.all([
+  // 이번 주 (월요일 시작)
+  const wd = new Date(`${today}T00:00`); wd.setDate(wd.getDate() - ((wd.getDay() + 6) % 7));
+  const weekDays = Array.from({ length: 7 }, (_, i) => { const x = new Date(wd); x.setDate(wd.getDate() + i); return todayStr(x); });
+  const [n, s, m, myLog, logsToday, members, plansToday, wkSched, wkPlans, upNew, upEdit] = await Promise.all([
     getDocs(query(posts, where('type', '==', 'notice'), orderBy('createdAt', 'desc'), limit(4))),
     getDocs(query(posts, where('type', '==', 'schedule'), where('date', '>=', today), orderBy('date'), limit(8))),
     isSquad() ? getDocs(collection(db, ...base, 'matches')) : null,
@@ -136,6 +139,11 @@ export async function render(el) {
     isCoach() ? getDocs(query(collection(db, ...base, 'logs'), where('date', '==', today))) : null,
     isCoach() ? getDocs(collection(db, ...base, 'members')) : null,
     isSquad() ? getDocs(query(posts, where('type', '==', 'daily'), where('date', '==', today))) : null,
+    getDocs(query(posts, where('type', '==', 'schedule'), where('date', '>=', weekDays[0]), where('date', '<=', weekDays[6]), orderBy('date'))).catch(() => null),
+    isSquad() ? getDocs(query(posts, where('type', '==', 'daily'), where('date', '>=', weekDays[0]), where('date', '<=', weekDays[6]), orderBy('date'))).catch(() => null) : null,
+    // 팀 업데이트: 새로 올린 것 · 고친 것
+    isSquad() ? getDocs(query(posts, orderBy('createdAt', 'desc'), limit(12))).catch(() => null) : null,
+    isSquad() ? getDocs(query(posts, orderBy('updatedAt', 'desc'), limit(12))).catch(() => null) : null,
   ]);
 
   const st = m ? calcStats(m.docs.map((d) => d.data())) : null;
@@ -155,6 +163,41 @@ export async function render(el) {
     ...(isCoach() ? [['일지 제출', `${submitted.length}/${players.length}`, '/journal-check'], ['주의 선수', `${alertLogs.length}명`, '/journal-check']] : []),
     ...(st ? [['시즌 성적', `${st.w}승 ${st.d}무 ${st.l}패`, '/records']] : []),
   ];
+
+  // ── 이번 주 한눈에 ──
+  const KC = { 경기: 'k-match', 훈련: 'k-train' };
+  const wSched = wkSched ? wkSched.docs.map((d) => d.data()).filter((x) => !x.isNote) : [];
+  const wPlans = wkPlans ? wkPlans.docs.map((d) => d.data()) : [];
+  const weekCard = `<section class="card week-card">
+    <div class="card-head"><h3>이번 주 <small class="muted">${weekDays[0].slice(5).replace('-', '.')} ~ ${weekDays[6].slice(5).replace('-', '.')}</small></h3><a href="#/schedule" class="more">스케줄 →</a></div>
+    <div class="wk">${weekDays.map((d, i) => {
+      const its = [...wSched.filter((x) => x.date === d).map((x) => ({ t: x.time || '', title: x.title, c: KC[x.kind] || 'k-etc', tag: x.kind || '' })),
+        ...wPlans.filter((x) => x.date === d).map((x) => ({ t: x.time || '', title: x.title || '훈련', c: 'k-plan', tag: '훈련장', go: '/training' }))]
+        .sort((a, b) => a.t.localeCompare(b.t));
+      return `<a class="wk-day ${d === today ? 'today' : ''} ${d < today ? 'past' : ''}" href="#${d === today ? '/training' : '/schedule'}">
+        <div class="wk-h"><b>${DOW_KO[(i + 1) % 7]}</b><span>${+d.slice(8)}</span></div>
+        ${its.length ? its.map((x) => `<div class="wk-it ${x.c}"><small>${esc(x.t)}</small><span>${esc(x.title)}</span></div>`).join('') : '<div class="wk-none">-</div>'}
+      </a>`;
+    }).join('')}</div>
+    <div class="wk-legend"><span class="k-match">경기</span><span class="k-train">훈련 일정</span><span class="k-plan">훈련장 안내</span><span class="k-etc">그 외</span></div>
+  </section>`;
+
+  // ── 팀 업데이트: 누가 무엇을 새로 올리거나 고쳤는지 ──
+  const TYPE = { notice: ['📢', '공지', '/notice'], schedule: ['📅', '스케줄', '/schedule'], meeting: ['🗂', '미팅룸', '/meeting'], daily: ['🏃', '훈련 안내', '/training'], training: ['📘', '훈련 프로그램', '/training/library'], analysis: ['🎬', '분석실', '/analysis'] };
+  const ago = (ms) => { const m0 = Math.round((Date.now() - ms) / 60000); return m0 < 1 ? '방금' : m0 < 60 ? `${m0}분 전` : m0 < 1440 ? `${Math.round(m0 / 60)}시간 전` : `${Math.round(m0 / 1440)}일 전`; };
+  const tms = (v) => (v?.toMillis ? v.toMillis() : v?.seconds ? v.seconds * 1000 : 0);
+  const upMap = new Map();
+  [upNew, upEdit].forEach((sn) => sn?.docs.forEach((d) => upMap.set(d.id, { id: d.id, ...d.data() })));
+  const updates = [...upMap.values()]
+    .filter((x) => TYPE[x.type] && !x.isNote && (isCoach() || x.type !== 'analysis' || x.mode === 'match'))
+    .map((x) => { const c = tms(x.createdAt); const u = tms(x.updatedAt); const edited = u > c + 60000; return { ...x, at: Math.max(c, u), edited }; })
+    .sort((a, b) => b.at - a.at).slice(0, 8);
+  const updCard = `<section class="card hcard">
+    <div class="card-head"><h3>팀 업데이트 <small class="muted">새로 올라오거나 고친 것</small></h3></div>
+    ${updates.length ? `<ul class="list upd">${updates.map((x) => { const [ic, lab, href] = TYPE[x.type]; return `
+      <li><a href="#${href}"><span class="upd-ic">${ic}</span><div><strong>${esc(x.title || lab)}</strong>
+        <small><span class="tag">${lab}</span> ${x.edited ? `<b class="upd-ed">수정</b> ${esc(x.updatedBy || x.authorName || '')}` : `<b class="upd-new">새 글</b> ${esc(x.authorName || '')}`} · ${ago(x.at)}${x.type === 'schedule' && x.date ? ` · ${esc(x.date.slice(5).replace('-', '.'))}` : ''}</small></div></a></li>`; }).join('')}</ul>` : empty('아직 소식이 없어요.')}
+  </section>`;
 
   // 오늘 일정 + 오늘 훈련 안내
   const todayCard = `<section class="card hcard">
@@ -189,18 +232,17 @@ export async function render(el) {
     <div data-todo></div>
     ${journalCard}
   </div>
+  <div class="home-sec"><span class="eyebrow">THIS WEEK</span><h2>이번 주</h2></div>
+  ${weekCard}
   <div class="home-sec"><span class="eyebrow">TEAM</span><h2>팀 소식</h2></div>
   <div class="home-grid two">
+    ${updCard}
     <section class="card hcard">
       <div class="card-head"><h3>공지사항</h3><a href="#/notice" class="more">전체 →</a></div>
       ${n.empty ? empty('공지가 없습니다.') : `<ul class="list">${n.docs.map((d) => { const x = d.data(); return `
         <li><div><strong>${x.pinned ? '📌 ' : ''}${esc(x.title)}</strong><small>${fmtDate(x.createdAt)}</small></div></li>`; }).join('')}</ul>`}
     </section>
-    <section class="card hcard">
-      <div class="card-head"><h3>다가오는 일정</h3><a href="#/schedule" class="more">전체 →</a></div>
-      ${upcoming.length ? `<ul class="list">${upcoming.map((x) => `
-        <li><span class="date-badge">${esc(x.date.slice(5).replace('-', '.'))}</span><div><strong>${esc(x.title)}</strong><small>${esc([x.time, x.kind, x.place].filter(Boolean).join(' · '))}</small></div></li>`).join('')}</ul>` : empty('예정된 일정이 없습니다.')}
-    </section>
+
   </div>
   <div data-brief></div>`;
   startClock(el);

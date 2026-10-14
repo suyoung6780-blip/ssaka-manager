@@ -1,4 +1,4 @@
-// 새 소식 점 — 공지 · 스케줄 · 미팅 · 분석 · 훈련 · 상담 · 일지 · 목표 · 대화에 새 글이 오면 메뉴 옆에 주황 점
+// 새 소식 점 — 공지 · 스케줄 · 미팅 · 분석 · 훈련 · 일지 · 목표 · 대화에 새 글이 오면 메뉴 옆에 주황 점
 // 칸마다 가장 최근 글 몇 개만 실시간으로 지켜봄(읽기 비용 적게). '마지막으로 본 때'는 이 기기에 저장
 import { auth, db, collection, doc, query, where, orderBy, limit, onSnapshot } from './fb.js';
 import { state, isCoach, isSquad, inTeam } from './store.js';
@@ -13,7 +13,7 @@ const writeSeen = (s) => { try { localStorage.setItem(seenKey(), JSON.stringify(
 let seen = {};
 
 // 지금 보고 있는 칸 (메뉴 주소 기준)
-const SECTIONS = ['/notice', '/schedule', '/meeting', '/analysis', '/training', '/counsel', '/journal-check', '/goals', '/gamemodel', '/daily', '/chat'];
+const SECTIONS = ['/notice', '/schedule', '/meeting', '/analysis', '/training', '/journal-check', '/goals', '/gamemodel', '/daily', '/chat'];
 const sectionOf = (path) => SECTIONS.filter((s) => path === s || path.startsWith(`${s}/`)).sort((a, b) => b.length - a.length)[0] || '';
 const current = () => sectionOf(location.hash.slice(1) || '/');
 
@@ -69,11 +69,6 @@ export function startNews() {
   // 목표: 코치는 선수 개인 목표, 선수는 팀 목표
   watch('/goals', query(collection(db, 'teams', tid, 'goals'), orderBy('createdAt', 'desc'), limit(3)),
     (d) => (d.ownerUid === me || (!isCoach() && d.scope !== 'team') ? 0 : ms(d.createdAt)));
-  // 상담: 새 글 · 새 답변 (lastBy = 마지막에 쓴 사람)
-  watch('/counsel', isCoach()
-    ? query(collection(db, 'teams', tid, 'counsel'), orderBy('updatedAt', 'desc'), limit(3))
-    : query(collection(db, 'teams', tid, 'counsel'), where('authorUid', '==', me), orderBy('updatedAt', 'desc'), limit(3)),
-  (d) => (d.lastBy === me || (!d.lastBy && d.authorUid === me) ? 0 : ms(d.updatedAt || d.createdAt)));
   if (isCoach()) {
     // 일지검사: 새로 제출된 일지
     watch('/journal-check', query(collection(db, 'teams', tid, 'logs'), orderBy('submittedAt', 'desc'), limit(3)), (d) => (d.submitted ? ms(d.submittedAt) : 0));

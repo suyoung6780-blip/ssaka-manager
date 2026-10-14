@@ -24,7 +24,7 @@ export const FIELDS = {
   box: { label: '페널티박스 주변', w: 36, h: 50 },
   custom: { label: '직접 설정 (그리드 훈련장)', w: 30, h: 20 },
 };
-const GRIDS = { none: '그리드 없음', '3x3': '3×3 존', lanes5: '5레인', zones18: '18존 (6×3)', custom: '직접 설정' };
+const GRIDS = { none: '그리드 없음', '3x3': '3×3 존', lanes5: '5레인', zones18: '18존 (6×3)', custom: '칸 수 직접 설정', meter: '칸 크기(m) 직접 설정' };
 const GRID_PRESET = { none: [0, 0], '3x3': [3, 3], lanes5: [0, 5], zones18: [6, 3] };
 const COLORS = { dark: '다크', green: '잔디', white: '화이트' };
 export const TEAMS = {
@@ -108,23 +108,26 @@ function drawField(g, d, T, u) {
   const L = el('g', { fill: 'none', stroke: T.line, 'stroke-width': sw }, g);
   if (type !== 'custom') el('rect', { x: 0, y: 0, width: w, height: h }, L); // 직접 설정은 테두리 없이 화면만
 
+  // 경기장을 표준(105×68)보다 작게 정하면 박스 · 센터서클도 같이 줄임 (8인제 · 소형 경기장)
+  const std = type === 'full' ? [105, 68] : type === 'half' ? [52.5, 68] : [36, 50];
+  const k = Math.min(1, w / std[0], h / std[1]);
   const goalEnd = (x, dir) => {
     const cy = h / 2;
-    el('rect', { x: dir > 0 ? x : x - 16.5, y: cy - 20.16, width: 16.5, height: 40.32 }, L);
-    el('rect', { x: dir > 0 ? x : x - 5.5, y: cy - 9.16, width: 5.5, height: 18.32 }, L);
-    el('circle', { cx: x + dir * 11, cy, r: sw * 1.4, fill: T.line, stroke: 'none' }, L);
-    el('path', { d: `M ${x + dir * 16.5} ${cy - 7.3} A 9.15 9.15 0 0 ${dir > 0 ? 1 : 0} ${x + dir * 16.5} ${cy + 7.3}` }, L);
-    el('rect', { x: dir > 0 ? x - 2 : x, y: cy - 3.66, width: 2, height: 7.32 }, L);
+    el('rect', { x: dir > 0 ? x : x - 16.5 * k, y: cy - 20.16 * k, width: 16.5 * k, height: 40.32 * k }, L);
+    el('rect', { x: dir > 0 ? x : x - 5.5 * k, y: cy - 9.16 * k, width: 5.5 * k, height: 18.32 * k }, L);
+    el('circle', { cx: x + dir * 11 * k, cy, r: sw * 1.4, fill: T.line, stroke: 'none' }, L);
+    el('path', { d: `M ${x + dir * 16.5 * k} ${cy - 7.3 * k} A ${9.15 * k} ${9.15 * k} 0 0 ${dir > 0 ? 1 : 0} ${x + dir * 16.5 * k} ${cy + 7.3 * k}` }, L);
+    el('rect', { x: dir > 0 ? x - 2 * k : x, y: cy - 3.66 * k, width: 2 * k, height: 7.32 * k }, L);
   };
 
   if (type === 'full') {
     el('line', { x1: w / 2, y1: 0, x2: w / 2, y2: h }, L);
-    el('circle', { cx: w / 2, cy: h / 2, r: 9.15 }, L);
+    el('circle', { cx: w / 2, cy: h / 2, r: 9.15 * k }, L);
     el('circle', { cx: w / 2, cy: h / 2, r: sw * 1.4, fill: T.line, stroke: 'none' }, L);
     goalEnd(0, 1);
     goalEnd(w, -1);
   } else if (type === 'half') {
-    el('path', { d: `M 0 ${h / 2 - 9.15} A 9.15 9.15 0 0 1 0 ${h / 2 + 9.15}` }, L);
+    el('path', { d: `M 0 ${h / 2 - 9.15 * k} A ${9.15 * k} ${9.15 * k} 0 0 1 0 ${h / 2 + 9.15 * k}` }, L);
     goalEnd(w, -1);
   } else if (type === 'box') {
     // 오른쪽이 골라인
@@ -139,8 +142,13 @@ function drawField(g, d, T, u) {
   // 그리드
   const { cols, rows } = d.grid;
   const G = el('g', { stroke: T.grid, 'stroke-width': sw * 0.8, 'stroke-dasharray': `${u * 1.2} ${u * 0.9}` }, g);
-  for (let i = 1; i < cols; i++) el('line', { x1: (w / cols) * i, y1: 0, x2: (w / cols) * i, y2: h }, G);
-  for (let i = 1; i < rows; i++) el('line', { x1: 0, y1: (h / rows) * i, x2: w, y2: (h / rows) * i }, G);
+  if (d.grid.preset === 'meter' && d.grid.cw > 0 && d.grid.ch > 0) { // 칸 크기(m)로: 가로 cw m · 세로 ch m 마다 선
+    for (let x = d.grid.cw; x < w - 0.01; x += d.grid.cw) el('line', { x1: x, y1: 0, x2: x, y2: h }, G);
+    for (let y = d.grid.ch; y < h - 0.01; y += d.grid.ch) el('line', { x1: 0, y1: y, x2: w, y2: y }, G);
+  } else {
+    for (let i = 1; i < cols; i++) el('line', { x1: (w / cols) * i, y1: 0, x2: (w / cols) * i, y2: h }, G);
+    for (let i = 1; i < rows; i++) el('line', { x1: 0, y1: (h / rows) * i, x2: w, y2: (h / rows) * i }, G);
+  }
 }
 
 
@@ -254,12 +262,29 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
     }
     case 'minigoal':
     case 'goal': {
+      // 위에서 본 골대: 앞쪽(입구)은 굵은 골대 틀 · 기둥, 뒤쪽은 그물 (돌리기로 방향 바꿈 · 기본은 오른쪽을 봄)
       const big = it.k === 'goal';
-      const gw = big ? 7.32 * z : 3 * u;
-      const gd = big ? 2 * z : 1.2 * u;
+      const gw = big ? 7.32 * z : 4.2 * u; // 입구 폭
+      const gd = big ? 2.2 * z : 1.9 * u; // 깊이
       const gg = rotG();
-      el('rect', { x: it.x - gd / 2, y: it.y - gw / 2, width: gd, height: gw, fill: 'rgba(255,255,255,.25)', stroke: T.ink, 'stroke-width': 0.35 * u }, gg);
-      for (let k = 1; k < 4; k++) el('line', { x1: it.x - gd / 2, y1: it.y - gw / 2 + (gw / 4) * k, x2: it.x + gd / 2, y2: it.y - gw / 2 + (gw / 4) * k, stroke: T.ink, 'stroke-width': 0.12 * u, opacity: 0.6 }, gg);
+      const fx = it.x + gd / 2; // 입구(골라인) 쪽
+      const bx = it.x - gd / 2; // 그물 뒤쪽
+      const y0 = it.y - gw / 2; const y1 = it.y + gw / 2;
+      const frame = big ? '#ffffff' : '#ff5a36';
+      const pw = (big ? 0.42 : 0.34) * u * (big ? Math.max(1, z * 0.6) : 1); // 틀 굵기
+      // 그림자
+      el('path', { d: `M ${fx} ${y0} L ${bx + gd * 0.25} ${y0 + gw * 0.06} L ${bx + gd * 0.25} ${y1 - gw * 0.06} L ${fx} ${y1} Z`, fill: 'rgba(0,0,0,.35)', transform: `translate(${0.25 * u} ${0.3 * u})` }, gg);
+      // 그물 바닥(뒤로 갈수록 살짝 좁아지는 사다리꼴) + 그물 무늬
+      const net = `M ${fx} ${y0} L ${bx} ${y0 + gw * 0.08} L ${bx} ${y1 - gw * 0.08} L ${fx} ${y1} Z`;
+      el('path', { d: net, fill: 'rgba(255,255,255,.18)', stroke: frame, 'stroke-width': pw * 0.45, 'stroke-linejoin': 'round' }, gg);
+      const cells = big ? 8 : 5;
+      for (let k = 1; k < cells; k++) { const yy = y0 + (gw / cells) * k; el('line', { x1: fx, y1: yy, x2: bx, y2: it.y + (yy - it.y) * 0.84, stroke: '#ffffff', 'stroke-width': 0.08 * u, opacity: 0.55 }, gg); }
+      for (let k = 1; k < 3; k++) { const xx = fx - (gd / 3) * k; const sh = gw * 0.08 * (k / 3); el('line', { x1: xx, y1: y0 + sh, x2: xx, y2: y1 - sh, stroke: '#ffffff', 'stroke-width': 0.08 * u, opacity: 0.55 }, gg); }
+      // 옆 틀 + 앞 크로스바(입구)
+      el('path', { d: `M ${bx} ${y0 + gw * 0.08} L ${fx} ${y0} L ${fx} ${y1} L ${bx} ${y1 - gw * 0.08}`, fill: 'none', stroke: frame, 'stroke-width': pw, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, gg);
+      el('line', { x1: fx, y1: y0, x2: fx, y2: y1, stroke: frame, 'stroke-width': pw * 1.5, 'stroke-linecap': 'round' }, gg);
+      // 골포스트 (입구 양 끝 동그라미)
+      [y0, y1].forEach((yy) => el('circle', { cx: fx, cy: yy, r: pw * 1.25, fill: frame, stroke: 'rgba(0,0,0,.5)', 'stroke-width': pw * 0.3 }, gg));
       ring(gw / 2 + u);
       break;
     }
@@ -436,10 +461,12 @@ export function createPad(container, initial, { editable = true, motion = false,
   container.innerHTML = editable ? `
     <div class="pad-field">
       <select data-ft title="필드">${Object.entries(FIELDS).map(([k, f]) => `<option value="${k}">${f.label}</option>`).join('')}</select>
-      <span class="pad-size"><input type="number" data-fw min="5" max="120" step="1" title="가로(m)"><i>×</i><input type="number" data-fh min="5" max="90" step="1" title="세로(m)"><i>m</i></span>
+      <span class="pad-size"><i>경기장 가로</i><input type="number" data-fw min="5" max="120" step="1" title="가로(m)"><i>m × 세로</i><input type="number" data-fh min="5" max="90" step="1" title="세로(m)"><i>m</i></span>
+      <select data-fo title="경기장 방향"><option value="">방향 자동</option><option value="h">↔ 가로로 보기</option><option value="v">↕ 세로로 보기</option></select>
       <select data-fc title="필드 색">${Object.entries(COLORS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
       <select data-gp title="그리드">${Object.entries(GRIDS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
-      <span class="pad-size" data-gsize><input type="number" data-gc min="0" max="12" title="세로줄(칸)"><i>×</i><input type="number" data-gr min="0" max="12" title="가로줄(칸)"><i>칸</i></span>
+      <span class="pad-size" data-gsize><i>가로</i><input type="number" data-gc min="0" max="20" title="가로 칸 수"><i>칸 × 세로</i><input type="number" data-gr min="0" max="20" title="세로 칸 수"><i>칸</i></span>
+      <span class="pad-size" data-gmsize><i>칸 가로</i><input type="number" data-gcw min="1" max="60" step="0.5" title="칸 가로(m)"><i>m × 세로</i><input type="number" data-gch min="1" max="60" step="0.5" title="칸 세로(m)"><i>m</i></span>
       <select data-form title="포메이션"><option value="">포메이션 넣기</option>
         <optgroup label="A팀 · 11대11">${formOpts('a', false)}</optgroup>
         <optgroup label="A팀 · 8대8">${formOpts('a', true)}</optgroup>
@@ -530,7 +557,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     const u = unit();
     const T = THEME[data.field.color] || THEME.dark;
     const m = margin();
-    vertical = isVertical(data.field.type);
+    vertical = data.field.orient ? data.field.orient === 'v' : isVertical(data.field.type); // 가로 · 세로 보기 (직접 고르면 그대로)
     svg.setAttribute('viewBox', vertical ? `${-m} ${-m} ${h + 2 * m} ${w + 2 * m}` : `${-m} ${-m} ${w + 2 * m} ${h + 2 * m}`);
     svg.style.background = data.field.type === 'custom' ? T.bg : T.out;
     svg.classList.toggle('vert', vertical);
@@ -727,12 +754,16 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.querySelector('[data-ft]').value = f.type;
     container.querySelector('[data-fw]').value = f.w;
     container.querySelector('[data-fh]').value = f.h;
-    container.querySelector('[data-fw]').disabled = container.querySelector('[data-fh]').disabled = f.type !== 'custom';
+    container.querySelector('[data-fw]').disabled = container.querySelector('[data-fh]').disabled = false; // 모든 경기장 가로 · 세로 직접
     container.querySelector('[data-fc]').value = f.color;
+    container.querySelector('[data-fo]').value = f.orient || '';
     container.querySelector('[data-gp]').value = data.grid.preset;
     container.querySelector('[data-gc]').value = data.grid.cols;
     container.querySelector('[data-gr]').value = data.grid.rows;
     container.querySelector('[data-gsize]').hidden = data.grid.preset !== 'custom';
+    container.querySelector('[data-gmsize]').hidden = data.grid.preset !== 'meter';
+    container.querySelector('[data-gcw]').value = data.grid.cw || '';
+    container.querySelector('[data-gch]').value = data.grid.ch || '';
     container.querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('on', b.dataset.tool === tool));
     container.querySelectorAll('[data-grp]').forEach((g) => {
       const [l, ic, ks] = TOOL_GROUPS[+g.dataset.grp];
@@ -857,20 +888,30 @@ export function createPad(container, initial, { editable = true, motion = false,
   container.querySelector('[data-fw]').onchange = sizeInput;
   container.querySelector('[data-fh]').onchange = sizeInput;
   container.querySelector('[data-fc]').onchange = (e) => { snapshot(); data.field.color = e.target.value; render(); };
+  container.querySelector('[data-fo]').onchange = (e) => { snapshot(); if (e.target.value) data.field.orient = e.target.value; else delete data.field.orient; render(); };
   container.querySelector('[data-gp]').onchange = (e) => {
     snapshot();
     const p = e.target.value;
     data.grid.preset = p;
-    if (p !== 'custom') [data.grid.cols, data.grid.rows] = GRID_PRESET[p];
+    if (p === 'meter') { if (!data.grid.cw) { data.grid.cw = 10; data.grid.ch = 10; } [data.grid.cols, data.grid.rows] = [0, 0]; }
+    else if (p !== 'custom') [data.grid.cols, data.grid.rows] = GRID_PRESET[p];
     else if (!data.grid.cols && !data.grid.rows) [data.grid.cols, data.grid.rows] = [4, 4];
     render();
   };
   const gridInput = () => {
     snapshot();
-    data.grid.cols = Math.min(12, Math.max(0, +container.querySelector('[data-gc]').value || 0));
-    data.grid.rows = Math.min(12, Math.max(0, +container.querySelector('[data-gr]').value || 0));
+    data.grid.cols = Math.min(20, Math.max(0, +container.querySelector('[data-gc]').value || 0));
+    data.grid.rows = Math.min(20, Math.max(0, +container.querySelector('[data-gr]').value || 0));
     render();
   };
+  const gridMInput = () => {
+    snapshot();
+    data.grid.cw = Math.min(60, Math.max(1, +container.querySelector('[data-gcw]').value || 10));
+    data.grid.ch = Math.min(60, Math.max(1, +container.querySelector('[data-gch]').value || 10));
+    render();
+  };
+  container.querySelector('[data-gcw]').onchange = gridMInput;
+  container.querySelector('[data-gch]').onchange = gridMInput;
   container.querySelector('[data-gc]').onchange = gridInput;
   container.querySelector('[data-gr]').onchange = gridInput;
   container.querySelector('[data-form]').onchange = (e) => {

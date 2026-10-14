@@ -1,3 +1,4 @@
+import { ADMIN_EMAILS } from './config.js';
 // 데모 모드(dev-server.py --demo)에서 js/fb.js 대신 제공되는 가짜 Firebase — 배포되지 않음
 // In-memory mock of the Firebase surface used by the app
 import { formationData, blank } from './tactic.js';
@@ -20,6 +21,9 @@ seed('teams/T1/members/c2', { name: '최코치', role: 'coach', coachTitle: 'GK 
 seed('teams/T1/members/p1', { name: '박선수', role: 'player', affiliation: '블랙중 3학년', position: 'ST', number: '9', height: '175', weight: '65' });
 seed('teams/T1/members/p2', { name: '이선수', role: 'player', position: 'GK', number: '1' });
 seed('teams/T3/members/q1', { name: '최상대', role: 'player', position: 'CM', number: '8' });
+// 팀 이름을 대충 적은 예시 팀 (운영자 팀명 주의 · 기능 제한 · 팀 구분 정리 미리보기)
+seed('teams/T5', { name: 'ㅇ', category: '아마추어 조기회', isPublic: true, ownerUid: 'w1', ownerName: '이감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 3 * 864e5), status: 'active', paidUntil: later });
+seed('teams/T6', { name: '축구교실', category: '학교동아리', isPublic: true, ownerUid: 'w2', ownerName: '한감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 1 * 864e5), status: 'active', paidUntil: later });
 seed('teams/T4', { name: '레드 유소년', category: 'U12', isPublic: true, ownerUid: 'z', ownerName: '정감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 2 * 864e5), status: 'active', paidUntil: later, intro: 'U12 공개 팀' });
 seed('teams/T4/members/z', { name: '정감독', role: 'coach' });
 seed('teams/T4/members/r1', { name: '한유망', role: 'player', affiliation: '레드초 6학년', position: 'LW', number: '11', height: '148', weight: '38', birthYear: '2014' });
@@ -193,7 +197,9 @@ const mkUser = (uid, email) => ({
   async getIdToken() { return 'demo'; },
 });
 // ?as=player 로 열면 선수(박선수)로 로그인된 상태
-export const auth = { currentUser: QS.has('out') ? null : FRESH ? mkUser('uNew', 'new@example.com') : QS.get('as') === 'player' ? mkUser('p1', 'p@x.com') : mkUser(U, 'c@x.com') };
+// ?as=admin 로 열면 운영자(김코치 + 운영자 이메일)로 로그인된 상태 — 운영자 페이지 미리보기용
+const adminUser = () => Object.assign(mkUser(U, ADMIN_EMAILS[0]), { emailVerified: true, async reload() {} });
+export const auth = { currentUser: QS.has('out') ? null : FRESH ? mkUser('uNew', 'new@example.com') : QS.get('as') === 'player' ? mkUser('p1', 'p@x.com') : QS.get('as') === 'admin' ? adminUser() : mkUser(U, 'c@x.com') };
 let authCb = () => {};
 const setUser = (u) => { auth.currentUser = u; setTimeout(() => authCb(u), 0); };
 // 데모에서 직접 가입한 계정의 프로필(users/u-…)도 이 브라우저에 기억

@@ -2,7 +2,7 @@ import {
   db, collection, doc, query, where, orderBy, limit, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   onSnapshot, serverTimestamp,
 } from '../fb.js';
-import { $, esc, toast, fail, fmtDate, pageHead, empty, avatar, CATEGORIES } from '../ui.js';
+import { $, esc, toast, fail, fmtDate, pageHead, empty, avatar, CATEGORIES, normCat } from '../ui.js';
 import { state, go, isCoach, isAdmin, publicProfile } from '../store.js';
 import { playerCard, profileModal } from './team.js';
 
@@ -20,10 +20,10 @@ export function searchPanel(el) {
 
   const draw = () => {
     const list = (teamCache || [])
-      .filter((t) => (cat === '전체' || t.category === cat) && (!q || t.name.toLowerCase().includes(q)))
+      .filter((t) => (cat === '전체' || normCat(t.category) === cat) && (!q || t.name.toLowerCase().includes(q)))
       .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     el.querySelector('[data-results]').innerHTML = list.length ? list.map((t) => `
-      <li><a href="#/teams/${t.id}"><span class="cat">${esc(t.category)}</span><strong>${esc(t.name)}</strong>
+      <li><a href="#/teams/${t.id}"><span class="cat">${esc(normCat(t.category))}</span><strong>${esc(t.name)}</strong>
       <span class="lock">${t.isPublic ? '' : '비공개'}</span></a></li>`).join('') : '<li class="muted">검색 결과가 없습니다.</li>';
   };
   el.querySelector('[data-q]').oninput = (e) => { q = e.target.value.trim().toLowerCase(); draw(); };
