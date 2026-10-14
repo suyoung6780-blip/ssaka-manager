@@ -47,6 +47,15 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/consents/$(resource.data.consentToken)).data.status == 'agreed'
           && get(/databases/$(database)/documents/consents/$(resource.data.consentToken)).data.uid == uid()));
       allow delete: if signedIn() && uid() == userId; // 회원 탈퇴
+      // 이적: 보내는 팀 대표가 그 사람의 소속 팀을 받는 팀으로 바꿈
+      allow update: if signedIn() && userId != uid() && changed().hasOnly(['teamId'])
+        && getAfter(/databases/$(database)/documents/transfers/$(userId)).data.toTeam == request.resource.data.teamId
+        && getAfter(/databases/$(database)/documents/transfers/$(userId)).data.fromTeam == resource.data.teamId
+        && isOwner(resource.data.teamId);
+      // 팀 대표: 우리 팀원이 잘못 고른 계정 유형 바로잡기 (선수 ↔ 지도자)
+      allow update: if signedIn() && userId != uid() && changed().hasOnly(['role']) && request.resource.data.role in ['coach', 'player']
+        && resource.data.get('teamId', '') != '' && isOwner(resource.data.teamId)
+        && exists(/databases/$(database)/documents/teams/$(resource.data.teamId)/members/$(userId));
 
       // 홈 '오늘 할 일' 메모장 (본인만)
       match /todos/{todoId} {
@@ -103,6 +112,13 @@ service cloud.firestore {
         // 본인은 역할 · 승인 · 나이 정보를 못 바꿈. 팀 대표는 승인 · 내보내기 가능
         allow update: if (signedIn() && m == uid() && !changed().hasAny(['role', 'code', 'under14', 'approved', 'approvedBy', 'approvedAt', 'consentToken'])) || isOwner(t);
         allow delete: if (signedIn() && m == uid()) || isOwner(t);
+        // 이적: 보내는 팀 대표가 받는 팀에 '승인 대기'로 넣음 (받는 팀 대표가 승인해야 들어감)
+        allow create: if signedIn() && m != uid()
+          && request.resource.data.approved == false
+          && request.resource.data.role == get(/databases/$(database)/documents/users/$(m)).data.role
+          && getAfter(/databases/$(database)/documents/transfers/$(m)).data.toTeam == t
+          && isOwner(getAfter(/databases/$(database)/documents/transfers/$(m)).data.fromTeam)
+          && exists(/databases/$(database)/documents/teams/$(getAfter(/databases/$(database)/documents/transfers/$(m)).data.fromTeam)/members/$(m));
       }
 
       match /private/{d} {
@@ -193,6 +209,15 @@ service cloud.firestore {
 
     // 커뮤니티 — 다른 팀 지도자끼리. 지도자 계정만 읽고 씀 (선수 계정은 볼 수 없음)
     function isCoachUser() { return signedIn() && get(/databases/$(database)/documents/users/$(uid())).data.role == 'coach'; }
+    // 이적 기록 (사람마다 마지막 한 건) — 보내는 팀 대표가 만들고, 두 팀 대표 · 본인 · 운영자가 봄
+    match /transfers/{u} {
+      allow read: if signedIn() && (uid() == u || isOwner(resource.data.fromTeam) || isOwner(resource.data.toTeam) || isAdmin());
+      allow create, update: if signedIn() && u != uid() && request.resource.data.by == uid()
+        && isOwner(request.resource.data.fromTeam)
+        && exists(/databases/$(database)/documents/teams/$(request.resource.data.fromTeam)/members/$(u))
+        && exists(/databases/$(database)/documents/teams/$(request.resource.data.toTeam));
+    }
+
     match /community/{p} {
       allow read: if isCoachUser() || isAdmin();
       allow create: if isCoachUser() && request.resource.data.authorUid == uid()

@@ -2052,3 +2052,14 @@ details.legacy { margin-top: 10px; }
 .op-notice.danger .tag.solid { background: #e5484d; border-color: #e5484d; color: #fff; }
 .op-notice a { text-decoration: underline; }
 #team-notice .banner { margin: 16px 0 0; }
+.role-fix input[type=search] { width: 100%; margin: 4px 0 6px; }
+.role-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; }
+.role-row small { display: block; margin-top: 2px; }
+.pcard-manage { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.role-edit { width: 100%; text-align: left; border-top: 1px solid var(--line); padding-top: 10px; }
+.role-edit summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--sub); }
+.role-edit p { margin: 8px 0; }
+.mgr { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.mgr .role-edit + .role-edit { border-top: 0; padding-top: 0; }
+.mgr input[type=search] { width: 100%; margin: 4px 0; }
+.mgr .team-results li.talk { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }

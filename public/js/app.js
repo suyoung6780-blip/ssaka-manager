@@ -113,7 +113,6 @@ const FOOTER = `
     <div><dt>상호</dt><dd>KEEPER LAB</dd></div>
     <div><dt>대표</dt><dd>유수영</dd></div>
     <div><dt>사업자등록번호</dt><dd>451-15-03077</dd></div>
-    <div><dt>주소</dt><dd>경기도 안산시 단원구 사세충열로4길 6</dd></div>
   </dl>
   <div class="sf-bottom">
     <span>© ${new Date().getFullYear()} KEEPER LAB. All rights reserved.</span>

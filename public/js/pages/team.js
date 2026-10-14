@@ -1,5 +1,5 @@
 import {
-  db, collection, doc, query, where, orderBy, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, serverTimestamp,
+  db, collection, doc, query, where, orderBy, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch,
 } from '../fb.js';
 import {
   esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, options, avatar,
@@ -168,17 +168,17 @@ export async function locker(el) {
   el.innerHTML = `${pageHead('LOCKER ROOM', '락커룸', code ? `<button class="btn ghost" data-code>팀 코드 ${esc(code)} 복사</button>` : '')}
     <p class="lead">선수 · 지도자는 팀 코드로 입장을 신청하고, 팀 대표가 승인하면 락커룸에 들어옵니다.</p>
     ${waiting.length ? `<section class="card wait-box"><h3>입장 승인 대기 <small>${waiting.length}명</small></h3>
-      <p class="muted small">팀 코드로 들어온 사람이에요. 우리 팀 선수 · 지도자가 맞는지 확인하고 승인해 주세요. 승인 전에는 팀 내용을 볼 수 없어요.
+      <p class="muted small">팀 코드로 들어왔거나 다른 팀에서 이적해 온 사람이에요. 우리 팀 선수 · 지도자가 맞는지 확인하고 승인해 주세요. 승인 전에는 팀 내용을 볼 수 없어요.
         만 14세 미만은 보호자 동의 내용도 확인해 주세요.</p>
-      <ul class="list">${waiting.map((m) => `<li><div><strong>${esc(m.name)} <span class="tag">${esc(ROLES[m.role] || '')}</span>${m.under14 ? ' <span class="tag warn">만 14세 미만</span>' : ''}</strong>
+      <ul class="list">${waiting.map((m) => `<li><div><strong>${esc(m.name)} <span class="tag">${esc(ROLES[m.role] || '')}</span>${m.transferFrom ? ` <span class="tag solid">이적 · ${esc(m.transferFromName || '')}에서</span>` : ''}${m.under14 ? ' <span class="tag warn">만 14세 미만</span>' : ''}</strong>
         <small>${esc([m.position, m.number && `${m.number}번`, m.affiliation, m.coachTitle].filter(Boolean).join(' · ') || '')}</small>
         ${m.under14 ? `<small data-g="${esc(m.consentToken || '')}">보호자 정보 불러오는 중…</small>` : ''}</div>
-        <span><button class="btn sm" data-gok="${m.id}">승인</button> <button class="link-btn small" data-gno="${m.id}">거절</button></span></li>`).join('')}</ul></section>` : ''}
+        <span><button class="btn sm" data-gok="${m.id}">승인</button> <button class="link-btn small" data-grole="${m.id}">${m.role === 'coach' ? '선수로 바꾸기' : '지도자로 바꾸기'}</button> <button class="link-btn small" data-gno="${m.id}">거절</button></span></li>`).join('')}</ul></section>` : ''}
     ${['coach', 'player'].map((r) => {
       const g = group(r);
       if (!g.length) return '';
       const mode = getSort('locker');
-      const card = (m) => playerCard(m, { manage: isOwner() && m.id !== state.user.uid });
+      const card = (m) => playerCard(m);
       return `<div class="sec-row"><h2 class="sec-title">${ROLES[r]} <small>${g.length}</small></h2>${r === 'player' ? sortBar('locker', mode) : ''}</div>
       ${r === 'player' ? sortGroups(g, mode).map(([t, ps]) => `${t ? `<h3 class="sort-h">${esc(t)} <small>${ps.length}명</small></h3>` : ''}<div class="roster">${ps.map(card).join('')}</div>`).join('')
         : `<div class="roster">${g.map(card).join('')}</div>`}`;
@@ -199,15 +199,74 @@ export async function locker(el) {
       toast('승인했어요. 이제 팀 내용을 볼 수 있어요.'); locker(el);
     } catch (e) { fail(e); }
   }));
+  el.querySelectorAll('[data-grole]').forEach((b) => (b.onclick = () => changeRole(waiting.find((m) => m.id === b.dataset.grole))));
   el.querySelectorAll('[data-gno]').forEach((b) => (b.onclick = async () => {
     if (!(await confirmBox('입장을 거절할까요? 거절하면 팀에서 빠지고, 다시 팀 코드로 신청할 수 있어요.'))) return;
     try { await deleteDoc(tdoc('members', b.dataset.gno)); locker(el); } catch (e) { fail(e); }
   }));
   el.querySelectorAll('[data-pid]').forEach((c) => (c.onclick = (e) => {
     const m = list.find((x) => x.id === c.dataset.pid);
-    if (e.target.closest('[data-kick]')) return kick(m);
-    profileModal(m);
+    // 팀 대표: 카드를 누르면 열리는 창 아래에서 계정 유형 바꾸기 · 이적 · 내보내기
+    const canFix = isOwner() && m.id !== state.user.uid;
+    const md = profileModal(m, canFix ? `<div class="mgr">
+      <details class="role-edit"><summary>계정 유형 바꾸기</summary>
+        <p class="muted small">지금은 <b>${ROLES[m.role]}</b> 계정이에요. 잘못 골라 가입했으면 바꿔 주세요. 그 사람은 새로고침하거나 다시 로그인하면 바뀐 화면을 써요.</p>
+        <button type="button" class="btn sm" data-role>${m.role === 'coach' ? '선수로 바꾸기' : '지도자로 바꾸기'}</button></details>
+      <details class="role-edit" data-tr><summary>다른 팀으로 이적</summary>
+        <p class="muted small">보낼 팀을 찾아서 <b>이적 보내기</b>를 눌러요. 우리 팀에서 빠지고, 받는 팀 대표가 <b>승인</b>하면 그 팀에 들어가요. 우리 팀에서 쓴 일지 · 기록은 우리 팀에 남아요.</p>
+        <input type="search" placeholder="팀 이름 · 대표 이름 검색" data-tq><ul class="team-results" data-tres></ul></details>
+      <details class="role-edit"><summary>팀에서 내보내기</summary>
+        <p class="muted small">내보내면 우리 팀에서 빠져요. 다시 들어오려면 팀 코드로 신청해야 해요.</p>
+        <button type="button" class="btn ghost sm" data-kick>내보내기</button></details></div>` : '');
+    md.el.querySelector('[data-role]')?.addEventListener('click', () => { md.close(); changeRole(m); });
+    md.el.querySelector('[data-kick]')?.addEventListener('click', () => { md.close(); kick(m); });
+    let teams = null;
+    md.el.querySelector('[data-tq]')?.addEventListener('input', async (ev) => {
+      const q = ev.target.value.trim().toLowerCase();
+      const box = md.el.querySelector('[data-tres]');
+      if (!q) { box.innerHTML = ''; return; }
+      if (!teams) {
+        box.innerHTML = '<li class="muted small">불러오는 중…</li>';
+        try { teams = (await getDocs(query(collection(db, 'teams'), where('status', '==', 'active')))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((t) => t.id !== state.team.id); } catch (err) { box.innerHTML = `<li class="muted small">${esc(err.message || err)}</li>`; return; }
+      }
+      const hit = teams.filter((t) => `${t.name || ''} ${t.ownerName || ''}`.toLowerCase().includes(q)).slice(0, 8);
+      box.innerHTML = hit.length ? hit.map((t) => `<li class="talk"><a href="javascript:void 0"><span class="cat">${esc(t.category || '')}</span><strong>${esc(t.name)}</strong><span class="lock">${esc(t.ownerName || '')}</span></a><button type="button" class="btn sm" data-to="${t.id}">이적 보내기</button></li>`).join('') : '<li class="muted small">검색 결과가 없어요.</li>';
+      box.querySelectorAll('[data-to]').forEach((b) => (b.onclick = () => transfer(m, teams.find((t) => t.id === b.dataset.to), md)));
+    });
   }));
+
+  // 계정 유형 바로잡기 (지도자가 선수로 잘못 가입했을 때 등) — 팀 대표만
+  async function changeRole(m) {
+    const to = m.role === 'coach' ? 'player' : 'coach';
+    if (!(await confirmBox(`${m.name}님을 ${ROLES[m.role]} → ${ROLES[to]}(으)로 바꿀까요? 그 사람은 새로고침하거나 다시 로그인하면 ${ROLES[to]} 화면을 써요.`))) return;
+    try {
+      await updateDoc(tdoc('members', m.id), { role: to });
+      await updateDoc(doc(db, 'users', m.id), { role: to });
+      toast(`${m.name}님을 ${ROLES[to]}(으)로 바꿨어요.`); locker(el);
+    } catch (e) { fail(e); }
+  }
+
+  // 이적: 받는 팀에 '승인 대기'로 넣고 우리 팀에서 뺌 (한 번에)
+  async function transfer(m, to, md) {
+    if (!(await confirmBox(`${m.name}님을 ${to.name} 팀으로 이적 보낼까요? 우리 팀에서 바로 빠지고, ${to.name} 대표가 승인하면 그 팀에 들어가요.`))) return;
+    try {
+      const old = (await getDoc(tdoc('members', m.id))).data() || {};
+      const nm = { ...old };
+      ['approvedBy', 'approvedAt', 'code', 'transferFrom', 'transferFromName'].forEach((k) => delete nm[k]);
+      const b = writeBatch(db);
+      b.set(doc(db, 'transfers', m.id), {
+        uid: m.id, name: m.name || '', role: m.role, fromTeam: state.team.id, fromTeamName: state.team.name,
+        toTeam: to.id, toTeamName: to.name, by: state.user.uid, byName: state.profile.name, at: serverTimestamp(),
+      });
+      b.set(doc(db, 'teams', to.id, 'members', m.id), { ...nm, approved: false, joinedAt: serverTimestamp(), transferFrom: state.team.id, transferFromName: state.team.name });
+      b.update(doc(db, 'users', m.id), { teamId: to.id });
+      b.delete(tdoc('members', m.id));
+      await b.commit();
+      md?.close();
+      toast(`${m.name}님을 ${to.name} 팀으로 보냈어요. 그 팀 대표가 승인하면 들어가요.`);
+      locker(el);
+    } catch (e) { fail(e); }
+  }
 
   async function kick(m) {
     if (!(await confirmBox(`${m.name}님을 팀에서 내보낼까요?`))) return;

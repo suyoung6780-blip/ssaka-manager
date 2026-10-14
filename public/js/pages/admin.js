@@ -299,7 +299,7 @@ export function verify(el) {
 export async function users(el) {
   el.innerHTML = `${pageHead('ADMIN', '운영자')}${tabs('/admin/users')}<div class="loading">LOADING</div>`;
   const [us, ts] = await Promise.all([
-    getDocs(query(collection(db, 'users'), where('role', '==', 'coach'))),
+    getDocs(collection(db, 'users')),
     getDocs(collection(db, 'teams')),
   ]);
   const teamName = Object.fromEntries(ts.docs.map((d) => [d.id, d.data().name]));
@@ -313,21 +313,25 @@ export async function users(el) {
     <div class="admin-stats" data-stats></div>
     <div class="row admin-filter">
       <input type="search" placeholder="이름 · 이메일 · 팀 이름 검색" data-q>
-      <select data-only>${['전체', '팀 대표', '팀 소속', '팀 없음'].map((o) => `<option>${o}</option>`).join('')}</select>
+      <select data-only>${['전체', '지도자', '선수', '팀 대표', '팀 소속', '팀 없음'].map((o) => `<option>${o}</option>`).join('')}</select>
     </div>
-    <p class="muted small">가입한 <b>지도자</b>만 보여요. 선수는 나오지 않아요.</p>
+    <p class="muted small">가입한 <b>지도자 · 선수</b> 모두 보여요. 계정 유형(선수 ↔ 지도자)은 각 팀 대표가 락커룸에서 바꿔요.</p>
     <div class="card admin-table-wrap"><table class="tbl admin-table">
-      <thead><tr><th>이름</th><th>이메일</th><th>직책 · 담당</th><th>소속 팀</th><th>자격증</th><th>가입일</th></tr></thead>
+      <thead><tr><th>이름</th><th>구분</th><th>이메일</th><th>직책 · 포지션</th><th>소속 팀</th><th>자격증</th><th>가입일</th></tr></thead>
       <tbody data-rows></tbody></table></div>`;
 
   const draw = () => {
     el.querySelector('[data-stats]').innerHTML = `
-      <div><span>가입한 지도자</span><strong>${list.length}</strong></div>
+      <div><span>전체 가입자</span><strong>${list.length}</strong></div>
+      <div><span>지도자</span><strong>${list.filter((u) => u.role === 'coach').length}</strong></div>
+      <div><span>선수</span><strong>${list.filter((u) => u.role === 'player').length}</strong></div>
       <div><span>팀 대표</span><strong>${list.filter((u) => ownerOf.has(u.id)).length}</strong></div>
       <div><span>팀 소속</span><strong>${list.filter((u) => u.teamId && teamName[u.teamId]).length}</strong></div>
       <div><span>팀 없음</span><strong>${list.filter((u) => !u.teamId || !teamName[u.teamId]).length}</strong></div>`;
     const rows = list.filter((u) => {
       const tn = teamName[u.teamId] || '';
+      if (only === '지도자' && u.role !== 'coach') return false;
+      if (only === '선수' && u.role !== 'player') return false;
       if (only === '팀 대표' && !ownerOf.has(u.id)) return false;
       if (only === '팀 소속' && !tn) return false;
       if (only === '팀 없음' && tn) return false;
@@ -337,12 +341,13 @@ export async function users(el) {
       const tn = teamName[u.teamId];
       return `<tr>
         <td data-l="이름"><strong>${esc(u.name || '-')}</strong>${ownerOf.has(u.id) ? ' <span class="tag comp">대표</span>' : ''}</td>
+        <td data-l="구분">${u.role === 'coach' ? '지도자' : u.role === 'player' ? '선수' : esc(u.role || '-')}</td>
         <td data-l="이메일">${esc(u.email || '-')}</td>
-        <td data-l="직책 · 담당">${esc([u.coachTitle, u.duty].filter(Boolean).join(' · ') || '-')}</td>
+        <td data-l="직책 · 포지션">${esc((u.role === 'coach' ? [u.coachTitle, u.duty] : [u.position, u.number && `${u.number}번`]).filter(Boolean).join(' · ') || '-')}</td>
         <td data-l="소속 팀">${tn ? `<a href="#/teams/${u.teamId}">${esc(tn)}</a>` : '<span class="muted">없음</span>'}</td>
         <td data-l="자격증">${esc([u.licenses, u.licenseEtc].filter(Boolean).join(', ') || '-')}</td>
         <td data-l="가입일">${fmtDate(u.createdAt) || '-'}</td></tr>`;
-    }).join('') || '<tr><td colspan="6" class="muted center">조건에 맞는 지도자가 없습니다.</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="muted center">조건에 맞는 사람이 없습니다.</td></tr>';
   };
   el.querySelector('[data-q]').oninput = (e) => { q = e.target.value.trim().toLowerCase(); draw(); };
   el.querySelector('[data-only]').onchange = (e) => { only = e.target.value; draw(); };
