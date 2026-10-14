@@ -194,7 +194,7 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
       const tm = TEAMS[it.team] || TEAMS.a;
       const r = 2.1 * u;
       el('circle', { cx: it.x, cy: it.y, r, fill: tm.fill, stroke: tm.stroke, 'stroke-width': 0.3 * u }, g);
-      const t = el('text', { x: it.x, y: it.y + 0.75 * u, 'text-anchor': 'middle', 'font-size': (String(it.n).length > 2 ? 1.5 : 2.1) * u, fill: tm.text, 'font-weight': 800, transform: upright(it.x, it.y) }, g);
+      const t = el('text', { x: 0, y: 0, 'text-anchor': 'middle', 'font-size': (String(it.n).length > 2 ? 1.5 : 2.1) * u * 20, 'letter-spacing': 0, fill: tm.text, 'font-weight': 800, transform: `${upright(it.x, it.y)} translate(${it.x} ${it.y + 0.75 * u}) scale(0.05)` }, g); // 크게 그려 줄임 (작은 글자 겹침 방지)
       t.textContent = it.n ?? '';
       ring(r + 0.9 * u);
       break;
@@ -343,7 +343,14 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
       break;
     }
     case 'text': {
-      const t = el('text', { x: it.x, y: it.y, 'text-anchor': 'middle', 'font-size': 2.4 * u, 'font-weight': 800, fill: it.c || T.ink, transform: upright(it.x, it.y) }, g);
+      // 아주 작은 글자 크기(필드 단위)로 그리면 크롬이 글자 폭을 반올림해 글자가 겹치고 띄어쓰기가 사라짐
+      // → 20배 큰 글자로 그린 뒤 1/20 로 줄여서 그림 (보이는 크기는 같음)
+      const K = 20;
+      const t = el('text', {
+        x: 0, y: 0, 'text-anchor': 'middle', 'font-size': 2.4 * u * K, 'font-weight': 800, 'letter-spacing': 0, fill: it.c || T.ink,
+        stroke: (it.c || T.ink) === '#111111' || T.ink === '#111111' ? 'rgba(255,255,255,.85)' : 'rgba(0,0,0,.55)', 'stroke-width': 0.35 * u * K, 'paint-order': 'stroke', 'stroke-linejoin': 'round',
+        transform: `${upright(it.x, it.y)} translate(${it.x} ${it.y}) scale(${1 / K})`,
+      }, g);
       t.textContent = it.t;
       if (selected) {
         const b = { w: Math.max(4, String(it.t).length * 2.2) * u, h: 3.4 * u };
