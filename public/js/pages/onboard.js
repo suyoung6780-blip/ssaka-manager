@@ -41,8 +41,7 @@ export function createTeam(el) {
     <label>팀 이름<input name="name" required minlength="2" maxlength="30" placeholder="예) 블랙 FC U15, 한빛초 축구부"></label>
     <p class="name-note">⚠️ 실제 팀 이름을 정확하게 적어 주세요. <b>'ㅇ', '축구교실'처럼 팀을 알아볼 수 없는 이름</b>은 운영자가 확인 후 <b>기능이 제한될 수 있어요.</b></p>
     <label>팀 구분<select name="category" required>${options(CATEGORIES)}</select></label>
-    <label>팀 소개<textarea name="intro" rows="3" maxlength="300"></textarea></label>
-    <label class="switch"><input type="checkbox" name="isPublic" checked><span>팀 공개 — 다른 팀이 선수단·프로필을 볼 수 있어요</span></label>
+    <p class="muted small">다른 팀에는 팀 이름 · 구분 · 대표 지도자 이름만 보여요. 선수단과 팀 안 내용은 우리 팀만 봐요.</p>
     ${FREE_MODE ? `<div class="price-box"><span>이용료</span><strong>무료</strong><small>만들면 바로 10자리 팀 코드가 발급됩니다</small></div>
     <button class="btn full">팀 만들고 코드 받기</button>` : `
     <div class="price-box">
@@ -57,7 +56,7 @@ export function createTeam(el) {
     const btn = form.querySelector('button.btn');
     btn.disabled = true;
     try {
-      const info = { name: d.name.trim(), category: d.category, intro: d.intro, isPublic: !!d.isPublic,
+      const info = { name: d.name.trim(), category: d.category, intro: '', isPublic: false,
         ownerUid: state.user.uid, ownerName: state.profile.name, createdAt: serverTimestamp() };
       if (!FREE_MODE) {
         const ref = await addDoc(collection(db, 'teams'), { ...info, status: 'pending' });
@@ -210,8 +209,7 @@ export async function settings(el) {
       <label>팀 이름<input name="name" required minlength="2" maxlength="30" value="${esc(t.name)}" placeholder="예) 블랙 FC U15, 한빛초 축구부"></label>
       <p class="name-note${t.nameWarn && t.nameWarn.name === t.name ? ' on' : ''}">⚠️ 팀을 알아볼 수 있게 실제 팀 이름을 정확하게 적어 주세요. 알아볼 수 없는 이름은 기능이 제한될 수 있어요.</p>
       <label>팀 구분 <small class="muted">(연령 · 리그 — 바꾸면 팀 검색에서 이 구분으로 보여요)</small><select name="category">${options(CATEGORIES, normCat(t.category))}</select></label>
-      <label>팀 소개<textarea name="intro" rows="3" maxlength="300">${esc(t.intro || '')}</textarea></label>
-      <label class="switch"><input type="checkbox" name="isPublic" ${t.isPublic ? 'checked' : ''}><span>팀 공개 (비공개면 다른 팀은 아무것도 볼 수 없어요)</span></label>
+      <p class="muted small">다른 팀에는 팀 이름 · 구분 · 대표 지도자 이름만 보여요. 선수단과 팀 안 내용은 우리 팀만 봐요.</p>
       <button class="btn">저장</button>
     </form>
     <section class="card">
@@ -246,7 +244,7 @@ export async function settings(el) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const d = formData(form);
-    const patch = { name: d.name.trim(), category: d.category, intro: d.intro, isPublic: !!d.isPublic };
+    const patch = { name: d.name.trim(), category: d.category };
     try {
       await updateDoc(doc(db, 'teams', t.id), patch);
       Object.assign(state.team, patch);

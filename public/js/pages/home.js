@@ -17,6 +17,24 @@ function greeting() {
   return '코치님, 오늘 하루도 꿈나무들을 위해서 일하시는 당신을 응원합니다.';
 }
 
+// 팀 업데이트: 처음엔 3개만, 펼치면 전부 (고른 상태는 이 기기에 기억)
+const UPD_FOLD = 3;
+const UPD_KEY = 'ssaka.home.updOpen';
+const updOpen = () => { try { return localStorage.getItem(UPD_KEY) === '1'; } catch { return false; } };
+function bindUpd(el) {
+  const card = el.querySelector('[data-upd]');
+  if (!card) return;
+  card.querySelectorAll('[data-upd-tg]').forEach((b) => (b.onclick = () => {
+    const open = !card.classList.contains('open');
+    try { localStorage.setItem(UPD_KEY, open ? '1' : '0'); } catch { /* */ }
+    card.classList.toggle('open', open);
+    const more = card.querySelectorAll('.upd li.more').length;
+    card.querySelector('.card-head [data-upd-tg]').innerHTML = open ? '접기 ▲' : `펼치기 ▼ <span class="muted">+${more}</span>`;
+    card.querySelector('.upd-more').textContent = open ? '접기 ▲' : `${more}개 더 보기 ▼`;
+    card.querySelector('.card-head [data-upd-tg]').setAttribute('aria-expanded', open);
+  }));
+}
+
 function morningHead(stats = []) {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');
@@ -192,11 +210,11 @@ export async function render(el) {
     .filter((x) => TYPE[x.type] && !x.isNote && (isCoach() || x.type !== 'analysis' || x.mode === 'match'))
     .map((x) => { const c = tms(x.createdAt); const u = tms(x.updatedAt); const edited = u > c + 60000; return { ...x, at: Math.max(c, u), edited }; })
     .sort((a, b) => b.at - a.at).slice(0, 8);
-  const updCard = `<section class="card hcard">
-    <div class="card-head"><h3>팀 업데이트 <small class="muted">새로 올라오거나 고친 것</small></h3></div>
-    ${updates.length ? `<ul class="list upd">${updates.map((x) => { const [ic, lab, href] = TYPE[x.type]; return `
-      <li><a href="#${href}"><span class="upd-ic">${ic}</span><div><strong>${esc(x.title || lab)}</strong>
-        <small><span class="tag">${lab}</span> ${x.edited ? `<b class="upd-ed">수정</b> ${esc(x.updatedBy || x.authorName || '')}` : `<b class="upd-new">새 글</b> ${esc(x.authorName || '')}`} · ${ago(x.at)}${x.type === 'schedule' && x.date ? ` · ${esc(x.date.slice(5).replace('-', '.'))}` : ''}</small></div></a></li>`; }).join('')}</ul>` : empty('아직 소식이 없어요.')}
+  const updCard = `<section class="card hcard upd-card ${updOpen() ? 'open' : ''}" data-upd>
+    <div class="card-head"><h3>팀 업데이트 <small class="muted">새로 올라오거나 고친 것</small></h3>${updates.length > UPD_FOLD ? `<button type="button" class="link-btn small" data-upd-tg aria-expanded="${updOpen()}">${updOpen() ? '접기 ▲' : `펼치기 ▼ <span class="muted">+${updates.length - UPD_FOLD}</span>`}</button>` : ''}</div>
+    ${updates.length ? `<ul class="list upd">${updates.map((x, i) => { const [ic, lab, href] = TYPE[x.type]; return `
+      <li class="${i >= UPD_FOLD ? 'more' : ''}"><a href="#${href}"><span class="upd-ic">${ic}</span><div><strong>${esc(x.title || lab)}</strong>
+        <small><span class="tag">${lab}</span> ${x.edited ? `<b class="upd-ed">수정</b> ${esc(x.updatedBy || x.authorName || '')}` : `<b class="upd-new">새 글</b> ${esc(x.authorName || '')}`} · ${ago(x.at)}${x.type === 'schedule' && x.date ? ` · ${esc(x.date.slice(5).replace('-', '.'))}` : ''}</small></div></a></li>`; }).join('')}</ul>${updates.length > UPD_FOLD ? `<button type="button" class="upd-more" data-upd-tg>${updOpen() ? '접기 ▲' : `${updates.length - UPD_FOLD}개 더 보기 ▼`}</button>` : ''}` : empty('아직 소식이 없어요.')}
   </section>`;
 
   // 오늘 일정 + 오늘 훈련 안내
@@ -246,6 +264,7 @@ export async function render(el) {
   </div>
   <div data-brief></div>`;
   startClock(el);
+  bindUpd(el);
   todoPad(el.querySelector('[data-todo]'));
   await renderBriefing(el.querySelector('[data-brief]'));
 }

@@ -136,7 +136,7 @@ export function detail(p, refresh) {
       <div class="row"><button class="btn" data-present>▶ 선수들에게 보여주기</button></div>
       ${p.body ? `<h4>훈련 방법</h4><div class="prose">${text(p.body)}</div>` : ''}
       ${pts.length ? `<h4>코칭 포인트</h4><ol class="points">${pts.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
-      ${isCoach() ? '<div class="row end"><button class="btn ghost" data-share-cm>🌐 커뮤니티에 공유</button><button class="btn ghost" data-del>삭제</button><button class="btn ghost" data-edit>수정</button></div>' : ''}
+      ${isCoach() ? '<div class="row end"><button class="btn ghost" data-share-cm>커뮤니티에 공유</button><button class="btn ghost" data-del>삭제</button><button class="btn ghost" data-edit>수정</button></div>' : ''}
     </div>`, { wide: true });
   const padBox = m.el.querySelector('[data-pad]');
   if (padBox) createPad(padBox, p.pad, { editable: false });

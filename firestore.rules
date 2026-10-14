@@ -21,7 +21,6 @@ service cloud.firestore {
     // 팀원(코치 · 선수). 팀 코드로 들어온 사람은 팀 대표가 승인(approved)한 뒤부터
     function isSquad(t) { return isMember(t) && myRole(t) in ['coach', 'player'] && get(memberPath(t)).data.get('approved', true) == true; }
     function isOwner(t) { return signedIn() && teamDoc(t).ownerUid == uid(); }
-    function scoutTarget(cat) { return {'U15': 'U12', 'U18': 'U15', 'U22': 'U18'}.get(cat, 'none'); }
     function otherOf(p) { return p[0] == uid() ? p[1] : p[0]; }
     function teamPathOf(t) { return /databases/$(database)/documents/teams/$(t); }
     // 팀을 '지금 이 배치에서' 새로 만드는 대표 지도자인지
@@ -67,12 +66,9 @@ service cloud.firestore {
     match /teams/{t} {
       allow read: if signedIn();
 
-      // 스카우터 찜 · 메모 — 우리 팀 코치만 읽고 씀. 대상 선수 · 팀에는 아무것도 기록되지 않음
-      match /scouts/{playerId} {
-        allow read, update, delete: if isCoach(t);
-        allow create: if isCoach(t)
-          && teamDoc(request.resource.data.teamId).category == scoutTarget(teamDoc(t).category)
-          && get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)/members/$(playerId)).data.role == 'player';
+      // 스카웃 노트 — 우리 팀 코치만 읽고 씀 (이름 · 소속 · 장단점 · 확정/보류). 다른 팀에는 아무것도 기록되지 않음
+      match /scouts/{noteId} {
+        allow read, create, update, delete: if isCoach(t);
       }
       allow create: if signedIn()
         && request.resource.data.ownerUid == uid()
@@ -91,7 +87,7 @@ service cloud.firestore {
       allow update: if isAdmin() && changed().hasOnly(['comp', 'compMonths', 'compUntil', 'compBy', 'compAt', 'status']);
 
       match /members/{m} {
-        allow read: if isMember(t) || (signedIn() && teamDoc(t).isPublic == true) || isAdmin();
+        allow read: if isMember(t) || isAdmin(); // 다른 팀 선수단은 못 봄 (공개 · 비공개 없음)
         allow create: if signedIn() && m == uid()
           && request.resource.data.role == get(/databases/$(database)/documents/users/$(uid())).data.role
           // 만 14세 미만은 보호자 동의 뒤에만 팀 입장

@@ -13,14 +13,13 @@ import { installButton, bindInstall } from '../install.js';
 const Y = '<span class="ok">✔</span>', N = '<span class="no">—</span>';
 const GUIDE_ROWS = [
   [FREE_MODE ? '팀 만들기 · 팀 코드 · 팀 설정 · 팀원 관리' : '팀 만들기 · 결제 · 팀 설정 · 팀원 관리', Y, N, N],
-  ['게임모델 · 훈련장 · 미팅룸 · 분석실 · 기록실', '작성', '작성', '보기'],
+  ['게임모델 · 훈련장 · 미팅룸 · 분석실 · 경기 기록실', '작성', '작성', '보기'],
   ['공지사항 · 스케줄 · 비고', '작성', '작성', '보기'],
   ['훈련 노트 (코치 전용)', Y, Y, N],
   ['오늘 기록 · 개인 목표 · 일지 질문', Y, Y, '본인 것'],
   ['팀 목표 · 일지검사 · 질문 답변', Y, Y, N],
-  ['스카우터 (아래 연령 선수 찜 · 메모)', Y, Y, N],
-  ['대화 — 우리 팀원', Y, Y, Y],
-  ['대화 — 다른 팀에 연락', Y, Y, N],
+  ['스카웃 노트 (선수 메모 · 확정 · 보류)', Y, Y, N],
+  ['커뮤니티 · 다른 팀과 대화', Y, Y, N],
 ];
 
 export function accountGuide() {
@@ -39,7 +38,7 @@ export function accountGuide() {
         <thead><tr><th></th><th>팀 대표</th><th>지도자</th><th>선수</th></tr></thead>
         <tbody>${GUIDE_ROWS.map(([k, ...v]) => `<tr><td>${k}</td>${v.map((x) => `<td>${x}</td>`).join('')}</tr>`).join('')}</tbody>
       </table></div>
-      <p class="muted small">다른 팀은 공개 팀의 선수단 · 프로필만 볼 수 있고, 팀 안의 내용은 볼 수 없습니다. 스카우터 찜은 상대 선수 · 팀에 알려지지 않아요.</p>
+      <p class="muted small">다른 팀에는 팀 이름 · 대표 지도자 이름만 보이고, 선수단과 팀 안의 내용은 볼 수 없습니다. 스카웃 노트는 우리 팀 지도자끼리만 봐요.</p>
       <div class="row end"><button class="btn" data-ok>확인했어요</button></div>
     </div>`, { wide: true });
   m.el.querySelector('[data-ok]').onclick = m.close;
@@ -160,7 +159,7 @@ export function profileFields(p = {}, { withRole = false } = {}) {
     <fieldset class="role-pick"><legend>계정 유형</legend>
       ${Object.entries(ROLES).map(([k, v]) => `
         <label class="radio-card"><input type="radio" name="role" value="${k}" ${k === r ? 'checked' : ''}>
-          <strong>${k === 'coach' ? '지도자 (코치)' : v}</strong><small>${{ coach: '팀 만들기 · 훈련 · 공지 작성 · 일지검사 · 스카우터', player: '팀 코드로 입장 · 오늘 기록 · 개인 목표' }[k]}</small>
+          <strong>${k === 'coach' ? '지도자 (코치)' : v}</strong><small>${{ coach: '팀 만들기 · 훈련 · 공지 작성 · 일지검사 · 스카웃 노트', player: '팀 코드로 입장 · 오늘 기록 · 개인 목표' }[k]}</small>
         </label>`).join('')}
       <button type="button" class="link-btn small guide-link" data-guide>어떤 계정을 골라야 하나요? 권한 보기</button>
     </fieldset>` : ''}

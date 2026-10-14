@@ -34,12 +34,12 @@ export async function list(el) {
   el.innerHTML = coach ? `${pageHead('ANALYSIS ROOM', '분석실', '<button class="btn" data-new>+ 새 분석</button>')}
     ${heroHtml(all.length > 0)}
     ${all.length ? `<h2 class="an-libh">내 분석</h2>
-      <nav class="tabs admin-tabs">${[['match', '📊 경기분석'], ['clip', '✏️ 부분분석']].map(([k, l]) => `<a href="javascript:void 0" class="${k === listTab ? 'active' : ''}" data-ltab="${k}">${l} <small>${all.filter((p) => (k === 'match' ? isMatch(p) : !isMatch(p))).length}</small></a>`).join('')}</nav>
+      <nav class="tabs admin-tabs">${[['match', '경기분석'], ['clip', '부분분석']].map(([k, l]) => `<a href="javascript:void 0" class="${k === listTab ? 'active' : ''}" data-ltab="${k}">${l} <small>${all.filter((p) => (k === 'match' ? isMatch(p) : !isMatch(p))).length}</small></a>`).join('')}</nav>
       ${rows.length ? libGrid(rows) : empty(listTab === 'match' ? '아직 경기분석이 없어요. 위에서 영상을 넣고 시작해 보세요.' : '아직 부분분석이 없어요.')}` : ''}`
     : `${pageHead('ANALYSIS ROOM', '분석실')}
     <p class="lead">코치님이 만든 <b>경기분석</b>이에요. 상대 팀의 <b>체크 포인트 → 포메이션 → 리포트</b> 순서로 보면 돼요.</p>
     ${rows.length ? libGrid(rows) : `${empty('아직 올라온 경기분석이 없어요.')}
-      <div class="row center"><button class="btn ghost sm" data-sample>📊 경기분석은 이렇게 생겼어요 (예시)</button></div>`}`;
+      <div class="row center"><button class="btn ghost sm" data-sample>경기분석은 이렇게 생겼어요 (예시)</button></div>`}`;
   el.querySelectorAll('[data-id]').forEach((c) => (c.onclick = () => go(`/analysis/${c.dataset.id}`)));
   el.querySelectorAll('[data-ltab]').forEach((a) => (a.onclick = () => { listTab = a.dataset.ltab; list(el); }));
   el.querySelector('[data-sample]')?.addEventListener('click', () => go('/analysis/sample'));
@@ -64,7 +64,7 @@ function matchThumb(p) {
   const r = computeReport(p.events || [], tm);
   const f = p.lineups?.[tm]?.base ? { name: p.lineups[tm].base.f } : (p.formations || []).find((x) => x.team !== 'us');
   return `<div class="lib-thumb ma-thumb">
-    <div class="ma-thumb-top"><span>📊 경기분석 · 기록 ${(p.events || []).length}</span>${f?.name ? `<b>${esc(f.name)}</b>` : ''}</div>
+    <div class="ma-thumb-top"><span>경기분석 · 기록 ${(p.events || []).length}</span>${f?.name ? `<b>${esc(f.name)}</b>` : ''}</div>
     ${r.atk.length ? ['왼쪽', '가운데', '오른쪽'].map((l) => `<div class="ma-tbar"><span>${l}</span><i style="width:${r.pct(r.ch[l])}%"></i><b>${r.pct(r.ch[l])}%</b></div>`).join('') : '<p class="muted small">아직 기록 전이에요</p>'}
 </div>`;
 }
@@ -82,7 +82,7 @@ function heroHtml(compact) {
           <text y="-14" class="an-tag">AI</text></g>
         <path class="an-draw" d="M96 44 C 110 38, 122 36, 136 40" fill="none" stroke="#ffd400" stroke-width="2"/><path class="an-draw-head" d="M136 40 l-6 -3.5 l.5 6.5 z" fill="#ffd400"/>
         <path class="an-zone" d="M100 52 L146 52 L150 80 L96 80 Z" fill="rgba(78,161,255,.25)" stroke="#4ea1ff" stroke-width=".6" stroke-dasharray="2 1.5"/></svg></div>
-      <div class="an-htext"><span class="eyebrow">✏️ 부분분석</span><h3>장면 하나를 그림으로 설명</h3>
+      <div class="an-htext"><span class="eyebrow">부분분석</span><h3>장면 하나를 그림으로 설명</h3>
         <p>선수를 누르면 <b>AI가 끝까지 따라가고</b>, 화살표 · 영역 · 거리를 그려서 <b>mp4 영상</b>으로 카톡에 보내요.</p>
 </div>
     </div>
@@ -92,7 +92,7 @@ function heroHtml(compact) {
         <text x="80" y="11" class="an-dir">상대 공격 →</text></svg>
         <div class="an-hbars">${[['왼쪽', 18], ['가운데', 27], ['오른쪽', 55]].map(([l, v], i) => `<div><span>${l}</span><i style="--w:${v}%;animation-delay:${i * 0.2}s"></i><b>${v}%</b></div>`).join('')}
           <p class="an-type">“상대는 오른쪽 55% → 우리 왼쪽 수비 대비”</p></div></div>
-      <div class="an-htext"><span class="eyebrow">📊 경기분석</span><h3>경기 하나로 상대 팀 리포트</h3>
+      <div class="an-htext"><span class="eyebrow">경기분석</span><h3>경기 하나로 상대 팀 리포트</h3>
         <p>영상을 보며 <b>경기장을 탭</b>만 하면 공격 방향 · 위험 지역 · 슈팅 지도 · <b>AI 포메이션</b>까지 자동으로 완성돼요. 선수들은 <b>체크 포인트</b>로 봐요.</p>
         <button class="link-btn small" data-sample>완성된 예시 리포트 보기 ›</button></div>
     </div>
@@ -103,8 +103,8 @@ function chooseMode(file) {
   const m = modal(`<span class="eyebrow">NEW ANALYSIS</span><h2>어떤 분석을 할까요?</h2>
     ${file ? `<p class="muted">${esc(file.name)} · ${Math.round(file.size / 1e6)}MB — 서버에 올리지 않아요</p>` : ''}
     <div class="an-choose">
-      <button data-m="clip"><b>✏️ 부분분석</b><span>장면을 골라 트래킹 · 화살표로 설명하고 mp4로 공유</span></button>
-      <button data-m="match"><b>📊 경기분석</b><span>경기를 보며 기록해서 상대 팀 리포트 · 포메이션 만들기</span></button>
+      <button data-m="clip"><b>부분분석</b><span>장면을 골라 트래킹 · 화살표로 설명하고 mp4로 공유</span></button>
+      <button data-m="match"><b>경기분석</b><span>경기를 보며 기록해서 상대 팀 리포트 · 포메이션 만들기</span></button>
     </div>`);
   m.el.querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => { m.close(); listTab = b.dataset.m; if (b.dataset.m === 'match') createMatchModal(file); else createModal(file); }));
 }
@@ -304,9 +304,9 @@ export async function studio(el, { id, mode }) {
       <a href="#/analysis" class="icon-btn" aria-label="목록">‹</a>
       <div class="st-title"><strong>${esc(post.title)}</strong><small>${esc([post.opponent && `vs ${post.opponent}`, post.date].filter(Boolean).join(' · '))}</small></div>
       <div class="st-actions">
-        ${edit ? `<span class="st-mode">수정 중</span><button class="btn ghost sm" data-export>⏺ 영상으로 내보내기</button><button class="btn ghost sm" data-del>삭제</button>
+        ${edit ? `<span class="st-mode">수정 중</span><button class="btn ghost sm" data-export>영상으로 내보내기</button><button class="btn ghost sm" data-del>삭제</button>
           ${post.tele ? '<button class="btn ghost sm" data-cancel>수정 취소</button>' : ''}<button class="btn sm" data-save>저장</button>`
-          : `<button class="btn ghost sm" data-export>⏺ 영상으로 내보내기</button>${canEdit && post.video.local ? `<button class="btn ghost sm" data-share>🔗 ${post.shareUrl ? '공유 링크 바꾸기' : '선수에게 공유'}</button>` : ''}${canEdit ? '<button class="btn sm" data-edit>✎ 수정</button>' : ''}`}
+          : `<button class="btn ghost sm" data-export>영상으로 내보내기</button>${canEdit && post.video.local ? `<button class="btn ghost sm" data-share>${post.shareUrl ? '공유 링크 바꾸기' : '선수에게 공유'}</button>` : ''}${canEdit ? '<button class="btn sm" data-edit>✎ 수정</button>' : ''}`}
       </div>
     </header>
     <div class="studio-main ${edit ? '' : 'view-only'}">
@@ -636,8 +636,8 @@ export async function studio(el, { id, mode }) {
   // 그림 크기는 그대로 두고(발 위치가 안 바뀌게) 투명하게만 만듦
   function trimModal(it) {
     const m = modal(`<span class="eyebrow">TRIM</span><h2>선수 다듬기</h2>
-      <p class="muted small"><b>✂ 자르기</b>: 남길 부분(선수)을 네모로 끌어서 감싸면 바깥은 잘려요 · <b>🧽 지우개</b>: 딸려온 부분을 문질러 지워요</p>
-      <div class="trim-bar"><div class="seg sm"><button type="button" class="on" data-tm="crop">✂ 자르기</button><button type="button" data-tm="erase">🧽 지우개</button></div>
+      <p class="muted small"><b>✂ 자르기</b>: 남길 부분(선수)을 네모로 끌어서 감싸면 바깥은 잘려요 · <b>지우개</b>: 딸려온 부분을 문질러 지워요</p>
+      <div class="trim-bar"><div class="seg sm"><button type="button" class="on" data-tm="crop">✂ 자르기</button><button type="button" data-tm="erase">지우개</button></div>
         <label class="trim-size" hidden>지우개 크기 <input type="range" min="4" max="60" value="16" data-tbr></label>
         <span class="row"><button type="button" class="chip" data-tundo>되돌리기</button><button type="button" class="chip" data-treset>처음으로</button></span></div>
       <div class="trim-stage"><canvas data-tc></canvas></div>
@@ -2522,7 +2522,7 @@ export async function studio(el, { id, mode }) {
     off = sk.offset;
     seq = true;
     mp4.start();
-    busy.msg = busy.msg.replace('🎬', '⚡');
+    // (빠른 모드로 바뀌어도 문구는 그대로)
     drawPanel();
     frameSrc = src;
     const done = new Set();
@@ -2625,7 +2625,7 @@ export async function studio(el, { id, mode }) {
       while (queued > (48 << 20) && !writeErr) await new Promise((r) => setTimeout(r, 5)); // 파일 쓰기가 밀리면 기다림
       if (writeErr) throw writeErr;
     };
-    busy = { msg: `🎬 고화질 영상 만드는 중 (${outW}×${outH} · ${fps}fps) — ${fmtT(from)} → ${fmtT(to)}`, p: 0, stop: false };
+    busy = { msg: `고화질 영상 만드는 중 (${outW}×${outH} · ${fps}fps) — ${fmtT(from)} → ${fmtT(to)}`, p: 0, stop: false };
     drawPanel();
     freeze = null; video.pause();
     const muted0 = video.muted; const rate0 = video.playbackRate;
@@ -2769,7 +2769,7 @@ export async function studio(el, { id, mode }) {
         <label>부드러움<select data-xf><option value="30">30fps (보통)</option><option value="60">60fps (더 부드럽게 · 2배 오래 걸림)</option></select></label>
       </div>
       <p class="muted small">※ [만들기]를 누르면 <b>저장할 곳</b>을 먼저 골라요 — 만드는 동안 그 파일에 바로 저장돼서 긴 영상도 괜찮아요.<br>※ 만드는 동안 <b>이 창을 띄워 두세요</b> — 다른 창으로 가면 잠깐 멈췄다가 돌아오면 이어서 해요.<br>※ 트래킹이 정확하지 않으면 먼저 [AI 정밀 추적]을 해 두세요 (만들 때는 화면에서 본 그대로 들어가요).<br>※ 소리는 들어가지 않아요.</p>
-      <div class="row end"><button class="btn" data-xgo>🎬 만들기</button></div>`);
+      <div class="row end"><button class="btn" data-xgo>만들기</button></div>`);
     const toSec = (v) => { const p = String(v).trim().split(':').map(Number); return p.some(isNaN) ? NaN : p.reduce((x, y) => x * 60 + y, 0); };
     m.el.querySelectorAll('[data-xnow]').forEach((b) => (b.onclick = () => { m.el.querySelector(b.dataset.xnow === 'a' ? '[data-xa]' : '[data-xb]').value = fmtT1(t()); }));
     m.el.querySelector('[data-xall]').onclick = () => { m.el.querySelector('[data-xa]').value = fmtT1(0); m.el.querySelector('[data-xb]').value = fmtT1(dur()); };
@@ -2825,7 +2825,7 @@ function localGate(el, post, canEdit, mode) {
         <h3>선수 공유 영상</h3>
         ${post.shareUrl && youtubeId(post.shareUrl) ? `<div class="video"><iframe src="https://www.youtube.com/embed/${youtubeId(post.shareUrl)}" allowfullscreen></iframe></div><p class="muted small">선수들은 이 영상을 봐요.</p>`
           : '<p class="muted">아직 공유 전이에요. 분석을 마치고 <b>영상으로 내보내기</b> → 유튜브에 올린 뒤 링크를 넣으면 선수들이 볼 수 있어요.</p>'}
-        <button class="btn ghost" data-share>🔗 ${post.shareUrl ? '공유 링크 바꾸기' : '공유 링크 넣기'}</button>
+        <button class="btn ghost" data-share>${post.shareUrl ? '공유 링크 바꾸기' : '공유 링크 넣기'}</button>
       </section>
     </div></div>`;
   el.querySelector('[data-file]').onchange = async (e) => {

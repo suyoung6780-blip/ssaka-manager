@@ -85,12 +85,12 @@ function mySessCard(key, i, v = {}, ans = null) {
     <label class="sess-did">무엇을 했나요?<textarea name="${f('did')}" rows="2" placeholder="예) 4명이 원을 만들고 2명이 가운데서 공을 뺏는 론도. 2터치 제한">${esc(v.did || '')}</textarea></label>
     <div class="sess-row"><span>얼마나 집중했나요?</span>${scale(f('focus'), 5, v.focus, FOCUS)}</div>
     <div class="grid3 sess-fields">
-      <label>👍 잘된 점<textarea name="${f('good')}" rows="2" placeholder="예) 첫 터치로 방향 전환">${esc(v.good || '')}</textarea></label>
-      <label>😓 어려웠던 점<textarea name="${f('hard')}" rows="2" placeholder="예) 압박 오면 공을 뺏겼어요">${esc(v.hard || '')}</textarea></label>
-      <label>➡️ 다음엔 이렇게<textarea name="${f('next')}" rows="2" placeholder="예) 받기 전에 어깨 너머 보기">${esc(v.next || '')}</textarea></label>
+      <label>잘된 점<textarea name="${f('good')}" rows="2" placeholder="예) 첫 터치로 방향 전환">${esc(v.good || '')}</textarea></label>
+      <label>어려웠던 점<textarea name="${f('hard')}" rows="2" placeholder="예) 압박 오면 공을 뺏겼어요">${esc(v.hard || '')}</textarea></label>
+      <label>다음엔 이렇게<textarea name="${f('next')}" rows="2" placeholder="예) 받기 전에 어깨 너머 보기">${esc(v.next || '')}</textarea></label>
     </div>
-    <div class="sess-padbox"><div class="sess-padhead"><strong>✏️ 작전판으로 훈련 그리기</strong> <span class="tag warn">필수</span><small class="muted">위 코치님 훈련을 보고 선수 · 콘 · 화살표로 직접 그려요</small></div><div data-spadbox></div></div>
-    <label class="sess-ask">🙋 코치님께 질문 <small class="muted">(이 훈련에서 궁금한 점 — 코치님이 바로 아래에 답해 주세요)</small><textarea name="${f('ask')}" rows="2" placeholder="예) 압박이 올 때 몸을 어느 쪽으로 열어야 하나요?">${esc(v.ask || '')}</textarea></label>
+    <div class="sess-padbox"><div data-spadbox></div></div>
+    <label class="sess-ask">코치님께 질문 <small class="muted">(이 훈련에서 궁금한 점 — 코치님이 바로 아래에 답해 주세요)</small><textarea name="${f('ask')}" rows="2" placeholder="예) 압박이 올 때 몸을 어느 쪽으로 열어야 하나요?">${esc(v.ask || '')}</textarea></label>
     ${ans?.text ? `<div class="sess-ans"><span class="tag solid">코치 답변${ans.by ? ` · ${esc(ans.by)}` : ''}</span><p>${text(ans.text)}</p></div>` : v.ask ? '<p class="muted small sess-wait">코치님 답변을 기다리는 중이에요</p>' : ''}
     </div>
   </article>`;
@@ -99,7 +99,7 @@ const newSessKey = () => `u${Date.now().toString(36)}${Math.random().toString(36
 // 코치님이 올린 오늘 훈련 (참고로 보기만 — 기억이 안 날 때)
 function planRef(plans, progMap) {
   if (!plans.length) return '';
-  return `<details class="plan-ref" open><summary>📋 코치님이 올린 오늘 훈련 <small class="muted">참고로 보면서 아래에 직접 적어요</small></summary>
+  return `<details class="plan-ref" open><summary>코치님이 올린 오늘 훈련 <small class="muted">참고로 보면서 아래에 직접 적어요</small></summary>
     ${plans.map((p) => `<div class="jplan ref">
       <div class="jplan-head"><strong>${esc(p.title || '훈련')}</strong><small>${esc([p.time, p.place].filter(Boolean).join(' · '))}</small></div>
       ${p.goal ? `<div class="plan-goal"><small>오늘의 목표</small><p>${text(p.goal)}</p></div>` : ''}
@@ -123,9 +123,9 @@ function sessionCard(key, b, i, v = {}, prog = null) {
     ${b.desc ? `<p class="sess-desc">${text(b.desc)}</p>` : ''}
     <div class="sess-row"><span>얼마나 집중했나요?</span>${scale(f('focus'), 5, v.focus, FOCUS)}</div>
     <div class="grid3 sess-fields">
-      <label>👍 잘된 점<textarea name="${f('good')}" rows="2" placeholder="예) 첫 터치로 방향 전환">${esc(v.good || '')}</textarea></label>
-      <label>😓 어려웠던 점<textarea name="${f('hard')}" rows="2" placeholder="예) 압박 오면 공을 뺏겼어요">${esc(v.hard || '')}</textarea></label>
-      <label>➡️ 다음엔 이렇게<textarea name="${f('next')}" rows="2" placeholder="예) 받기 전에 어깨 너머 보기">${esc(v.next || '')}</textarea></label>
+      <label>잘된 점<textarea name="${f('good')}" rows="2" placeholder="예) 첫 터치로 방향 전환">${esc(v.good || '')}</textarea></label>
+      <label>어려웠던 점<textarea name="${f('hard')}" rows="2" placeholder="예) 압박 오면 공을 뺏겼어요">${esc(v.hard || '')}</textarea></label>
+      <label>다음엔 이렇게<textarea name="${f('next')}" rows="2" placeholder="예) 받기 전에 어깨 너머 보기">${esc(v.next || '')}</textarea></label>
     </div>
     </div>
   </article>`;
@@ -211,13 +211,14 @@ export async function daily(el, _p, date = todayStr()) {
     <section class="card journal">
       <div class="jstatus ${status[0]}"><span>${status[1]}</span>${l.submittedAt ? `<small>제출 ${fmtTime(l.submittedAt)}</small>` : ''}</div>
       <div class="kind-pick"><span>오늘은</span>
-        <label><input type="radio" name="kind" value="train" ${tabNow === 'train' ? 'checked' : ''} data-jtab="train"><b>🏃 훈련</b>${hasPlan ? '<small>훈련 안내 있음</small>' : ''}</label>
-        <label><input type="radio" name="kind" value="match" ${tabNow === 'match' ? 'checked' : ''} data-jtab="match"><b>⚽ 경기</b>${isMatchDay ? '<small>오늘 경기</small>' : ''}</label>
+        <label><input type="radio" name="kind" value="train" ${tabNow === 'train' ? 'checked' : ''} data-jtab="train"><b>🏃 훈련${hasPlan ? '<small>훈련 안내 있음</small>' : ''}</b></label>
+        <label><input type="radio" name="kind" value="match" ${tabNow === 'match' ? 'checked' : ''} data-jtab="match"><b>⚽ 경기${isMatchDay ? '<small>오늘 경기</small>' : ''}</b></label>
         <em>고른 일지만 제출돼요</em></div>
       <div data-part="train" ${tabNow === 'train' ? '' : 'hidden'}>
       ${planRef(plans, progMap)}
-      <div class="card-head jsess-head"><h4>내 훈련 일지 <small class="muted">오늘 한 훈련을 하나씩 직접 적어요</small></h4><button type="button" class="btn ghost sm" data-add-sess>+ 세션 추가</button></div>
+      <div class="card-head jsess-head"><h4>내 훈련 일지 <small class="muted">오늘 한 훈련을 하나씩 직접 적어요</small></h4><button type="button" class="btn sm" data-add-sess>+ 훈련 추가</button></div>
       <div data-mysess>${(Object.keys(sessions).length ? Object.entries(sessions) : [[newSessKey(), {}]]).map(([k, v], i) => mySessCard(k, i, v, (l.answers || {})[k])).join('')}</div>
+      <button type="button" class="add-big" data-add-sess>＋ 훈련 하나 더 추가하기<small>오늘 한 훈련이 더 있으면 눌러서 적어요</small></button>
       ${l.training || l.good || l.improve ? `<details class="legacy"><summary class="muted small">예전 방식으로 쓴 내용</summary>
         <label>오늘 한 훈련<textarea name="training" rows="2">${esc(l.training || '')}</textarea></label>
         <label>잘한 점<textarea name="good" rows="2">${esc(l.good || '')}</textarea></label>
@@ -226,8 +227,8 @@ export async function daily(el, _p, date = todayStr()) {
         <h4>오늘 전체 정리</h4>
         ${plans.some((p) => p.goal) ? `<div class="sess-row"><span>오늘의 목표를 얼마나 이뤘나요?</span>${scale('goalScore', 5, l.goalScore, FOCUS)}</div>` : ''}
         <div class="grid2">
-          <label>📚 오늘 배운 점<textarea name="learned" rows="2">${esc(l.learned || '')}</textarea></label>
-          <label>🎯 내일 목표<textarea name="tomorrow" rows="2">${esc(l.tomorrow || '')}</textarea></label>
+          <label>오늘 배운 점<textarea name="learned" rows="2">${esc(l.learned || '')}</textarea></label>
+          <label>내일 목표<textarea name="tomorrow" rows="2">${esc(l.tomorrow || '')}</textarea></label>
         </div>
       </div>
       </div>
@@ -239,21 +240,24 @@ export async function daily(el, _p, date = todayStr()) {
             <label>경기 형태<select name="m_type">${options(MATCH_TYPES, mj.type)}</select></label>
             <label>우리 득점<input type="number" min="0" name="m_gf" value="${esc(mj.gf ?? '')}"></label>
             <label>상대 득점<input type="number" min="0" name="m_ga" value="${esc(mj.ga ?? '')}"></label>
-          </div><p class="muted small">기록실에 이 날 경기가 등록되어 있으면 자동으로 불러와요.</p>`}
+          </div><p class="muted small">경기 기록실에 이 날 경기가 등록되어 있으면 자동으로 불러와요.</p>`}
         <div class="grid4">
           <label>출전 시간 (분)<input type="number" min="0" max="120" name="m_minutes" value="${esc(mj.minutes ?? '')}"></label>
           <label>포지션<input name="m_position" maxlength="10" value="${esc(mj.position || state.profile.position || '')}"></label>
         </div>
         <h4>나의 평점 <small class="muted">오늘 경기에서 나는 몇 점?</small></h4>
         ${scale('m_rating', 10, mj.rating)}
-        <div class="grid2">
-          <label>👍 잘한 플레이<textarea name="m_good" rows="3" placeholder="예) 전반 20분 왼쪽 오버래핑 후 크로스">${esc(mj.good || '')}</textarea></label>
-          <label>😓 아쉬운 플레이<textarea name="m_bad" rows="3" placeholder="예) 실점 장면에서 마크를 놓쳤어요">${esc(mj.bad || '')}</textarea></label>
-          <label>📚 배운 점<textarea name="m_learned" rows="2">${esc(mj.learned || '')}</textarea></label>
-          <label>🔥 다음 경기 각오<textarea name="m_next" rows="2">${esc(mj.next || '')}</textarea></label>
-        </div>
-        <div class="card-head"><h4>장면 설명 <small class="muted">경기장에 선수 · 화살표를 그려서 설명해요</small></h4><button type="button" class="btn ghost sm" data-add-scene>+ 장면 추가</button></div>
+        <div class="card-head jsess-head"><h4>장면별 경기 일지 <small class="muted">기억나는 장면을 하나씩 그림 + 글로 적어요</small></h4><button type="button" class="btn sm" data-add-scene>+ 장면 추가</button></div>
         <div data-scenes></div>
+        <button type="button" class="add-big" data-add-scene>＋ 장면 하나 더 추가하기<small>기억나는 장면이 더 있으면 눌러서 그려요</small></button>
+        ${mj.good || mj.bad ? `<details class="legacy"><summary class="muted small">예전 방식으로 쓴 내용</summary>
+          <label>잘한 플레이<textarea name="m_good" rows="2">${esc(mj.good || '')}</textarea></label>
+          <label>아쉬운 플레이<textarea name="m_bad" rows="2">${esc(mj.bad || '')}</textarea></label></details>` : ''}
+        <h4 class="jsum-h">경기 전체 정리</h4>
+        <div class="grid2">
+          <label>오늘 경기에서 배운 점<textarea name="m_learned" rows="2" placeholder="예) 수비 뒷공간은 첫 터치 방향이 중요해요">${esc(mj.learned || '')}</textarea></label>
+          <label>다음 경기 각오<textarea name="m_next" rows="2" placeholder="예) 후반에도 끝까지 압박하기">${esc(mj.next || '')}</textarea></label>
+        </div>
       </div>
       ${l.checked ? `<div class="coach-note"><span class="tag solid">코치 검사 완료</span>${l.coachComment ? `<p>${text(l.coachComment)}</p>` : ''}</div>` : ''}
     </section>
@@ -271,7 +275,7 @@ export async function daily(el, _p, date = todayStr()) {
         return `<li data-mylog="${x.date}" class="${x.date === date ? 'on' : ''}">
           <label class="ml-check" title="PDF로 저장할 일지 고르기"><input type="checkbox" data-pick="${x.date}"></label>
           <span class="date-badge">${esc(x.date.slice(5).replace('-', '.'))}</span>
-          <div><strong>${k === 'match' ? `⚽ 경기${x.match?.opponent ? ` vs ${esc(x.match.opponent)}` : ''}` : '🏃 훈련'}</strong>
+          <div><strong>${k === 'match' ? `경기${x.match?.opponent ? ` vs ${esc(x.match.opponent)}` : ''}` : '훈련'}</strong>
             <small>${st}${x.coachComment ? ` · 코치 한마디: ${esc(x.coachComment.slice(0, 40))}` : ''}</small></div>
           <span class="tag ${x.checked ? 'solid' : ''}">${st}</span></li>`;
       }).join('')}</ul>` : empty('아직 쓴 일지가 없어요.')}
@@ -336,19 +340,24 @@ export async function daily(el, _p, date = todayStr()) {
   };
   const addScene = (sc = {}) => {
     const wrap = document.createElement('div');
-    wrap.className = 'mj-scene';
-    wrap.innerHTML = `<div class="mj-scene-head"><strong>장면 ${scenes.length + 1}</strong><button type="button" class="link-btn small" data-rm-scene>빼기</button></div>
+    wrap.className = 'mj-scene sess mine';
+    wrap.innerHTML = `<header class="mj-scene-head"><span class="bno">${scenes.length + 1}</span><input class="sess-name" data-sf="title" maxlength="40" value="${esc(sc.title || '')}" placeholder="장면 이름 (예: 전반 20분 왼쪽 오버래핑)"><button type="button" class="link-btn small" data-rm-scene>빼기</button></header>
       <div data-scene-pad></div>
-      <label>이 장면 설명<textarea rows="2" data-scene-note placeholder="예) 상대 7번이 안쪽으로 들어올 때 내가 따라가지 않아서 공간이 생겼어요">${esc(sc.note || '')}</textarea></label>
-      <label class="sess-ask">🙋 코치님께 질문 <small class="muted">(이 장면에서 궁금한 점 — 코치님이 바로 아래에 답해 주세요)</small><textarea rows="2" data-scene-ask placeholder="예) 이 상황에서 나는 안쪽을 막아야 했나요, 바깥을 막아야 했나요?">${esc(sc.ask || '')}</textarea></label>
+      <label class="sess-did">어떤 상황이었나요?<textarea rows="2" data-scene-note placeholder="예) 상대 7번이 안쪽으로 들어올 때 내가 따라가지 않아서 공간이 생겼어요">${esc(sc.note || '')}</textarea></label>
+      <div class="grid3 sess-fields">
+        <label>잘된 점<textarea rows="2" data-sf="good" placeholder="예) 첫 터치로 수비를 제쳤어요">${esc(sc.good || '')}</textarea></label>
+        <label>아쉬웠던 점<textarea rows="2" data-sf="bad" placeholder="예) 마크를 놓쳐서 실점했어요">${esc(sc.bad || '')}</textarea></label>
+        <label>다음엔 이렇게<textarea rows="2" data-sf="next" placeholder="예) 공 보기 전에 내 선수 먼저 확인">${esc(sc.next || '')}</textarea></label>
+      </div>
+      <label class="sess-ask">코치님께 질문 <small class="muted">(이 장면에서 궁금한 점 — 코치님이 바로 아래에 답해 주세요)</small><textarea rows="2" data-scene-ask placeholder="예) 이 상황에서 나는 안쪽을 막아야 했나요, 바깥을 막아야 했나요?">${esc(sc.ask || '')}</textarea></label>
       ${sAns(sc)}`;
     sceneBox.appendChild(wrap);
     const entry = { wrap, key: sc.key || newSceneKey(), pad: createPad(wrap.querySelector('[data-scene-pad]'), sc.pad || { ...blank('full'), items: [] }) };
     scenes.push(entry);
-    wrap.querySelector('[data-rm-scene]').onclick = () => { wrap.remove(); scenes.splice(scenes.indexOf(entry), 1); };
+    wrap.querySelector('[data-rm-scene]').onclick = () => { wrap.remove(); scenes.splice(scenes.indexOf(entry), 1); sceneBox.querySelectorAll('.bno').forEach((n, i) => { n.textContent = i + 1; }); };
   };
-  (mj.scenes || []).forEach(addScene);
-  el.querySelector('[data-add-scene]').onclick = () => addScene();
+  (mj.scenes?.length ? mj.scenes : [{}]).forEach(addScene); // 처음엔 빈 장면 하나
+  el.querySelectorAll('[data-add-scene]').forEach((b) => (b.onclick = () => { addScene(); scenes[scenes.length - 1].wrap.scrollIntoView({ behavior: 'smooth', block: 'start' }); scenes[scenes.length - 1].wrap.querySelector('.sess-name').focus({ preventScroll: true }); }));
   // 내 훈련 일지: 세션 추가 · 삭제 (번호 다시 매김)
   const sessBox = el.querySelector('[data-mysess]');
   const renumber = () => sessBox.querySelectorAll('.sess.mine .bno').forEach((n, i) => { n.textContent = i + 1; });
@@ -363,10 +372,11 @@ export async function daily(el, _p, date = todayStr()) {
     openPad(card, sessions[card.dataset.skey]?.pad); // 작전판은 처음부터 펼쳐 둠 (필수)
     card.querySelector('[data-sdel]').onclick = () => { if (sessBox.children.length <= 1) { card.querySelectorAll('input:not([type=radio]), textarea').forEach((x) => { x.value = ''; }); card.querySelectorAll('input[type=radio]').forEach((x) => { x.checked = false; }); sessPads.delete(card.dataset.skey); card.querySelector('[data-spadbox]').innerHTML = ''; openPad(card); return; } sessPads.delete(card.dataset.skey); card.remove(); renumber(); }; };
   sessBox.querySelectorAll('.sess.mine').forEach(bindSess);
-  el.querySelector('[data-add-sess]').onclick = () => {
+  el.querySelectorAll('[data-add-sess]').forEach((b) => (b.onclick = () => {
     sessBox.insertAdjacentHTML('beforeend', mySessCard(newSessKey(), sessBox.children.length, {}));
-    const card = sessBox.lastElementChild; bindSess(card); card.querySelector('.sess-name').focus();
-  };
+    const card = sessBox.lastElementChild; bindSess(card);
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' }); card.querySelector('.sess-name').focus({ preventScroll: true });
+  }));
   el.querySelectorAll('[data-go]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); if (b.dataset.go) daily(el, _p, b.dataset.go); }));
   // 세션 옆 훈련 그림: 작전판 그리기 + 누르면 크게 보기
   el.querySelectorAll('[data-prog]').forEach((v) => {
@@ -387,7 +397,9 @@ export async function daily(el, _p, date = todayStr()) {
       match[k.slice(2)] = ['rating', 'minutes', 'gf', 'ga'].includes(k.slice(2)) ? (v === '' ? null : +v) : v;
     }
     if (games.length) Object.assign(match, { opponent: games[0].opponent, type: games[0].matchType, gf: +games[0].gf, ga: +games[0].ga });
-    match.scenes = scenes.filter((x) => x.wrap.isConnected).map((x) => ({ key: x.key, pad: x.pad.getData(), note: x.wrap.querySelector('[data-scene-note]').value, ask: x.wrap.querySelector('[data-scene-ask]').value.trim() }));
+    match.scenes = scenes.filter((x) => x.wrap.isConnected).map((x) => ({ key: x.key, pad: x.pad.getData(), note: x.wrap.querySelector('[data-scene-note]').value, ask: x.wrap.querySelector('[data-scene-ask]').value.trim(),
+      ...Object.fromEntries([...x.wrap.querySelectorAll('[data-sf]')].map((f) => [f.dataset.sf, f.value.trim()])) }))
+      .filter((sc) => sc.note.trim() || sc.ask || sc.title || sc.good || sc.bad || sc.next || (sc.pad?.items || []).length); // 빈 장면은 빼고
     // 세션별 입력 모으기
     const sess = {};
     for (const [k, v] of Object.entries(d)) {
@@ -400,6 +412,16 @@ export async function daily(el, _p, date = todayStr()) {
     for (const [k, pad] of sessPads) { if (el.querySelector(`[data-skey="${k}"]`)) (sess[k] ||= {}).pad = pad.getData(); }
     // 아무것도 안 쓴 세션은 빼고 저장
     for (const [k, v] of Object.entries(sess)) if (!['name', 'did', 'good', 'hard', 'next', 'ask'].some((f) => (v[f] || '').trim()) && !v.focus && !(v.pad?.items || []).length) delete sess[k];
+    // 제출할 때: 쓴 장면마다 작전판 그림은 필수
+    if (submit && d.kind === 'match') {
+      const i = match.scenes.findIndex((sc) => !(sc.pad?.items || []).length);
+      if (i >= 0) {
+        const w = scenes.filter((x) => x.wrap.isConnected).find((x) => x.key === match.scenes[i].key)?.wrap;
+        w?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        toast(`${w?.querySelector('.bno')?.textContent || i + 1}번 장면을 작전판에 그려 주세요. (그림은 필수예요 — 임시 저장은 그림 없이도 돼요)`);
+        return;
+      }
+    }
     // 제출할 때: 쓴 훈련마다 작전판 그림은 필수
     if (submit && d.kind !== 'match') {
       const noPad = Object.entries(sess).find(([, v]) => !(v.pad?.items || []).length);
@@ -446,15 +468,15 @@ export function matchHtml(l, coachAns = false) {
   return `<h4>경기 일지</h4>
     <div class="mj-game"><span class="tag solid">${esc(m.type || '경기')}</span><strong>vs ${esc(m.opponent || '-')}</strong><b>${m.gf ?? '-'} : ${m.ga ?? '-'}</b><small>${m.minutes != null ? `${m.minutes}분 출전` : ''} ${esc(m.position || '')}</small></div>
     ${m.rating ? `<div class="kv"><span>나의 평점</span><strong>${m.rating} / 10</strong></div>` : ''}
-    ${m.good ? `<p><b>👍 잘한 플레이</b><br>${text(m.good)}</p>` : ''}${m.bad ? `<p><b>😓 아쉬운 플레이</b><br>${text(m.bad)}</p>` : ''}
-    ${m.learned ? `<p><b>📚 배운 점</b><br>${text(m.learned)}</p>` : ''}${m.next ? `<p><b>🔥 다음 경기 각오</b><br>${text(m.next)}</p>` : ''}
-    ${(m.scenes || []).map((sc, i) => `<div class="mj-scene read"><strong>장면 ${i + 1}</strong><div data-view-pad="${i}"></div>${sc.note ? `<p>${text(sc.note)}</p>` : ''}${askBlock(sc.ask, sc.key ? `m_${sc.key}` : '', l.answers || {}, coachAns)}</div>`).join('')}`;
+    ${m.good ? `<p><b>잘한 플레이</b><br>${text(m.good)}</p>` : ''}${m.bad ? `<p><b>아쉬운 플레이</b><br>${text(m.bad)}</p>` : ''}
+    ${m.learned ? `<p><b>배운 점</b><br>${text(m.learned)}</p>` : ''}${m.next ? `<p><b>다음 경기 각오</b><br>${text(m.next)}</p>` : ''}
+    ${(m.scenes || []).map((sc, i) => `<div class="mj-scene read"><strong>장면 ${i + 1}${sc.title ? ` · ${esc(sc.title)}` : ''}</strong><div data-view-pad="${i}"></div>${sc.note ? `<p><b>상황</b> ${text(sc.note)}</p>` : ''}${sc.good ? `<p><b>잘된 점</b> ${text(sc.good)}</p>` : ''}${sc.bad ? `<p><b>아쉬웠던 점</b> ${text(sc.bad)}</p>` : ''}${sc.next ? `<p><b>다음엔</b> ${text(sc.next)}</p>` : ''}${askBlock(sc.ask, sc.key ? `m_${sc.key}` : '', l.answers || {}, coachAns)}</div>`).join('')}`;
 }
 
 // 질문 + 답변 (코치 화면이면 답변 칸, 아니면 읽기)
 function askBlock(ask, key, ans, coachAns) {
   if (!ask || !key) return '';
-  return `<div class="sess-q"><p><b>🙋 질문</b> ${text(ask)}</p>
+  return `<div class="sess-q"><p><b>질문</b> ${text(ask)}</p>
     ${coachAns ? `<label class="sess-a">답변<textarea rows="2" data-ans="${esc(key)}" placeholder="이 질문에 대한 답을 적어 주세요">${esc(ans[key]?.text || '')}</textarea></label>`
       : ans[key]?.text ? `<div class="sess-ans"><span class="tag solid">코치 답변${ans[key].by ? ` · ${esc(ans[key].by)}` : ''}</span><p>${text(ans[key].text)}</p></div>` : ''}</div>`;
 }
@@ -469,9 +491,9 @@ export function journalHtml(l, coachAns = false) {
   const ans = l.answers || {};
   return `${ss.length ? ss.map((x) => `
     <div class="sess read"><header><strong>${esc(x.name || '훈련')}</strong><span class="muted small">집중 ${stars(x.focus)}</span></header>
-      ${x.did ? `<p><b>📝</b> ${text(x.did)}</p>` : ''}
+      ${x.did ? `<p><b>한 것</b> ${text(x.did)}</p>` : ''}
       ${(x.pad?.items || []).length ? `<div class="sess-viewpad" data-view-spad="${esc(x._k)}"></div>` : ''}
-      ${x.good ? `<p><b>👍</b> ${text(x.good)}</p>` : ''}${x.hard ? `<p><b>😓</b> ${text(x.hard)}</p>` : ''}${x.next ? `<p><b>➡️</b> ${text(x.next)}</p>` : ''}
+      ${x.good ? `<p><b>잘된 점</b> ${text(x.good)}</p>` : ''}${x.hard ? `<p><b>어려웠던 점</b> ${text(x.hard)}</p>` : ''}${x.next ? `<p><b>다음엔</b> ${text(x.next)}</p>` : ''}
       ${askBlock(x.ask, x._k, ans, coachAns)}
       </div>`).join('') : `
     ${l.training ? `<h4>오늘 한 훈련</h4><div class="prose">${text(l.training)}</div>` : ''}
@@ -516,7 +538,7 @@ export async function journalCheck(el, _p, date = todayStr()) {
   const alerts = players.filter((p) => logs[p.id]).filter((p) => logs[p.id].injury >= 5 || logs[p.id].condition <= 2 || (sleepOf(logs[p.id]) != null && sleepOf(logs[p.id]) < SHORT_SLEEP));
   const all = Object.values(logs).map((l) => ({ ...l, sleepM: sleepOf(l) }));
 
-  el.innerHTML = `${pageHead('JOURNAL CHECK', '일지검사', `${hasFeature('wellness') && isCoach() ? '<button class="btn ghost sm" data-xlsx>📊 엑셀로 받기</button>' : ''}<input type="date" value="${date}" max="${todayStr()}" data-date>`)}
+  el.innerHTML = `${pageHead('JOURNAL CHECK', '일지검사', `${hasFeature('wellness') && isCoach() ? '<button class="btn ghost sm" data-xlsx>엑셀로 받기</button>' : ''}<input type="date" value="${date}" max="${todayStr()}" data-date>`)}
   <section class="stat-board small">
     <div><small>제출 · 검사 대기</small><strong>${done.length}<i>/${players.length}</i></strong><small>검사 대기 ${waiting} · 작성 중 ${drafting.length}</small></div>
     <div><small>평균 컨디션</small><strong>${avg(all, 'condition')}</strong></div>
@@ -529,7 +551,7 @@ export async function journalCheck(el, _p, date = todayStr()) {
     logs[p.id].condition <= 2 && `컨디션 ${logs[p.id].condition}`,
     sleepOf(logs[p.id]) != null && sleepOf(logs[p.id]) < SHORT_SLEEP && `수면 ${fmtSleep(sleepOf(logs[p.id]))}`,
   ].filter(Boolean).join(', ')})`).join(' · ')}</div>` : ''}
-  <div class="sec-row jsort"><div class="chips jfilter" data-jf>${[['all', '전체', players.length], ['sub', '✅ 제출함', done.length], ['draft', '✏️ 작성 중', drafting.length], ['none', '⬜ 안 씀', players.length - done.length - drafting.length]].map(([k, lb, n]) => `<button type="button" class="chip ${jFilter === k ? 'active' : ''}" data-f="${k}">${lb} <b>${n}</b></button>`).join('')}</div>${sortBar('journal', getSort('journal'))}</div>
+  <div class="sec-row jsort"><div class="chips jfilter" data-jf>${[['all', '전체', players.length], ['sub', '제출함', done.length], ['draft', '작성 중', drafting.length], ['none', '안 씀', players.length - done.length - drafting.length]].map(([k, lb, n]) => `<button type="button" class="chip ${jFilter === k ? 'active' : ''}" data-f="${k}">${lb} <b>${n}</b></button>`).join('')}</div>${sortBar('journal', getSort('journal'))}</div>
   <div class="jcards">
     ${sortGroups(players, getSort('journal')).map(([gt, ps]) => `${gt ? `<h3 class="sort-h">${esc(gt)} <small>${ps.length}명</small></h3>` : ''}${ps.map((p) => {
       const l = logs[p.id];
@@ -546,7 +568,7 @@ export async function journalCheck(el, _p, date = todayStr()) {
           <div><small>자각도</small><b>${l.rpe ?? '-'}</b></div>
           <div class="${l.injury >= 5 ? 'hot' : ''}"><small>부상</small><b>${l.injury ?? 0}</b>${l.injuryPart ? `<em>${esc(l.injuryPart)}</em>` : ''}</div>
         </div>
-        <div class="jmeta"><span class="jbadge ${st[0]}">${st[1]}</span><p class="jwhat">${kind === 'match' ? `<span class="tag solid">⚽ 경기 일지</span>${asks ? ` <span class="tag warn">🙋 질문 ${asks}</span>` : ''}` : `<span class="tag solid">🏃 훈련 일지</span>${l.sessions ? ` <span class="tag">세션 ${wrote}</span>` : ''}${asks ? ` <span class="tag warn">🙋 질문 ${asks}</span>` : ''}`}</p></div>` : `<p class="muted">아직 오늘 기록을 쓰지 않았어요.</p><div class="jmeta"><span class="jbadge ${st[0]}">${st[1]}</span></div>`}
+        <div class="jmeta"><span class="jbadge ${st[0]}">${st[1]}</span><p class="jwhat">${kind === 'match' ? `<span class="tag solid">경기 일지</span>${asks ? ` <span class="tag warn">질문 ${asks}</span>` : ''}` : `<span class="tag solid">훈련 일지</span>${l.sessions ? ` <span class="tag">세션 ${wrote}</span>` : ''}${asks ? ` <span class="tag warn">질문 ${asks}</span>` : ''}`}</p></div>` : `<p class="muted">아직 오늘 기록을 쓰지 않았어요.</p><div class="jmeta"><span class="jbadge ${st[0]}">${st[1]}</span></div>`}
         ${l?.submitted ? `<button class="btn full ${l.checked ? 'ghost' : ''}" data-open>${l.checked ? '검사 완료 · 다시 보기' : '일지 검사하기'}</button>` : ''}
       </article>`;
     }).join('')}`).join('')}

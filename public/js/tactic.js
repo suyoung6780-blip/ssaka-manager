@@ -461,12 +461,12 @@ export function createPad(container, initial, { editable = true, motion = false,
   container.innerHTML = editable ? `
     <div class="pad-field">
       <select data-ft title="필드">${Object.entries(FIELDS).map(([k, f]) => `<option value="${k}">${f.label}</option>`).join('')}</select>
-      <span class="pad-size"><i>경기장 가로</i><input type="number" data-fw min="5" max="120" step="1" title="가로(m)"><i>m × 세로</i><input type="number" data-fh min="5" max="90" step="1" title="세로(m)"><i>m</i></span>
+      <span class="pad-size"><i>경기장 가로</i><input type="number" data-fw min="5" max="120" step="any" form="_pad" title="가로(m)"><i>m × 세로</i><input type="number" data-fh min="5" max="90" step="any" form="_pad" title="세로(m)"><i>m</i></span>
       <select data-fo title="경기장 방향"><option value="">방향 자동</option><option value="h">↔ 가로로 보기</option><option value="v">↕ 세로로 보기</option></select>
       <select data-fc title="필드 색">${Object.entries(COLORS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
       <select data-gp title="그리드">${Object.entries(GRIDS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
-      <span class="pad-size" data-gsize><i>가로</i><input type="number" data-gc min="0" max="20" title="가로 칸 수"><i>칸 × 세로</i><input type="number" data-gr min="0" max="20" title="세로 칸 수"><i>칸</i></span>
-      <span class="pad-size" data-gmsize><i>칸 가로</i><input type="number" data-gcw min="1" max="60" step="0.5" title="칸 가로(m)"><i>m × 세로</i><input type="number" data-gch min="1" max="60" step="0.5" title="칸 세로(m)"><i>m</i></span>
+      <span class="pad-size" data-gsize><i>가로</i><input type="number" data-gc min="0" max="20" form="_pad" title="가로 칸 수"><i>칸 × 세로</i><input type="number" data-gr min="0" max="20" form="_pad" title="세로 칸 수"><i>칸</i></span>
+      <span class="pad-size" data-gmsize><i>칸 가로</i><input type="number" data-gcw min="1" max="60" step="any" form="_pad" title="칸 가로(m)"><i>m × 세로</i><input type="number" data-gch min="1" max="60" step="any" form="_pad" title="칸 세로(m)"><i>m</i></span>
       <select data-form title="포메이션"><option value="">포메이션 넣기</option>
         <optgroup label="A팀 · 11대11">${formOpts('a', false)}</optgroup>
         <optgroup label="A팀 · 8대8">${formOpts('a', true)}</optgroup>
@@ -484,8 +484,8 @@ export function createPad(container, initial, { editable = true, motion = false,
     <div class="pad-acts">
       <button type="button" class="chip" data-act="undo">되돌리기</button>
       <button type="button" class="chip" data-act="clear">모두 지우기</button>
-      <span class="pad-sz" data-size>크기 <button type="button" class="chip" data-sz="-1" title="작게 (- 키)">−</button><input type="number" min="1" max="300" data-szin title="1~300 적고 Enter"><i>%</i><button type="button" class="chip" data-sz="1" title="크게 (+ 키)">+</button></span>
-      <span class="pad-ord" data-order title="같은 번호끼리 한꺼번에 움직여요 · 기본 1">순서 <input type="number" min="1" max="20" data-ordin> <small>번째</small></span>
+      <span class="pad-sz" data-size>크기 <button type="button" class="chip" data-sz="-1" title="작게 (- 키)">−</button><input type="number" min="1" max="300" form="_pad" data-szin title="1~300 적고 Enter"><i>%</i><button type="button" class="chip" data-sz="1" title="크게 (+ 키)">+</button></span>
+      <span class="pad-ord" data-order title="같은 번호끼리 한꺼번에 움직여요 · 기본 1">순서 <input type="number" min="1" max="20" form="_pad" data-ordin> <small>번째</small></span>
     </div>
     <div class="pad-acts pad-sel" data-selbar>
       <span class="pad-num" data-pnum>번호 <input data-pnin maxlength="4" title="선수 번호 (또는 짧은 이름) 적고 Enter"></span>

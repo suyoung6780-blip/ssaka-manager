@@ -55,8 +55,8 @@ const routes = [
   ['/journal-check', personal.journalCheck, 'coach'],
   ['/scout', social.scout, 'coach'],
   ['/teams/:id', social.teamView],
-  ['/chat', social.chatList],
-  ['/chat/:id', social.chatRoom],
+  ['/chat', social.chatList, 'coach'],
+  ['/chat/:id', social.chatRoom, 'coach'],
   ['/admin', admin.page, 'admin'],
   ['/admin/teams', admin.teams, 'admin'],
   ['/admin/users', admin.users, 'admin'],
@@ -195,7 +195,7 @@ function navItems() {
   const sec = (title, list) => list.length && items.push({ title, list });
   sec('TEAM', isSquad() ? [
     ['/', '홈'], ['/gamemodel', '게임모델'], ['/locker', '락커룸'], ['/training', '훈련장'],
-    ['/meeting', '미팅룸'], ['/analysis', '분석실'], ['/goals', '목표'], ['/records', '기록실'], ['/data', '데이터실'],
+    ['/meeting', '미팅룸'], ['/analysis', '분석실'], ['/goals', '목표'], ['/records', '경기 기록실'], ['/data', '데이터실'],
   ] : [['/', '홈']]);
   sec('MY', [
     ['/me', '프로필'],
@@ -203,8 +203,8 @@ function navItems() {
     ...(isCoach() ? [['/journal-check', '일지검사']] : []),
   ]);
   sec('NOTICE', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄']] : []);
-  sec('COMMUNITY', isCoach() ? [['/community/training', '훈련 공유'], ['/community/match', '경기'], ['/community/talk', '지도자 게시판']] : []);
-  sec('NETWORK', [...(isCoach() ? [['/scout', '스카우터']] : []), ['/chat', '대화'], ['/support', '운영자 문의']]);
+  sec('COMMUNITY', isCoach() ? [['/community/training', '훈련 공유'], ['/community/talk', '지도자 게시판'], ['/chat', '팀 대화']] : []);
+  sec('NETWORK', [...(isCoach() ? [['/scout', '스카웃 노트']] : []), ['/support', '운영자 문의']]);
   if (isAdmin()) sec('운영자', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '문의함']]);
   else if (isAdminEmail()) sec('운영자', [['/admin/verify', '운영자 인증']]);
   if (isOwner()) sec('ADMIN', [['/settings', FREE_MODE ? '팀 설정' : '팀 설정 · 결제']]);

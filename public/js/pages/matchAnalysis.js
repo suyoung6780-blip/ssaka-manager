@@ -106,9 +106,9 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
   el.innerHTML = `<div class="studio ma">
     <header class="studio-top"><a href="#/analysis" class="icon-btn" aria-label="목록">‹</a>
       <div class="st-title"><strong>${esc(post.title)}</strong><small>경기분석 · ${esc([post.opponent && `vs ${post.opponent}`, post.date].filter(Boolean).join(' · '))}</small></div>
-      <div class="st-actions"><span class="muted small" data-saved></span>${canEdit ? '<button class="btn ghost sm" data-del>삭제</button><button class="btn sm" data-savebtn>💾 저장</button>' : ''}</div></header>
+      <div class="st-actions"><span class="muted small" data-saved></span>${canEdit ? '<button class="btn ghost sm" data-del>삭제</button><button class="btn sm" data-savebtn>저장</button>' : ''}</div></header>
     ${sample ? '<div class="banner sample-banner">예시 리포트예요 — 실제 경기 기록이 아니라, 경기분석으로 이런 걸 볼 수 있다는 걸 보여 드려요.</div>' : ''}
-    <nav class="tabs admin-tabs ma-tabs">${[...(canEdit ? [['tag', '기록하기']] : [['check', '⚽ 체크 포인트']]), ['formation', '포메이션'], ['report', '리포트']].map(([k, l]) => `<a href="javascript:void 0" data-tab="${k}">${l}</a>`).join('')}</nav>
+    <nav class="tabs admin-tabs ma-tabs">${[...(canEdit ? [['tag', '기록하기']] : [['check', '체크 포인트']]), ['formation', '포메이션'], ['report', '리포트']].map(([k, l]) => `<a href="javascript:void 0" data-tab="${k}">${l}</a>`).join('')}</nav>
     <div class="ma-body">
       <div class="ma-video" ${canEdit ? '' : 'hidden'}>
         ${vsrc ? `<div class="ma-vwrap"><video playsinline preload="auto" crossorigin="anonymous" src="${esc(vsrc)}"></video><canvas class="ma-ai" hidden></canvas>${canEdit ? '<div class="ma-status" data-status></div>' : ''}</div>
@@ -251,9 +251,9 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     drawLive();
     bindKeys();
   }
-  // ⭐ 키 플레이어 (기록하기에서 영상 보며 바로 적기) — 번호가 포메이션에 있으면 ⭐ 표시
+  // 키 플레이어 (기록하기에서 영상 보며 바로 적기) — 번호가 포메이션에 있으면 표시
   function keysEditHtml() {
-    return `<h4>⭐ 키 플레이어 <small class="muted">영상 보며 눈에 띄는 선수를 바로 적어요</small></h4>
+    return `<h4>키 플레이어 <small class="muted">영상 보며 눈에 띄는 선수를 바로 적어요</small></h4>
       <datalist id="kp-pos">${['GK', 'CB', 'LB', 'RB', 'DM', 'CM', 'AM', 'LM', 'RM', 'LW', 'RW', 'ST'].map((x) => `<option value="${x}">`).join('')}</datalist>
       ${teams.map((tm) => `${teams.length > 1 ? `<p class="kp-team" style="--c:${tm === 'opp' ? '#e5484d' : '#4ea1ff'}">${TEAM[tm]} 팀</p>` : ''}
         ${(data.keys[tm] || []).map((k) => `<div class="kp-row" data-kt="${tm}" data-kid="${k.id}">
@@ -352,14 +352,14 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
   const keysView = (tm) => {
     const ks = (data.keys[tm] || []).filter((k) => k.num || k.name || k.note);
     return ks.length ? `<div class="kp-list">${ks.map((k) => `<div class="kp-card" style="--c:${tm === 'opp' ? '#e5484d' : '#4ea1ff'}">
-      <b class="kp-num">${esc(k.num || '?')}</b><div><strong>⭐ ${esc(k.name || `${k.num || ''}번`)}${k.pos ? ` <small>${esc(k.pos)}</small>` : ''}</strong>${k.note ? `<p>${esc(k.note)}</p>` : ''}</div></div>`).join('')}</div>` : '';
+      <b class="kp-num">${esc(k.num || '?')}</b><div><strong>${esc(k.name || `${k.num || ''}번`)}${k.pos ? ` <small>${esc(k.pos)}</small>` : ''}</strong>${k.note ? `<p>${esc(k.note)}</p>` : ''}</div></div>`).join('')}</div>` : '';
   };
   function drawFormation() {
     const old = data.formations;
     const lu = (tm, ph) => data.lineups?.[tm]?.[ph];
     panel.innerHTML = `
       ${canEdit ? `<div class="ma-row"><span class="muted small">경기 인원</span><div class="seg">${[11, 8].map((n) => `<button class="${data.size === n ? 'on' : ''}" data-size="${n}">${n} vs ${n}</button>`).join('')}</div>
-        ${video ? '<button class="btn ghost sm" data-fai>🤖 AI로 잡기 (지금 화면)</button>' : ''}</div>
+        ${video ? '<button class="btn ghost sm" data-fai>AI로 잡기 (지금 화면)</button>' : ''}</div>
         <p class="muted small">포메이션을 고르고 자리마다 <b>등번호</b>만 적으면 돼요. 공격할 때 · 수비할 때 서는 모양이 다르면 <b>공격 시 · 수비 시</b>도 따로 정해요 (비워 두면 기본과 같아요). AI가 못 알아보면 직접 골라 주세요.</p>` : ''}
       <div class="lu-cards">${teams.map((tm) => {
         if (!canEdit) {
@@ -510,11 +510,11 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     const lu = data.lineups?.[main]?.base;
     const opp = !lu && data.formations.find((f) => f.team === main || (main === 'opp' && f.team !== 'us'));
     panel.innerHTML = r.summary.length || lu || keysView(main) ? `
-      <section class="card ma-check big"><h3>⚽ ${main === 'opp' ? '이번 상대, 이것만 기억하자' : '우리 경기, 이것만 기억하자'} ${post.opponent ? `<small>vs ${esc(post.opponent)}</small>` : ''}</h3>
+      <section class="card ma-check big"><h3>${main === 'opp' ? '이번 상대, 이것만 기억하자' : '우리 경기, 이것만 기억하자'} ${post.opponent ? `<small>vs ${esc(post.opponent)}</small>` : ''}</h3>
         ${r.summary.length ? `<ol>${r.summary.slice(0, 3).map((x) => `<li>${x}</li>`).join('')}</ol>` : '<p class="muted">기록이 쌓이면 체크 포인트가 나와요.</p>'}</section>
-      ${keysView(main) ? `<section class="card"><h3>⭐ ${main === 'opp' ? '조심할 선수' : '키 플레이어'}</h3>${keysView(main)}</section>` : ''}
+      ${keysView(main) ? `<section class="card"><h3>${main === 'opp' ? '조심할 선수' : '키 플레이어'}</h3>${keysView(main)}</section>` : ''}
       <div class="ma-grid">
-        ${liveHtml(data.events, main).replace('📊 실시간 리포트', `${TEAM[main]} 공격 방향`)}
+        ${liveHtml(data.events, main).replace('실시간 리포트', `${TEAM[main]} 공격 방향`)}
         <section class="card"><h4>${main === 'opp' ? '조심할 곳' : '우리 공격이 많았던 곳'} <small>${TEAM[main]} 공격이 많이 일어난 곳 · → 방향</small></h4>${pitchSvg(r.heatSvg)}</section>
         ${lu?.f ? `<section class="card"><h4>${TEAM[main]} 포메이션 <small>${esc(lu.f)}</small></h4>${lineupHtml(lu, { color: main === 'opp' ? '#e5484d' : '#4ea1ff', keys: data.keys[main] || [] })}</section>` : ''}
         ${opp ? `<section class="card ma-form"><h4>${TEAM[main]} 포메이션 <small>${esc(opp.name || '')}</small></h4><div data-fpad></div></section>` : ''}
@@ -535,7 +535,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       <div class="ma-row">${teams.length > 1 ? `<div class="seg">${teams.map((k) => `<button class="${k === rteam ? 'on' : ''}" data-rt="${k}">${TEAM[k]} 팀</button>`).join('')}</div>` : ''}
         <span class="muted small">모든 그림은 <b>${TEAM[rteam]} 팀이 오른쪽(→)으로 공격</b>하는 방향으로 맞춰서 보여줘요</span></div>
       ${data.lineups?.[rteam] && Object.keys(data.lineups[rteam]).length ? `<p class="ma-luline">${TEAM[rteam]} 포메이션 · ${PHASES.filter(([ph]) => data.lineups[rteam][ph]?.f).map(([ph, l]) => `${l} <b>${esc(data.lineups[rteam][ph].f)}</b>`).join(' · ')} <button class="link-btn small" data-goto-f>자세히</button></p>` : ''}
-      ${keysView(rteam) ? `<section class="card"><h3>⭐ ${TEAM[rteam]} 키 플레이어</h3>${keysView(rteam)}</section>` : ''}
+      ${keysView(rteam) ? `<section class="card"><h3>${TEAM[rteam]} 키 플레이어</h3>${keysView(rteam)}</section>` : ''}
       ${data.events.length ? '' : empty('아직 기록이 없어요. 기록하기에서 장면을 기록하면 리포트가 자동으로 만들어져요.')}
       <section class="card ma-sum"><h3>요약</h3>${summary.length ? `<ul>${summary.map((s) => `<li>${s}</li>`).join('')}</ul>` : '<p class="muted">기록이 더 쌓이면 요약이 나와요.</p>'}
         <div class="ma-counts">${[['공격 전개', ev.filter((e) => e.k === 'attack').length], ['슈팅', shots.length], ['득점', goals.length], ['크로스', crosses.length], ['볼 뺏김', losses.length], ['볼 탈취', wins.length], ['세트피스', set.length]].map(([l, n]) => `<div><span>${l}</span><b>${n}</b></div>`).join('')}</div></section>
@@ -600,7 +600,7 @@ export function liveHtml(events, tm = 'opp') {
   const r = computeReport(events, tm);
   const n = r.atk.length;
   const bar = (l) => `<div class="ma-bar"><span>${l}${l !== '가운데' ? `<small>${r.oursSide(l)}</small>` : ''}</span><div><i style="width:${r.pct(r.ch[l])}%"></i></div><b>${r.pct(r.ch[l])}%</b><small>${r.ch[l]}</small></div>`;
-  return `<div class="card ma-livecard"><h4>📊 실시간 리포트 <small>${TEAM[tm]} 팀 · 기록 ${events.filter((e) => e.team === tm).length}개</small></h4>
+  return `<div class="card ma-livecard"><h4>실시간 리포트 <small>${TEAM[tm]} 팀 · 기록 ${events.filter((e) => e.team === tm).length}개</small></h4>
     ${n ? `${bar('왼쪽')}${bar('가운데')}${bar('오른쪽')}${r.summary[0] ? `<p class="ma-livesum">${r.summary[0]}</p>` : ''}` : '<p class="muted small">상대 공격 · 크로스 · 슈팅을 기록하면 여기서 바로 공격 방향이 계산돼요.</p>'}</div>`;
 }
 

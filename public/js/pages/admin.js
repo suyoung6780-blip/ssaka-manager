@@ -44,18 +44,6 @@ export async function page(el) {
       <div class="card-head"><h3>오늘 Firebase 사용량 <small class="muted">모든 팀이 함께 쓰는 무료 한도</small></h3><button type="button" class="link-btn small" data-urefresh>새로고침</button></div>
       <div data-ubody class="muted small">불러오는 중…</div>
     </section>
-    <section class="card">
-      <div class="card-head"><h3>팀 구분 정리 <small class="muted">예전 구분을 새 구분으로</small></h3></div>
-      <p class="muted small">학교동아리 · 아마추어 조기회 → <b>기타</b>, K5 · K6 · K7 → <b>K5·6·7</b> 로 바꿔요.</p>
-      <div class="row"><button type="button" class="btn ghost sm" data-catcount>바꿀 팀 찾기</button><button type="button" class="btn sm" data-catfix hidden>모두 바꾸기</button></div>
-      <p class="small" data-catinfo></p>
-    </section>
-    <section class="card" data-counsel-clean>
-      <div class="card-head"><h3>상담실 데이터 정리 <small class="muted">상담실 기능을 없앤 뒤 남은 글</small></h3></div>
-      <p class="muted small">모든 팀의 상담 글과 답변을 지워요. <b>되돌릴 수 없어요.</b></p>
-      <div class="row"><button type="button" class="btn ghost sm" data-ccount>남은 상담 글 세어 보기</button><button type="button" class="btn sm" data-cdel hidden>모두 지우기</button></div>
-      <p class="small" data-cinfo></p>
-    </section>
     <form class="card">
       <div class="card-head"><h3>공지 쓰기</h3><span class="tag ${n.on ? 'solid' : ''}">${n.on ? '지금 띄우는 중' : '내려간 상태'}</span></div>
       <fieldset><legend>종류</legend><div class="pick-chips">
@@ -73,59 +61,6 @@ export async function page(el) {
       ${n.updatedAt ? `<p class="muted small">마지막 저장 ${fmtDate(n.updatedAt, true)} · ${esc(n.by || '')}</p>` : ''}
     </form>`;
   loadUsage(el);
-  // 상담실 데이터 정리 (한 번만 쓰는 도구)
-  let found = [];
-  el.querySelector('[data-ccount]').onclick = async () => {
-    const info = el.querySelector('[data-cinfo]');
-    info.textContent = '세는 중…';
-    found = [];
-    try {
-      for (const t of ts.docs) {
-        const cs = await getDocs(collection(db, 'teams', t.id, 'counsel'));
-        for (const c of cs.docs) {
-          const rs = await getDocs(collection(db, 'teams', t.id, 'counsel', c.id, 'replies'));
-          found.push({ team: t.id, id: c.id, replies: rs.docs.map((r) => r.id) });
-        }
-      }
-      const rn = found.reduce((a, x) => a + x.replies.length, 0);
-      info.innerHTML = found.length ? `상담 글 <b>${found.length}개</b> · 답변 <b>${rn}개</b>가 남아 있어요.` : '남은 상담 글이 없어요. 정리할 게 없어요.';
-      el.querySelector('[data-cdel]').hidden = !found.length;
-    } catch (e) { info.textContent = `세지 못했어요: ${e.message || e} (보안 규칙을 먼저 올려야 해요)`; }
-  };
-  el.querySelector('[data-cdel]').onclick = async () => {
-    if (!found.length) return;
-    if (!(await confirmBox(`상담 글 ${found.length}개와 답변을 모두 지울까요? 되돌릴 수 없어요.`))) return;
-    const info = el.querySelector('[data-cinfo]');
-    let n = 0;
-    try {
-      for (const x of found) {
-        for (const r of x.replies) await deleteDoc(doc(db, 'teams', x.team, 'counsel', x.id, 'replies', r));
-        await deleteDoc(doc(db, 'teams', x.team, 'counsel', x.id));
-        n++; info.textContent = `지우는 중… ${n}/${found.length}`;
-      }
-      info.textContent = `상담 글 ${n}개를 모두 지웠어요.`;
-      el.querySelector('[data-cdel]').hidden = true; found = [];
-    } catch (e) { info.textContent = `${n}개 지운 뒤 멈췄어요: ${e.message || e}`; }
-  };
-  // 팀 구분 정리 (한 번만 쓰는 도구)
-  let oldCat = [];
-  el.querySelector('[data-catcount]').onclick = () => {
-    oldCat = ts.docs.map((t) => ({ id: t.id, name: t.data().name, from: t.data().category || '' })).filter((t) => t.from && normCat(t.from) !== t.from);
-    el.querySelector('[data-catinfo]').innerHTML = oldCat.length
-      ? `바꿀 팀 <b>${oldCat.length}개</b>: ${oldCat.map((t) => `${esc(t.name)} (${esc(t.from)} → ${esc(normCat(t.from))})`).join(', ')}`
-      : '바꿀 팀이 없어요. 모두 새 구분이에요.';
-    el.querySelector('[data-catfix]').hidden = !oldCat.length;
-  };
-  el.querySelector('[data-catfix]').onclick = async () => {
-    if (!oldCat.length || !(await confirmBox(`팀 ${oldCat.length}개의 구분을 새 구분으로 바꿀까요?`))) return;
-    const info = el.querySelector('[data-catinfo]');
-    let n = 0;
-    try {
-      for (const t of oldCat) { await updateDoc(doc(db, 'teams', t.id), { category: normCat(t.from) }); n++; info.textContent = `바꾸는 중… ${n}/${oldCat.length}`; }
-      info.textContent = `팀 ${n}개의 구분을 바꿨어요.`;
-      el.querySelector('[data-catfix]').hidden = true; oldCat = [];
-    } catch (e) { info.textContent = `${n}개 바꾼 뒤 멈췄어요: ${e.message || e} (보안 규칙을 먼저 올려야 해요)`; }
-  };
   el.querySelector('[data-urefresh]').onclick = () => loadUsage(el);
 
   const form = el.querySelector('form');
@@ -216,7 +151,6 @@ export async function teams(el) {
         <td data-l="구분">${esc(t.category || '')}</td>
         <td data-l="대표">${esc(t.ownerName || '-')}</td>
         <td data-l="지도자 · 선수">${t.coaches == null ? '-' : `${t.coaches} · ${t.players}`}</td>
-        <td data-l="공개">${t.isPublic ? '공개' : '<span class="muted">비공개</span>'}</td>
         <td data-l="팀 코드"><code class="tcode">${esc(t.code || '-')}</code></td>
         <td data-l="이용"><span class="tag ${cls}">${u}</span></td>
         <td data-l="만든 날">${fmtDate(t.createdAt) || '-'}</td>

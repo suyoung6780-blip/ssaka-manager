@@ -6,15 +6,13 @@ import { esc, text, toast, fail, modal, confirmBox, pageHead, empty } from '../u
 import { state, isCoach, isAdmin, go } from '../store.js';
 import { createPad } from '../tactic.js';
 
-// 세 칸: 훈련 공유 · 경기(연습경기 · 대회) · 지도자 게시판(자유). 예전 종류는 알맞은 칸으로
-const CATS = ['훈련 공유', '경기', '지도자 게시판'];
-const CAT_IC = { '훈련 공유': '📘', 경기: '⚽', '지도자 게시판': '📝' };
-const SLUG = { training: '훈련 공유', match: '경기', talk: '지도자 게시판' };
-const catOf = (x) => ({ 자유: '지도자 게시판', 질문: '지도자 게시판', 대화: '지도자 게시판', '연습경기 구해요': '경기' }[x.cat] || x.cat || '지도자 게시판');
+// 두 칸: 훈련 공유 · 지도자 게시판(대회 정보 · 테스트 · 연습경기 등 자유). 예전 종류(경기 · 자유 · 질문)는 지도자 게시판으로
+const CATS = ['훈련 공유', '지도자 게시판'];
+const SLUG = { training: '훈련 공유', match: '지도자 게시판', talk: '지도자 게시판' };
+const catOf = (x) => (x.cat === '훈련 공유' ? '훈련 공유' : '지도자 게시판');
 const INTRO = {
   '훈련 공유': '우리 팀 훈련 프로그램을 다른 팀 지도자들과 나눠요. 마음에 드는 훈련은 우리 팀으로 바로 가져올 수 있어요.',
-  경기: '연습경기 상대 구하기 · 대회 정보 · 경기 일정을 나눠요. 날짜 · 장소 · 연령 · 연락 방법을 적어 주세요.',
-  '지도자 게시판': '지도자끼리 자유롭게 글을 쓰고 이야기해요. 궁금한 것, 소식, 무엇이든 좋아요.',
+  '지도자 게시판': '대회 정보 · 테스트 · 연습경기 상대 구하기 · 궁금한 것까지, 지도자끼리 자유롭게 이야기해요.',
 };
 const col = () => collection(db, 'community');
 const PER = 5; // 한 쪽에 5개씩
@@ -22,7 +20,7 @@ const pagerHtml = (cur, pages) => `<button type="button" class="btn ghost sm" da
   ${Array.from({ length: pages }, (_, i) => `<button type="button" class="pg ${i === cur ? 'on' : ''}" data-pg="${i}">${i + 1}</button>`).join('')}
   <button type="button" class="btn ghost sm" data-pg="${cur + 1}" ${cur < pages - 1 ? '' : 'disabled'}>다음 ›</button>`;
 // 훈련 그림: 올린 사진과 작전판을 같이 (둘 다 있으면 나란히)
-const thumbHtml = (pg) => `<div class="cm-thumb ${pg?.image && pg?.pad ? 'two' : ''}">${pg?.image ? `<img src="${esc(pg.image)}" alt="">` : ''}${pg?.pad ? '<div data-thumb></div>' : ''}${!pg?.image && !pg?.pad ? '<span>📘</span>' : ''}</div>`;
+const thumbHtml = (pg) => `<div class="cm-thumb ${pg?.image && pg?.pad ? 'two' : ''}">${pg?.image ? `<img src="${esc(pg.image)}" alt="">` : ''}${pg?.pad ? '<div data-thumb></div>' : ''}${!pg?.image && !pg?.pad ? '<span class="cm-noimg">훈련</span>' : ''}</div>`;
 const tms = (v) => (v?.toMillis ? v.toMillis() : v?.seconds ? v.seconds * 1000 : 0);
 const ago = (ms) => { if (!ms) return ''; const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? '방금' : m < 60 ? `${m}분 전` : m < 1440 ? `${Math.round(m / 60)}시간 전` : `${Math.round(m / 1440)}일 전`; };
 const lines = (s) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean);
@@ -48,11 +46,11 @@ export async function page(el, { cat: slug } = {}) {
       const pg = x.share?.program;
       return `<article class="cm-card ${isTr ? 'tr' : ''}" data-id="${x.id}">
         ${isTr ? thumbHtml(pg) : ''}
-        <div class="cm-top"><span class="tag">${CAT_IC[cat]} ${esc(cat)}</span>${pg && !isTr ? '<span class="tag solid">훈련 첨부</span>' : ''}<small class="muted">${ago(tms(x.createdAt))}</small></div>
+        <div class="cm-top"><span class="tag">${esc(cat)}</span>${pg && !isTr ? '<span class="tag solid">훈련 첨부</span>' : ''}<small class="muted">${ago(tms(x.createdAt))}</small></div>
         <h3>${esc(x.title)}</h3>
         ${isTr && pg ? `<div class="lib-tags">${(pg.topics || []).slice(0, 3).map((t) => `<span class="ttag">${esc(t)}</span>`).join('')}</div>` : ''}
         ${x.body ? `<p class="cm-body">${esc(x.body.slice(0, 120))}${x.body.length > 120 ? '…' : ''}</p>` : ''}
-        <div class="cm-foot"><span>${esc(x.teamCategory ? `${x.teamCategory} · ` : '')}<b>${esc(x.teamName || '')}</b> · ${esc(x.authorName || '')} 코치</span><span>💬 ${x.commentN || 0}</span></div>
+        <div class="cm-foot"><span>${esc(x.teamCategory ? `${x.teamCategory} · ` : '')}<b>${esc(x.teamName || '')}</b> · ${esc(x.authorName || '')} 코치</span><span>댓글 ${x.commentN || 0}</span></div>
       </article>`;
     }).join('') : empty(isTr ? '아직 공유된 훈련이 없어요. 우리 팀 훈련을 처음으로 공유해 보세요!' : '아직 글이 없어요. 첫 글을 써 보세요!');
     el.querySelectorAll('[data-id]').forEach((c) => {
@@ -63,7 +61,7 @@ export async function page(el, { cat: slug } = {}) {
     });
     el.querySelectorAll('[data-pager] [data-pg]').forEach((b) => (b.onclick = () => { pageNo = +b.dataset.pg; draw(); el.querySelector('[data-list]').scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
   };
-  el.innerHTML = `${pageHead('COMMUNITY', `${CAT_IC[cat]} ${cat}`, isTr ? '<button class="btn" data-pick>+ 내 훈련 공유하기</button>' : '<button class="btn" data-write>+ 글쓰기</button>')}
+  el.innerHTML = `${pageHead('COMMUNITY', cat, isTr ? '<button class="btn" data-pick>+ 내 훈련 공유하기</button>' : '<button class="btn" data-write>+ 글쓰기</button>')}
     <p class="lead">${INTRO[cat]} <b>지도자만</b> 보고 쓸 수 있어요 (선수에게는 안 보여요).</p>
     <div class="cm-bar"><input type="search" placeholder="${isTr ? '훈련 이름 · 주제 · 팀 이름 검색' : '제목 · 내용 · 팀 이름 검색'}" data-q></div>
     <div class="cm-list ${isTr ? 'tr' : ''}" data-list></div>
@@ -129,10 +127,10 @@ function shrink(src) {
 function write(pre = {}, done = () => {}) {
   const m = modal(`<span class="eyebrow">COMMUNITY</span><h2>${pre.id ? '글 고치기' : '글쓰기'}</h2>
     <form class="stack">
-      ${pre.share ? '<input type="hidden" name="cat" value="훈련 공유">' : `<label>칸<select name="cat">${CATS.filter((c) => c !== '훈련 공유').map((c) => `<option ${c === catOf(pre) ? 'selected' : ''}>${c}</option>`).join('')}</select></label>`}
-      <label>제목<input name="title" required maxlength="80" value="${esc(pre.title || '')}" placeholder="예) 10월 마지막 주 U15 연습경기 구해요 / 빌드업 훈련 어떻게 하세요?"></label>
+      <input type="hidden" name="cat" value="${pre.share ? '훈련 공유' : '지도자 게시판'}">
+      <label>제목<input name="title" required maxlength="80" value="${esc(pre.title || '')}" placeholder="예) 11월 U15 대회 참가팀 모집 / 다음 주 토요일 연습경기 구해요 / OO FC U12 테스트 일정"></label>
       <label>내용<textarea name="body" rows="6" maxlength="3000" placeholder="${pre.share ? '이 훈련을 소개해 주세요 (어떤 상황에 좋은지 · 주의할 점)' : '자유롭게 적어요. 연습경기는 날짜 · 장소 · 연령 · 연락 방법을 적어 주세요'}">${esc(pre.body || '')}</textarea></label>
-      ${pre.share ? `<div class="cm-attach">📘 훈련 첨부: <b>${esc(pre.share.program.title)}</b> <small class="muted">(${pre.share.program.image ? '사진 · ' : ''}작전판 · 방법 · 코칭 포인트가 같이 올라가요)</small></div>` : ''}
+      ${pre.share ? `<div class="cm-attach">훈련 첨부: <b>${esc(pre.share.program.title)}</b> <small class="muted">(${pre.share.program.image ? '사진 · ' : ''}작전판 · 방법 · 코칭 포인트가 같이 올라가요)</small></div>` : ''}
       <p class="muted small">우리 팀 이름(${esc(state.team?.name || '')})과 내 이름이 같이 보여요.</p>
       <div class="row end"><button class="btn">${pre.id ? '저장' : '올리기'}</button></div>
     </form>`);
@@ -158,21 +156,21 @@ function write(pre = {}, done = () => {}) {
 async function openPost(x, refresh) {
   const pg = x.share?.program;
   const m = modal(`<div class="cm-post">
-    <span class="eyebrow">${CAT_IC[catOf(x)] || ''} ${esc(catOf(x))} · ${ago(tms(x.createdAt))}</span>
+    <span class="eyebrow">${esc(catOf(x))} · ${ago(tms(x.createdAt))}</span>
     <h2>${esc(x.title)}</h2>
     <p class="muted small">${esc(x.teamCategory ? `${x.teamCategory} · ` : '')}<b>${esc(x.teamName || '')}</b> · ${esc(x.authorName || '')} 코치</p>
     ${x.body ? `<div class="prose">${text(x.body)}</div>` : ''}
     ${pg ? `<section class="cm-prog">
-      <h3>📘 ${esc(pg.title)}</h3>
+      <h3>${esc(pg.title)}</h3>
       <div class="lib-tags">${(pg.topics || []).map((t) => `<span class="ttag">${esc(t)}</span>`).join('')}</div>
       <div class="tr-facts">${[['연령', (pg.ages || []).join(' · ')], ['인원', pg.players && `${pg.players}명`], ['시간', pg.duration && `${pg.duration}분`], ['공간', pg.space]].filter(([, v]) => v).map(([k, v]) => `<div><small>${k}</small><b>${esc(v)}</b></div>`).join('')}</div>
       ${pg.pad ? '<div data-cmpad></div>' : ''}${pg.image ? `<img class="cm-img" src="${esc(pg.image)}" alt="훈련 그림">` : ''}
       ${pg.body ? `<h4>훈련 방법</h4><div class="prose">${text(pg.body)}</div>` : ''}
       ${lines(pg.points).length ? `<h4>코칭 포인트</h4><ol class="points">${lines(pg.points).map((p) => `<li>${esc(p)}</li>`).join('')}</ol>` : ''}
-      <div class="row"><button class="btn" data-import>📥 우리 팀 훈련 프로그램으로 가져오기</button></div>
+      <div class="row"><button class="btn" data-import>우리 팀 훈련 프로그램으로 가져오기</button></div>
     </section>` : ''}
     <div class="row">
-      ${x.teamId && x.teamId !== state.team?.id ? `<a class="btn ghost sm" href="#/teams/${esc(x.teamId)}">🏟 ${esc(x.teamName || '이 팀')} 페이지 · 연락하기</a>` : ''}
+      ${x.teamId && x.teamId !== state.team?.id ? `<a class="btn ghost sm" href="#/teams/${esc(x.teamId)}">${esc(x.teamName || '이 팀')} 페이지 · 연락하기</a>` : ''}
       ${mine(x) ? '<button class="btn ghost sm" data-edit>고치기</button>' : ''}
       ${mine(x) || isAdmin() ? '<button class="btn ghost sm" data-del>삭제</button>' : ''}
     </div>

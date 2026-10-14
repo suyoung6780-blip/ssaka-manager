@@ -309,7 +309,7 @@ export async function records(el) {
     const opp = {};
     rows.forEach((m) => (opp[m.opponent] ||= []).push(m));
 
-    el.innerHTML = `${pageHead('RECORDS', '기록실', isCoach() ? '<button class="btn" data-new>+ 경기 기록</button>' : '')}
+    el.innerHTML = `${pageHead('RECORDS', '경기 기록실', isCoach() ? '<button class="btn" data-new>+ 경기 기록</button>' : '')}
     <div class="rec-filters">
       <div class="chips"><span class="chip-label">년도</span>${['전체', ...years].map((t) => `<button class="chip ${t === flt.year ? 'active' : ''}" data-f="year" data-v="${t}">${t === '전체' ? t : `${t}년`}</button>`).join('')}</div>
       <div class="chips"><span class="chip-label">경기</span>${['전체', ...MATCH_TYPES].map((t) => `<button class="chip ${t === flt.type ? 'active' : ''}" data-f="type" data-v="${t}">${t}</button>`).join('')}</div>
