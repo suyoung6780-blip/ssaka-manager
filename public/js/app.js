@@ -25,6 +25,7 @@ import * as personal from './pages/personal.js';
 import * as social from './pages/social.js';
 
 const app = $('#app');
+const PLAYER_DEMO = /[?&]as=player/.test(location.search); // 체험 모드: 선수로 보는 중
 const RESTRICT_OK = ['/', '/settings', '/support', '/support/qna', '/me', '/privacy', '/pay'];
 
 // guard: auth(기본) / squad(팀원: 코치·선수) / coach / member / owner
@@ -224,7 +225,7 @@ function renderShell() {
       <nav class="nav-list"></nav>
       <div class="me-box"></div>
     </aside>
-    <main class="main-col"><div id="sys-notice"></div><div id="team-notice"></div><div id="view"></div>${FOOTER}</main>
+    <main class="main-col">${auth.demo ? `<div class="demo-bar"><b>체험 모드</b><span>예시 팀 · 가짜 데이터예요. 바꾼 내용은 이 창을 닫으면 사라져요.</span><a href="${PLAYER_DEMO ? 'demo.html' : 'demo.html?as=player'}">${PLAYER_DEMO ? '지도자 화면으로' : '선수 화면으로'}</a><a class="btn sm" href="./#/signup">실제로 시작하기</a></div>` : ''}<div id="sys-notice"></div><div id="team-notice"></div><div id="view"></div>${FOOTER}</main>
     <aside class="search-panel" id="search-panel"></aside>
     <div class="scrim"></div>
   </div>`;

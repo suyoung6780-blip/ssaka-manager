@@ -45,6 +45,9 @@ export function accountGuide() {
   return m;
 }
 
+// 가입 전에 둘러보기: 가짜 데이터로 도는 체험 페이지 (실제 데이터는 안 건드림)
+const tryDemo = () => (auth.demo ? '' : `<div class="card try-demo"><div><b>가입 전에 먼저 둘러보세요</b><small>예시 팀으로 모든 기능을 써 볼 수 있어요 · 실제 데이터는 저장되지 않아요</small></div>
+  <div class="row"><a class="btn" href="demo.html">지도자로 체험해 보기</a><a class="btn ghost" href="demo.html?as=player">선수로 체험해 보기</a></div></div>`);
 const brand = `<div class="brand"><img src="icons/logo-full.png" alt="SSAKA MANAGER · FOOTBALL TEAM MANAGEMENT PLATFORM"><small>축구팀을 위한 매니지먼트 플랫폼</small></div>`;
 
 export function login(el) {
@@ -62,6 +65,7 @@ export function login(el) {
     </div>
     <p class="center small"><a href="#/privacy" class="muted">개인정보 처리방침</a></p>
   </form>
+  ${tryDemo()}
   <p class="center install-line">${installButton('btn ghost sm')}</p>`;
   bindInstall(el);
   const form = el.querySelector('form');
@@ -111,6 +115,7 @@ export function signup(el) {
     <div class="row between small"><button type="button" class="link-btn" data-guide>계정 유형 · 권한 안내</button><a href="#/login">이미 계정이 있어요</a></div>
     <p class="center small"><a href="#/privacy" class="muted">개인정보 처리방침</a></p>
   </form>
+  ${tryDemo()}
   <p class="center install-line">${installButton('btn ghost sm')}</p>`;
   bindInstall(el);
   const form = el.querySelector('form');

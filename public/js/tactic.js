@@ -1044,6 +1044,11 @@ export function createPad(container, initial, { editable = true, motion = false,
     const open = m.hidden;
     closeMenus();
     m.hidden = !open;
+    m.style.left = '';
+    if (open) { // 휴대폰: 메뉴가 화면 오른쪽 밖으로 나가면 안쪽으로 당김
+      const r = m.getBoundingClientRect(); const over = r.right - (document.documentElement.clientWidth - 8);
+      if (over > 0) m.style.left = `${-Math.min(over, r.left - 8)}px`;
+    }
   }));
   document.addEventListener('click', (e) => { if (!container.contains(e.target) || !e.target.closest('.pgroup')) closeMenus(); });
   // ⛶ 크게: 전체 화면에서 편집 (Esc 로 돌아오기)

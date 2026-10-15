@@ -28,7 +28,7 @@ export function codeModal(code, title = '팀 코드가 만들어졌어요') {
     <p>선수 · 코치에게 이 코드를 알려주세요. <strong>대문자 · 소문자를 구분</strong>합니다.</p>
     <div class="code-big" data-copy>${esc(code)}</div>
     <div class="row between"><small class="muted">팀 설정에서 언제든 다시 볼 수 있어요.</small><button class="btn" data-copy-btn>코드 복사</button></div>`);
-  const copy = () => navigator.clipboard?.writeText(code).then(() => toast('팀 코드를 복사했습니다.'), () => {});
+  const copy = () => (navigator.clipboard?.writeText(code) || Promise.reject()).then(() => toast('팀 코드를 복사했습니다.'), () => toast(`복사가 안 돼요 — 팀 코드: ${code}`));
   m.el.querySelector('[data-copy]').onclick = copy;
   m.el.querySelector('[data-copy-btn]').onclick = copy;
   return m;
@@ -238,7 +238,7 @@ export async function settings(el) {
     };
   }).catch(() => {});
   el.querySelector('[data-copy]')?.addEventListener('click', () => {
-    navigator.clipboard.writeText(billing.code).then(() => toast('팀 코드를 복사했습니다.'));
+    (navigator.clipboard?.writeText(billing.code) || Promise.reject()).then(() => toast('팀 코드를 복사했습니다.'), () => toast(`복사가 안 돼요 — 팀 코드: ${billing.code}`));
   });
   const form = el.querySelector('form');
   form.onsubmit = async (e) => {

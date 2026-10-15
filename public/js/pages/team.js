@@ -75,7 +75,7 @@ export async function gameModel(el) {
     const list = (gm.patterns || []).filter((x) => patCat === '전체' || x.cat === patCat);
     box.innerHTML = list.length ? list.map((x) => `<article class="pat-card" data-pid="${x.id}">
         <div data-pthumb></div>
-        <div class="pat-body"><span class="tag">${esc(x.cat)}</span>${x.pad?.steps?.length ? ' <span class="tag">🎬 움직임</span>' : ''}<strong>${esc(x.title)}</strong></div></article>`).join('')
+        <div class="pat-body"><span class="tag">${esc(x.cat)}</span>${x.pad?.steps?.length ? ' <span class="tag">움직임</span>' : ''}<strong>${esc(x.title)}</strong></div></article>`).join('')
       : empty(isCoach() ? '아직 패턴이 없어요. [+ 패턴 만들기]로 코너킥 · 프리킥 · 빌드업 같은 약속을 작전판으로 남겨 보세요.' : '아직 등록된 패턴이 없어요.');
     box.querySelectorAll('[data-pid]').forEach((c) => {
       const x = gm.patterns.find((p) => p.id === c.dataset.pid);
@@ -185,7 +185,7 @@ export async function locker(el) {
     }).join('')}`;
   bindSortBar(el, 'locker', () => locker(el));
 
-  el.querySelector('[data-code]')?.addEventListener('click', () => navigator.clipboard.writeText(code).then(() => toast('팀 코드를 복사했습니다.')));
+  el.querySelector('[data-code]')?.addEventListener('click', () => (navigator.clipboard?.writeText(code) || Promise.reject()).then(() => toast('팀 코드를 복사했습니다.'), () => toast(`복사가 안 돼요 — 팀 코드: ${code}`)));
   // 만 14세 미만: 보호자 정보(이름 · 관계 · 연락처)
   el.querySelectorAll('[data-g]').forEach(async (sm) => {
     try {

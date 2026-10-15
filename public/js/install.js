@@ -25,7 +25,7 @@ export function bindInstall(root) {
 export async function installApp() {
   if (isStandalone()) return toast('이미 앱으로 열려 있어요.');
   if (deferred) {
-    deferred.prompt();
+    try { await deferred.prompt(); } catch { return toast('설치 창을 열지 못했어요. 브라우저 메뉴에서 "홈 화면에 추가"를 눌러 주세요.'); }
     const r = await deferred.userChoice.catch(() => null);
     deferred = null;
     if (r?.outcome === 'accepted') toast('설치하고 있어요. 홈 화면(바탕화면)에서 싸카매니저를 찾아보세요.');

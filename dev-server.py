@@ -63,7 +63,7 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/api/feeds':
             return self.send_bytes(json.dumps(collect(), ensure_ascii=False).encode(), 'application/json; charset=utf-8')
         if DEMO and path == '/js/fb.js':
-            return self.send_bytes((ROOT / 'dev' / 'mock-fb.js').read_bytes(), 'text/javascript; charset=utf-8')
+            return self.send_bytes((PUBLIC / 'js' / 'demo-fb.js').read_bytes(), 'text/javascript; charset=utf-8')
         if DEMO and path == '/js/config.js':
             src = (PUBLIC / 'js' / 'config.js').read_text(encoding='utf-8')
             src = src.replace("export const isConfigured = ", "export const isConfigured = true || ")
