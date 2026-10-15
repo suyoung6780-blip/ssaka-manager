@@ -46,7 +46,7 @@ service cloud.firestore {
         && (!changed().hasAny(['guardianOk']) || (request.resource.data.guardianOk == true
           && get(/databases/$(database)/documents/consents/$(resource.data.consentToken)).data.status == 'agreed'
           && get(/databases/$(database)/documents/consents/$(resource.data.consentToken)).data.uid == uid()));
-      allow delete: if signedIn() && uid() == userId; // 회원 탈퇴
+      allow delete: if (signedIn() && uid() == userId) || isAdmin(); // 회원 탈퇴 · 운영자 내보내기
       // 이적: 보내는 팀 대표가 그 사람의 소속 팀을 받는 팀으로 바꿈
       allow update: if signedIn() && userId != uid() && changed().hasOnly(['teamId'])
         && getAfter(/databases/$(database)/documents/transfers/$(userId)).data.toTeam == request.resource.data.teamId
@@ -60,6 +60,7 @@ service cloud.firestore {
       // 홈 '오늘 할 일' 메모장 (본인만)
       match /todos/{todoId} {
         allow read, write: if signedIn() && uid() == userId;
+        allow read, delete: if isAdmin(); // 운영자 내보내기
       }
     }
 
@@ -111,7 +112,7 @@ service cloud.firestore {
           );
         // 본인은 역할 · 승인 · 나이 정보를 못 바꿈. 팀 대표는 승인 · 내보내기 가능
         allow update: if (signedIn() && m == uid() && !changed().hasAny(['role', 'code', 'under14', 'approved', 'approvedBy', 'approvedAt', 'consentToken'])) || isOwner(t);
-        allow delete: if (signedIn() && m == uid()) || isOwner(t);
+        allow delete: if (signedIn() && m == uid()) || isOwner(t) || isAdmin();
         // 이적: 보내는 팀 대표가 받는 팀에 '승인 대기'로 넣음 (받는 팀 대표가 승인해야 들어감)
         allow create: if signedIn() && m != uid()
           && request.resource.data.approved == false
@@ -153,18 +154,19 @@ service cloud.firestore {
         allow create: if isSquad(t) && request.resource.data.ownerUid == uid() && (
           (request.resource.data.scope == 'team' && isCoach(t)) || request.resource.data.scope == 'personal');
         allow update, delete: if isCoach(t) || (isSquad(t) && resource.data.ownerUid == uid());
+        allow list, delete: if isAdmin(); // 운영자 내보내기
       }
 
       // 일일 기록: 문서 ID = {uid}_{YYYY-MM-DD}
       match /logs/{l} {
         allow get: if isCoach(t) || (isMember(t) && l.split('_')[0] == uid());
-        allow list: if isCoach(t) || (isMember(t) && resource.data.uid == uid());
+        allow list: if isCoach(t) || (isMember(t) && resource.data.uid == uid()) || isAdmin(); // 운영자: 내보내기 때 지울 일지 찾기
         allow create: if isSquad(t) && request.resource.data.uid == uid()
           && l == uid() + '_' + request.resource.data.date;
         allow update: if (isSquad(t) && resource.data.uid == uid() && request.resource.data.uid == uid()
             && !changed().hasAny(['checked', 'coachComment', 'checkedBy', 'checkedAt', 'answers']))
           || (isCoach(t) && changed().hasOnly(['checked', 'coachComment', 'checkedBy', 'checkedAt', 'answers'])); // answers: 세션별 질문 답변
-        allow delete: if isMember(t) && resource.data.uid == uid(); // 회원 탈퇴 시 내 일지 삭제
+        allow delete: if (isMember(t) && resource.data.uid == uid()) || isAdmin(); // 회원 탈퇴 · 운영자 내보내기 때 일지 삭제
       }
 
       // 상담실은 없앰 — 남은 글은 운영자가 한 번에 지울 수 있게 (운영자 페이지)
@@ -253,6 +255,12 @@ service cloud.firestore {
     }
 
     // 만 14세 미만 보호자 동의 — 링크(추측 불가능한 긴 토큰)를 아는 보호자가 로그인 없이 열어서 동의
+    // 운영자가 내보낸 계정 안내: 문서 ID = 이메일 SHA-256 — 로그인 화면에서 이유를 보여 줌 (목록은 못 봄)
+    match /expelled/{k} {
+      allow get: if true;
+      allow create, update, delete: if isAdmin();
+      allow delete: if signedIn() && request.auth.token.email != null && request.auth.token.email.lower() == resource.data.email;
+    }
     match /consents/{tk} {
       allow get: if true;
       allow create: if signedIn() && tk.size() >= 16 && request.resource.data.uid == uid()
@@ -261,7 +269,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'guardianName', 'relation', 'phone', 'agreedAt', 'ver'])
         && request.resource.data.guardianName is string && request.resource.data.guardianName.size() > 0
         && request.resource.data.phone is string && request.resource.data.phone.size() >= 10;
-      allow delete: if signedIn() && resource.data.uid == uid();
+      allow delete: if (signedIn() && resource.data.uid == uid()) || isAdmin();
     }
 
     // 운영자 전체 공지 — 로그인한 모두가 읽고, 운영자만 씀

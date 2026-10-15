@@ -1,3 +1,8 @@
+// 이메일 → 문서 ID (내보낸 계정 안내용 · 이메일을 그대로 문서 이름으로 쓰지 않음)
+export async function emailKey(email) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(email || '').trim().toLowerCase()));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 export const CATEGORIES = ['U12', 'U15', 'U18', 'U22', 'K1·2', 'K3·4', 'K5·6·7', 'WK', '기타'];
 // 예전 구분 → 지금 구분 (K5 · K6 · K7 은 하나로, 동아리 · 조기회는 기타)
 const OLD_CAT = { K1: 'K1·2', K2: 'K1·2', K3: 'K3·4', K4: 'K3·4', K5: 'K5·6·7', K6: 'K5·6·7', K7: 'K5·6·7', 학교동아리: '기타', '아마추어 조기회': '기타' };

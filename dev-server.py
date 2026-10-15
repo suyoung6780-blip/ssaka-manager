@@ -73,6 +73,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_range(rng)
         return super().do_GET()
 
+    def do_POST(self):
+        path = self.path.split('?')[0]
+        if DEMO and path == '/api/admin_user':  # 데모: 계정 지우기는 흉내만
+            return self.send_bytes(json.dumps({'ok': True, 'demo': True}).encode(), 'application/json; charset=utf-8')
+        self.send_response(404); self.end_headers()
+
     # 영상 탐색(seek)에 필요한 HTTP Range 요청 지원 — 기본 http.server 는 지원하지 않음
     def send_range(self, rng):
         path = Path(self.translate_path(self.path.split('?')[0]))

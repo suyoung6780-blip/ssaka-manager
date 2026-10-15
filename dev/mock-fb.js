@@ -21,6 +21,9 @@ seed('teams/T1/members/c2', { name: '최코치', role: 'coach', coachTitle: 'GK 
 seed('teams/T1/members/p1', { name: '박선수', role: 'player', affiliation: '블랙중 3학년', position: 'ST', number: '9', height: '175', weight: '65' });
 seed('teams/T1/members/p2', { name: '이선수', role: 'player', position: 'GK', number: '1' });
 seed('teams/T3/members/q1', { name: '최상대', role: 'player', position: 'CM', number: '8' });
+// 운영자가 내보낸 예시 계정: 로그인 화면에서 old@x.com 으로 로그인하면 이유 안내가 보임
+{ const h = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('old@x.com')))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  seed(`expelled/${h}`, { email: 'old@x.com', name: '예전계정', reason: '· 지도자 / 선수 계정을 잘못 골랐어요\n지도자로 다시 가입한 뒤 팀 코드로 들어와 주세요.', at: Timestamp.fromMillis(Date.now() - 864e5), by: '운영자' }); }
 // 팀 이름을 대충 적은 예시 팀 (운영자 팀명 주의 · 기능 제한 · 팀 구분 정리 미리보기)
 seed('teams/T5', { name: 'ㅇ', category: '아마추어 조기회', isPublic: true, ownerUid: 'w1', ownerName: '이감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 3 * 864e5), status: 'active', paidUntil: later });
 seed('teams/T6', { name: '축구교실', category: '학교동아리', isPublic: true, ownerUid: 'w2', ownerName: '한감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 1 * 864e5), status: 'active', paidUntil: later });

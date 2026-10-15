@@ -2,7 +2,7 @@
 import {
   auth, db, doc, getDoc, setDoc, getDocs, addDoc, deleteDoc, updateDoc, collection, query, where, serverTimestamp, writeBatch, Timestamp, sendEmailVerification,
 } from '../fb.js';
-import { esc, toast, fail, pageHead, fmtDate, CATEGORIES, normCat, confirmBox, modal } from '../ui.js';
+import { esc, toast, fail, pageHead, fmtDate, CATEGORIES, normCat, confirmBox, modal, emailKey } from '../ui.js';
 import { genTeamCode } from './onboard.js';
 import { state, go, hooks, compActive } from '../store.js';
 
@@ -317,7 +317,7 @@ export async function users(el) {
     </div>
     <p class="muted small">가입한 <b>지도자 · 선수</b> 모두 보여요. 계정 유형(선수 ↔ 지도자)은 각 팀 대표가 락커룸에서 바꿔요.</p>
     <div class="card admin-table-wrap"><table class="tbl admin-table">
-      <thead><tr><th>이름</th><th>구분</th><th>이메일</th><th>직책 · 포지션</th><th>소속 팀</th><th>자격증</th><th>가입일</th></tr></thead>
+      <thead><tr><th>이름</th><th>구분</th><th>이메일</th><th>직책 · 포지션</th><th>소속 팀</th><th>자격증</th><th>가입일</th><th></th></tr></thead>
       <tbody data-rows></tbody></table></div>`;
 
   const draw = () => {
@@ -346,9 +346,66 @@ export async function users(el) {
         <td data-l="직책 · 포지션">${esc((u.role === 'coach' ? [u.coachTitle, u.duty] : [u.position, u.number && `${u.number}번`]).filter(Boolean).join(' · ') || '-')}</td>
         <td data-l="소속 팀">${tn ? `<a href="#/teams/${u.teamId}">${esc(tn)}</a>` : '<span class="muted">없음</span>'}</td>
         <td data-l="자격증">${esc([u.licenses, u.licenseEtc].filter(Boolean).join(', ') || '-')}</td>
-        <td data-l="가입일">${fmtDate(u.createdAt) || '-'}</td></tr>`;
-    }).join('') || '<tr><td colspan="7" class="muted center">조건에 맞는 사람이 없습니다.</td></tr>';
+        <td data-l="가입일">${fmtDate(u.createdAt) || '-'}</td>
+        <td data-l="">${u.id === state.user.uid ? '' : `<button class="btn ghost sm danger-btn" data-expel="${u.id}">내보내기</button>`}</td></tr>`;
+    }).join('') || '<tr><td colspan="8" class="muted center">조건에 맞는 사람이 없습니다.</td></tr>';
+    el.querySelectorAll('[data-expel]').forEach((b) => (b.onclick = () => expel(list.find((x) => x.id === b.dataset.expel))));
   };
+  // 내보내기: 계정을 완전히 지움 → 그 이메일로 처음부터 다시 가입할 수 있음
+  async function expel(u) {
+    if (!u) return;
+    if (ownerOf.has(u.id)) { toast(`${u.name || u.email}님은 ${teamName[u.teamId] || '팀'} 대표예요. 먼저 팀 설정에서 대표를 다른 지도자에게 넘긴 뒤 내보내 주세요.`); return; }
+    // 이유 적기 → 그 사람이 다시 로그인하려 할 때 로그인 화면에 정리해서 보여 줌
+    const REASONS = ['팀 이름 · 소속을 알아볼 수 없어요', '지도자 / 선수 계정을 잘못 골랐어요', '같은 사람이 계정을 여러 개 만들었어요', '실제 팀 · 선수가 아닌 것 같아요', '이용 규칙에 맞지 않게 사용했어요'];
+    const reason = await new Promise((res) => {
+      const md = modal(`<span class="eyebrow">EXPEL</span><h2>${esc(u.name || '')} 내보내기</h2>
+        <p class="muted small">${esc(u.email || '이메일 없음')} · 로그인 계정 · 프로필 · 팀 소속 · 일지 · 개인 목표가 모두 지워지고, 같은 이메일로 처음부터 다시 가입할 수 있어요. <b>되돌릴 수 없어요.</b></p>
+        <h4>이유 <small class="muted">그 사람이 다시 로그인하려 할 때 로그인 화면에 보여요</small></h4>
+        <div class="pick-chips" data-rs>${REASONS.map((r0) => `<label><input type="checkbox" value="${esc(r0)}"><span>${esc(r0)}</span></label>`).join('')}</div>
+        <label>직접 적기 <small class="muted">(선택)</small><textarea rows="3" maxlength="300" data-rt placeholder="예) 팀 이름을 실제 팀 이름(OO FC U15)으로 적어서 다시 가입해 주세요."></textarea></label>
+        <div class="row end"><button type="button" class="btn ghost" data-no>취소</button><button type="button" class="btn danger-solid" data-yes>내보내기</button></div>`);
+      md.el.querySelector('[data-no]').onclick = () => { md.close(); res(null); };
+      md.el.querySelector('[data-yes]').onclick = () => {
+        const picked = [...md.el.querySelectorAll('[data-rs] input:checked')].map((c) => c.value);
+        const txt = md.el.querySelector('[data-rt]').value.trim();
+        if (!picked.length && !txt) { toast('이유를 하나 이상 골라 주세요.'); return; }
+        md.close();
+        res([...picked.map((x) => `· ${x}`), ...(txt ? [txt] : [])].join('\n'));
+      };
+    });
+    if (reason == null) return;
+    try {
+      // ① 로그인 계정 (서버에서만 지울 수 있음)
+      const tok = await auth.currentUser?.getIdToken?.();
+      const r = await fetch('/api/admin_user', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify({ uid: u.id }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        if (j.setup) { modal(`<span class="eyebrow">SETUP</span><h2>한 번만 설정이 필요해요</h2>
+          <p>계정을 지우려면 서버가 쓰는 서비스 계정(<b>ssaka-usage</b>)에 <b>Firebase 인증 관리자</b> 권한이 있어야 해요.</p>
+          <ol class="guide-steps"><li><a href="https://console.cloud.google.com/iam-admin/iam?project=ssaka-manager" target="_blank" rel="noopener">Google Cloud → IAM ↗</a>을 열어요</li>
+            <li>목록에서 <b>ssaka-usage@…</b> 줄의 연필(수정)을 눌러요</li>
+            <li><b>다른 역할 추가</b> → <b>Firebase 인증 관리자</b>(Firebase Authentication Admin)를 고르고 저장해요</li>
+            <li>1~2분 뒤 다시 <b>내보내기</b>를 눌러요</li></ol>
+          <p class="muted small">${esc(j.error || '')}</p>`); return; }
+        throw new Error(j.error || `HTTP ${r.status}`);
+      }
+      // ② 다시 로그인하려 할 때 보여 줄 안내 (이유)
+      if (u.email) await setDoc(doc(db, 'expelled', await emailKey(u.email)), { email: u.email.trim().toLowerCase(), name: u.name || '', reason, at: serverTimestamp(), by: state.profile.name });
+      // ③ 앱 데이터: 팀 소속 · 일지 · 개인 목표 · 할 일 · 보호자 동의 · 프로필
+      const refs = [];
+      if (u.teamId) {
+        (await getDocs(query(collection(db, 'teams', u.teamId, 'logs'), where('uid', '==', u.id)))).docs.forEach((d) => refs.push(d.ref));
+        (await getDocs(query(collection(db, 'teams', u.teamId, 'goals'), where('ownerUid', '==', u.id)))).docs.filter((d) => d.data().scope === 'personal').forEach((d) => refs.push(d.ref));
+        refs.push(doc(db, 'teams', u.teamId, 'members', u.id));
+      }
+      (await getDocs(collection(db, 'users', u.id, 'todos')).catch(() => ({ docs: [] }))).docs.forEach((d) => refs.push(d.ref));
+      if (u.consentToken) refs.push(doc(db, 'consents', u.consentToken));
+      refs.push(doc(db, 'users', u.id));
+      for (let i = 0; i < refs.length; i += 400) { const b = writeBatch(db); refs.slice(i, i + 400).forEach((x) => b.delete(x)); await b.commit(); }
+      toast(`${u.name || u.email} 계정을 내보냈어요. 같은 이메일로 다시 가입할 수 있어요.`);
+      users(el);
+    } catch (err) { fail(err); }
+  }
   el.querySelector('[data-q]').oninput = (e) => { q = e.target.value.trim().toLowerCase(); draw(); };
   el.querySelector('[data-only]').onchange = (e) => { only = e.target.value; draw(); };
   draw();

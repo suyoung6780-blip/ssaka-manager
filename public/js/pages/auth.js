@@ -1,9 +1,9 @@
 import {
-  auth, db, doc, setDoc, serverTimestamp, writeBatch,
+  auth, db, doc, setDoc, getDoc, deleteDoc, serverTimestamp, writeBatch,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, signOut,
   verifyPasswordResetCode, confirmPasswordReset, applyActionCode, sendEmailVerification,
 } from '../fb.js';
-import { esc, toast, fail, formData, options, POSITIONS, ROLES, resizeImage, avatar, modal } from '../ui.js';
+import { esc, toast, fail, formData, options, POSITIONS, ROLES, resizeImage, avatar, modal, emailKey, fmtDate } from '../ui.js';
 import { state, loadContext, go, hooks } from '../store.js';
 import { FREE_MODE, EMAIL_VERIFY_FROM } from '../config.js';
 import { agreeFields, bindAgree, agreeData } from './privacy.js';
@@ -55,6 +55,7 @@ export function login(el) {
     <label>이메일 (아이디)<input name="email" type="email" required autocomplete="email"></label>
     <label>비밀번호<input name="password" type="password" required autocomplete="current-password"></label>
     <button class="btn full">로그인</button>
+    <div class="expel-note" data-expel hidden></div>
     <div class="row between small">
       <button type="button" class="link-btn" data-reset>비밀번호 찾기</button>
       <a href="#/signup">회원가입 →</a>
@@ -67,7 +68,27 @@ export function login(el) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const { email, password } = formData(form);
-    try { await signInWithEmailAndPassword(auth, email, password); } catch (err) { fail(err); }
+    const note = el.querySelector('[data-expel]');
+    note.hidden = true;
+    try { await signInWithEmailAndPassword(auth, email, password); } catch (err) {
+      // 운영자가 내보낸 계정이면: 이유와 함께 '다시 회원가입' 안내
+      if (['auth/user-not-found', 'auth/invalid-credential', 'auth/invalid-login-credentials', 'auth/wrong-password'].includes(err?.code)) {
+        try {
+          const x = await getDoc(doc(db, 'expelled', await emailKey(email)));
+          if (x.exists()) {
+            const d = x.data();
+            note.innerHTML = `<b>이 계정은 운영자가 정리했어요</b>
+              <p>${d.at ? `${esc(fmtDate(d.at))}에 ` : ''}운영자가 이 이메일의 계정을 지웠어요. 그래서 지금은 로그인할 수 없어요.</p>
+              ${d.reason ? `<div class="expel-why"><span>이유</span><p>${esc(d.reason).replace(/\n/g, '<br>')}</p></div>` : ''}
+              <p>같은 이메일로 <b>다시 회원가입</b>하면 처음부터 이용할 수 있어요. ${d.reason ? '위 이유를 확인하고 바르게 가입해 주세요.' : ''}</p>
+              <a class="btn full" href="#/signup">다시 회원가입하기</a>`;
+            note.hidden = false;
+            return;
+          }
+        } catch { /* 안내를 못 읽으면 보통 오류로 */ }
+      }
+      fail(err);
+    }
   };
   el.querySelector('[data-reset]').onclick = async () => {
     const email = form.email.value.trim();
@@ -101,6 +122,8 @@ export function signup(el) {
     dup.hidden = true;
     try {
       await createUserWithEmailAndPassword(auth, email, password);
+      // 예전에 내보낸 계정이면 안내 기록은 지움 (다시 가입했으니)
+      emailKey(email).then((k) => deleteDoc(doc(db, 'expelled', k))).catch(() => {});
       sendVerify(true);
     } catch (err) {
       // 같은 이메일로 이미 가입된 경우: 칸 바로 아래에 안내 + 로그인 / 재설정 바로가기

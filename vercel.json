@@ -12,6 +12,9 @@
     },
     "api/veo.py": {
       "maxDuration": 15
+    },
+    "api/admin_user.py": {
+      "maxDuration": 15
     }
   },
   "headers": [
