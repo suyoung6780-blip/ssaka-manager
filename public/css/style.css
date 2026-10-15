@@ -8,6 +8,7 @@
   --line: #262626;
   --line2: #363636;
   --text: #f4f4f4;
+  --accent: #39e75f; /* 로고의 초록 — 아주 조금만 */
   --sub: #b4b4b4;
   --muted: #777;
   --invert: #0f0f0f;
@@ -2280,3 +2281,15 @@ details.legacy { margin-top: 10px; }
 .expel-note p { margin: 0; }
 .expel-why { background: var(--surface2); border-radius: 6px; padding: 8px 10px; }
 .expel-why span { font-size: 11px; font-weight: 800; color: var(--muted); }
+
+/* 로고 · 초록 포인트 (로고 밑줄 색) — 아주 조금만 */
+.logo img { display: block; width: 100%; max-width: 188px; height: auto; }
+.logo small { margin-top: 10px; }
+.logo-sm img { display: block; height: 20px; width: auto; }
+.brand img { display: block; width: 230px; max-width: 70vw; height: auto; margin: 0 auto; }
+.brand small { margin-top: 6px; }
+.page-head .eyebrow::before { content: ''; display: inline-block; width: 16px; height: 2px; background: var(--accent); vertical-align: middle; margin: -2px 7px 0 0; border-radius: 1px; }
+.nav-list a.active { box-shadow: inset 3px 0 0 var(--accent); }
+input[type=checkbox], input[type=radio], input[type=range] { accent-color: var(--accent); }
+:focus-visible { outline-color: var(--accent); }
+.sf-brand strong::after { content: ''; display: block; width: 26px; height: 2px; background: var(--accent); margin-top: 6px; border-radius: 1px; }

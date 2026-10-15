@@ -215,11 +215,11 @@ function renderShell() {
   <div class="shell">
     <header class="topbar">
       <button class="icon-btn" data-toggle="nav-open" aria-label="메뉴">☰</button>
-      <a href="#/" class="logo-sm">SSAKA MANAGER</a>
+      <a href="#/" class="logo-sm"><img src="icons/logo-h.png" alt="SSAKA MANAGER"></a>
       <button class="icon-btn" data-toggle="search-open" aria-label="팀 검색">⌕</button>
     </header>
     <aside class="nav">
-      <a href="#/" class="logo"><span>SSAKA</span><span>MANAGER</span><small>싸카매니저</small></a>
+      <a href="#/" class="logo"><img src="icons/logo-h.png" alt="SSAKA MANAGER"><small>싸카매니저</small></a>
       <div class="team-chip"></div>
       <nav class="nav-list"></nav>
       <div class="me-box"></div>

@@ -45,7 +45,7 @@ export function accountGuide() {
   return m;
 }
 
-const brand = `<div class="brand"><span>SSAKA</span><span>MANAGER</span><small>축구팀을 위한 매니지먼트 플랫폼</small></div>`;
+const brand = `<div class="brand"><img src="icons/logo-full.png" alt="SSAKA MANAGER · FOOTBALL TEAM MANAGEMENT PLATFORM"><small>축구팀을 위한 매니지먼트 플랫폼</small></div>`;
 
 export function login(el) {
   el.innerHTML = `${brand}
