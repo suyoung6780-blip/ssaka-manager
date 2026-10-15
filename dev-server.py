@@ -52,6 +52,14 @@ class Handler(SimpleHTTPRequestHandler):
         if DEMO and path == '/api/usage':  # 데모: 운영자 사용량 화면 미리보기용 예시 숫자
             return self.send_bytes(json.dumps({'configured': True, 'used': {'read': 18342, 'write': 2210, 'delete': 41}, 'limits': {'read': 50000, 'write': 20000, 'delete': 20000},
                                                'since': '2026-10-14T07:00:00Z', 'reset': '2026-10-15T07:00:00Z', 'at': '2026-10-14T13:20:00Z', 'demo': True}).encode(), 'application/json; charset=utf-8')
+        if path == '/api/veo':  # Veo 공개 경기 → 원본 영상 주소 (배포 때 api/veo.py 와 같은 코드)
+            import importlib.util
+            spec = importlib.util.spec_from_file_location('veo', ROOT / 'api' / 'veo.py'); veo = importlib.util.module_from_spec(spec); spec.loader.exec_module(veo)
+            from urllib.parse import parse_qs, urlparse
+            code, data = veo.resolve((parse_qs(urlparse(self.path).query).get('m') or [''])[0])
+            body = json.dumps(data).encode()
+            self.send_response(code); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+            return
         if path == '/api/feeds':
             return self.send_bytes(json.dumps(collect(), ensure_ascii=False).encode(), 'application/json; charset=utf-8')
         if DEMO and path == '/js/fb.js':

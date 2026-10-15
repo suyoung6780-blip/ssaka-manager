@@ -12,7 +12,7 @@ import {
 } from '../telestrator.js';
 import { ai, loadAI, detectAround, scanFrame, pickNear } from '../detector.js';
 import { STORAGE_ENABLED } from '../config.js';
-import { matchStudio, sampleMatch, computeReport, TARGETS } from './matchAnalysis.js';
+import { matchStudio, sampleMatch, computeReport, TARGETS, linkOf, LINK_HELP, VEO_HELP } from './matchAnalysis.js';
 
 // 무료(파일 저장소 없음): 영상은 코치 컴퓨터에서 바로 열어 분석 — 이 창을 닫기 전까지만 기억
 const localFiles = new Map(); // 분석 id → File
@@ -92,8 +92,9 @@ function heroHtml(compact) {
         <text x="80" y="11" class="an-dir">상대 공격 →</text></svg>
         <div class="an-hbars">${[['왼쪽', 18], ['가운데', 27], ['오른쪽', 55]].map(([l, v], i) => `<div><span>${l}</span><i style="--w:${v}%;animation-delay:${i * 0.2}s"></i><b>${v}%</b></div>`).join('')}
           <p class="an-type">“상대는 오른쪽 55% → 우리 왼쪽 수비 대비”</p></div></div>
-      <div class="an-htext"><span class="eyebrow">경기분석</span><h3>경기 하나로 상대 팀 리포트</h3>
-        <p>영상을 보며 <b>경기장을 탭</b>만 하면 공격 방향 · 위험 지역 · 슈팅 지도 · <b>AI 포메이션</b>까지 자동으로 완성돼요. 선수들은 <b>체크 포인트</b>로 봐요.</p>
+      <div class="an-htext"><span class="eyebrow">경기분석</span><h3>경기 하나로 한 장짜리 리포트</h3>
+        <p>영상(내 파일 · 유튜브 · Veo)을 보며 <b>코치님이 직접</b> 단축키로 장면을 고르고 경기장을 누르면, 그 기록으로 리포트가 정리돼요. <b>AI가 대신 기록하지 않아서</b> 누른 만큼 정확해요.</p>
+        <ol class="an-steps"><li><b>킥오프</b> 순간 버튼 → 전반 · 후반 경기 시간이 정확히</li><li>장면이 나오면 <kbd>Space</kbd> 멈춤 → <b>단축키</b>(1~5 · Q~T · A~G · Z~B) → <b>경기장</b> 누르기</li><li>잘못 누르면 <kbd>Del</kbd> → 그 점 누르기</li><li><b>저장</b> → 자동 분석 · 전반/후반 비교 · 포메이션 · 키 플레이어가 한 장에</li></ol>
         <button class="link-btn small" data-sample>완성된 예시 리포트 보기 ›</button></div>
     </div>
   </section>`;
@@ -118,7 +119,10 @@ function createMatchModal(preset = null) {
       <label>제목<input name="title" maxlength="80" placeholder="비우면 'vs 상대팀 경기분석'"></label>
       <div class="grid2"><label>분석할 팀<select name="target">${TARGETS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
         <label>경기 인원<select name="size"><option value="11">11 vs 11</option><option value="8">8 vs 8 (초등부)</option></select></label></div>
-      ${preset ? `<p class="muted small">영상: <b>${esc(preset.name)}</b></p>` : '<label>경기 영상 <small class="muted">내 컴퓨터에서 열어요 (서버에 안 올림) · 나중에 열어도 돼요</small><input type="file" name="file" accept="video/*"></label>'}
+      ${preset ? `<p class="muted small">영상: <b>${esc(preset.name)}</b></p>` : `<fieldset class="ma-src"><legend>경기 영상 <small class="muted">둘 중 하나 · 나중에 넣어도 돼요</small></legend>
+        <label>내 컴퓨터 파일 <small class="muted">서버에 안 올라가요</small><input type="file" name="file" accept="video/*"></label>
+        <label>또는 영상 링크 <small class="muted">유튜브 · Veo · mp4 주소 — 분석에 저장돼서 다음에도 바로 열려요</small><input type="url" name="link" placeholder="https://youtu.be/… 또는 https://app.veo.co/matches/…"></label>
+        <p class="muted small">Veo는 공개(링크 공유)된 경기만 열려요.</p></fieldset>`}
       <label>전반에 영상에서 <b>상대</b>가 공격하는 방향<select name="oppDir"><option value="right">오른쪽 →</option><option value="left">← 왼쪽</option></select></label>
       <div class="row end"><button class="btn">만들기</button></div>
     </form>`);
@@ -127,11 +131,18 @@ function createMatchModal(preset = null) {
     e.preventDefault();
     const d = formData(form);
     const file = preset || form.file?.files[0];
+    let link = null;
+    if (!file && d.link?.trim()) {
+      link = linkOf(d.link);
+      if (link?.kind === 'veo-bad') { toast(VEO_HELP); return; }
+      if (!link) { toast(`영상 링크를 확인해 주세요. ${LINK_HELP}`); return; }
+    }
     try {
       const ref = await addDoc(col(), {
         type: 'analysis', mode: 'match', title: (d.title || `vs ${d.opponent} 경기분석`).trim(), opponent: d.opponent.trim(), date: d.date,
         oppDir: d.oppDir, target: d.target || 'opp', size: +d.size || 11, lineups: {}, events: [], formations: [], videoUrl: '',
         ...(file ? { video: { local: true, name: file.name, size: file.size, type: file.type } } : {}),
+        ...(link ? { link, youtube: link.kind === 'youtube' ? link.id : '' } : {}),
         authorUid: state.user.uid, authorName: state.profile.name, createdAt: serverTimestamp(),
       });
       if (file) localFiles.set(ref.id, file);
@@ -155,7 +166,6 @@ function createModal(preset = null) {
         <input type="file" name="file" accept="video/*"></label>` : `<label>영상 파일 <small class="muted">내 컴퓨터의 영상을 바로 열어요 — 서버에 올리지 않아요 (AI 트래킹 · 그림 모두 가능)</small>
         <input type="file" name="file" accept="video/*"></label>
         <p class="muted small">분석한 뒤 <b>영상으로 내보내기</b> → 유튜브에 '일부 공개'로 올리고 링크를 붙이면 선수들이 볼 수 있어요.</p>`}
-      <label>또는 YouTube 링크 <small class="muted">재생 + 타임라인 메모만 가능</small><input type="url" name="videoUrl"></label>
       <div class="upload-bar" hidden><i></i><span></span></div>
       <div class="row end"><button class="btn">만들기</button></div>
     </form>`);
@@ -164,7 +174,7 @@ function createModal(preset = null) {
     e.preventDefault();
     const d = formData(form);
     const file = form.file.files[0] || preset;
-    if (!file && !d.videoUrl) return toast('영상 파일이나 YouTube 링크를 넣어주세요.');
+    if (!file) return toast('영상 파일을 넣어 주세요.');
     if (file && STORAGE_ENABLED && file.size > 1024 * 1024 * 1024) return toast('1GB 이하 영상만 올릴 수 있습니다.');
     const btn = form.querySelector('.btn');
     btn.disabled = true;

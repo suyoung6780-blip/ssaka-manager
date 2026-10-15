@@ -1,27 +1,72 @@
 // 분석실 > 경기분석 — 영상을 보며 경기장을 탭해 장면 기록 → 상대(또는 우리) 공격 방향 · 슈팅 · 크로스 · 위험 지역 · 시간대 흐름 리포트
-// + AI 포메이션 제안 (화면의 선수를 찾아 유니폼 색으로 팀을 나누고, 상대 선수들의 줄을 세어 4-4-2 같은 형태로)
+// + 코치가 직접 정하는 포메이션(등번호) · 키 플레이어 → 저장하면 기록 · 자동 분석 · 포메이션 · 키 플레이어가 한 리포트로
 import { db, doc, updateDoc, deleteDoc } from '../fb.js';
 import { esc, toast, fail, modal, confirmBox, empty } from '../ui.js';
 import { state, go } from '../store.js';
 import { createPad, blank } from '../tactic.js';
-import { loadAI, scanFrame } from '../detector.js';
 
 const col = () => ['teams', state.team.id, 'posts'];
 const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-// 기록하는 장면 종류: [키, 이름, 단축키, 색]
+// 기록하는 장면: [키, 이름, 단축키, 색, 묶음] — 코치가 영상을 보며 직접 세분화해서 기록
 export const KINDS = [
-  ['attack', '공격 전개', 'A', '#4ea1ff'],
-  ['shot', '슈팅', 'S', '#ffd400'],
-  ['goal', '득점', 'G', '#34c759'],
-  ['cross', '크로스', 'C', '#ff9f0a'],
-  ['loss', '볼 뺏김', 'L', '#ff3b30'],
-  ['win', '볼 탈취', 'W', '#bf5af2'],
-  ['setpiece', '세트피스', 'P', '#64d2ff'],
-  ['note', '메모', 'N', '#9a9a9a'],
+  ['attack', '공격 전개', '1', '#4ea1ff', 'att'],
+  ['through', '스루패스', '2', '#4ea1ff', 'att'],
+  ['long', '롱볼', '3', '#4ea1ff', 'att'],
+  ['dribble', '돌파', '4', '#4ea1ff', 'att'],
+  ['cross', '크로스 · 컷백', '5', '#4ea1ff', 'att'],
+  ['shot', '슈팅', 'Q', '#4ea1ff', 'att'],
+  ['goal', '득점', 'W', '#4ea1ff', 'att'],
+  ['press', '압박', 'E', '#ff453a', 'def'],
+  ['win', '볼 탈취', 'R', '#ff453a', 'def'],
+  ['clear', '클리어링', 'T', '#ff453a', 'def'],
+  ['save', '선방', 'A', '#ff453a', 'def'],
+  ['duel', '경합 · 태클', 'S', '#ff453a', 'def'],
+  ['loss', '볼 뺏김', 'D', '#30d158', 'tr'],
+  ['counter', '역습', 'F', '#30d158', 'tr'],
+  ['gegen', '역압박', 'G', '#30d158', 'tr'],
+  ['corner', '코너킥', 'Z', '#ffd60a', 'set'],
+  ['freekick', '프리킥', 'X', '#ffd60a', 'set'],
+  ['penalty', '페널티킥', 'C', '#ffd60a', 'set'],
+  ['foul', '파울', 'V', '#ff9f0a', 'etc'],
+  ['note', '메모', '6', '#ff9f0a', 'etc'],
+  ['offside', '오프사이드', 'B', '#ff9f0a', 'etc'],
 ];
-const KIND = Object.fromEntries(KINDS.map(([k, l, key, c]) => [k, { l, key, c }]));
+// 예전에 기록한 장면 종류 (버튼엔 없지만 리포트에는 그대로 나옴)
+const OLD_KINDS = [
+  ['buildup', '빌드업', '', '#4ea1ff', 'att'], ['prog', '전진 패스', '', '#4ea1ff', 'att'], ['cutback', '컷백', '', '#4ea1ff', 'att'], ['chance', '결정적 찬스', '', '#4ea1ff', 'att'],
+  ['intercept', '인터셉트', '', '#ff453a', 'def'], ['throw', '스로인', '', '#ffd60a', 'set'], ['setpiece', '세트피스', '', '#ffd60a', 'set'], ['card', '경고 · 퇴장', '', '#ff9f0a', 'etc'],
+];
+export const KGROUPS = [['att', '공격'], ['def', '수비'], ['tr', '전환'], ['set', '세트피스'], ['etc', '기타']];
+// 묶음 색: 공격 파랑 · 수비 빨강 · 전환 초록 · 세트피스 노랑 · 기타 주황 — 같은 묶음 안은 단축키 글자로 구분
+export const GCOLOR = { att: '#4ea1ff', def: '#ff453a', tr: '#30d158', set: '#ffd60a', etc: '#ff9f0a' };
+const KIND0 = Object.fromEntries([...KINDS, ...OLD_KINDS].map(([k, l, key, c, g]) => [k, { l, key, c, g }]));
+const KIND = new Proxy(KIND0, { get: (o, k) => o[k] || o.note }); // 모르는 종류는 메모처럼
+// 기록한 뒤 바로 아래에서 고르는 자세한 내용
+const DETAIL = {
+  res: ['결과', [['ok', '성공'], ['fail', '실패']]],
+  shotRes: ['결과', [['goal', '골'], ['on', '유효 슈팅'], ['off', '빗나감'], ['block', '막힘'], ['post', '골대']]],
+  foot: ['발', [['L', '왼발'], ['R', '오른발'], ['H', '헤더']]],
+  height: ['높이', [['high', '높게'], ['low', '낮게'], ['ground', '땅볼']]],
+  setRes: ['결과', [['shot', '슈팅까지'], ['danger', '위험했음'], ['none', '무산']]],
+  card: ['카드', [['Y', '경고'], ['R', '퇴장']]],
+  how: ['어떻게', [['press', '압박당해'], ['mistake', '패스 실수'], ['duel', '경합 패배'], ['dribble', '드리블 실패']]],
+};
+const DETAILS_OF = {
+  buildup: ['res'], attack: ['res'], prog: ['res'], through: ['res'], long: ['res'], dribble: ['res'], counter: ['res'],
+  cross: ['res', 'foot', 'height'], cutback: ['res', 'foot'], chance: ['foot'], shot: ['shotRes', 'foot'], goal: ['foot'],
+  press: ['res'], duel: ['res'], loss: ['how'],
+  corner: ['setRes', 'foot'], freekick: ['setRes', 'foot'], throw: ['setRes'], penalty: ['shotRes', 'foot'], setpiece: ['setRes'],
+  card: ['card'], foul: ['card'], gegen: ['res'],
+};
+const DLABEL = Object.fromEntries(Object.values(DETAIL).flatMap(([, o]) => o));
+// 끝 지점(공이 간 곳)도 찍을 수 있는 장면
+const LINE_KINDS = ['buildup', 'attack', 'prog', 'through', 'long', 'dribble', 'cross', 'cutback', 'counter'];
+// 단축키: 키보드 자리(Q W E …)로 — 한글 입력 상태여도 같은 자리면 됨
+const KEY_OF = Object.fromEntries(KINDS.map(([k, , key]) => [/\d/.test(key) ? `Digit${key}` : `Key${key}`, k]));
+const fieldOf = (d) => (d === 'shotRes' || d === 'setRes' ? 'res' : d);
+const detailText = (e) => [...(DETAILS_OF[e.k] || []).map((d) => DLABEL[e[fieldOf(d)]]).filter(Boolean), e.num && `${e.num}번`].filter(Boolean).join(' · ');
 const TEAM = { opp: '상대', us: '우리' };
 export const TARGETS = [['opp', '상대 팀'], ['us', '우리 팀'], ['both', '두 팀 다']];
 
@@ -37,17 +82,23 @@ export function positionsOf(f) {
   const lines = String(f).split('-').map(Number).filter((n) => n > 0);
   const L = lines.length;
   const out = [{ x: 0.06, y: 0.5, role: 'GK' }];
+  // 줄마다 옆으로 벌리는 폭: 투톱 · 두 명 수미는 가운데에 붙이고, 4 · 5명 줄만 넓게
+  const SPREAD = { B: { 2: 0.4, 3: 0.5, 4: 0.74, 5: 0.82 }, M: { 2: 0.3, 3: 0.44, 4: 0.74, 5: 0.84 }, AM: { 2: 0.34, 3: 0.62 }, F: { 2: 0.28, 3: 0.62, 4: 0.7 } };
   lines.forEach((c, li) => {
     const x = L === 1 ? 0.5 : 0.25 + (li * (0.84 - 0.25)) / (L - 1);
-    const type = li === 0 ? 'B' : li === L - 1 ? 'F' : L >= 4 && li === 1 ? 'DM' : L >= 4 && li === L - 2 ? 'AM' : 'M';
+    let type = li === 0 ? 'B' : li === L - 1 ? 'F' : 'M';
+    // 4줄 이상: 수비 바로 앞 1~2명 = 수비형 미드, 공격수 바로 뒤 1~3명 = 공격형 (4-2-3-1 · 4-1-4-1 · 4-3-1-2)
+    if (type === 'M' && L >= 4) type = li === 1 && c <= 2 ? 'DM' : li === L - 2 && c <= 3 ? 'AM' : 'M';
+    const sp = (SPREAD[type === 'DM' ? 'M' : type][c]) ?? Math.min(0.84, 0.2 * (c - 1));
     for (let i = 0; i < c; i++) {
-      const y = c === 1 ? 0.5 : 0.13 + (i * 0.74) / (c - 1);
-      const side = c >= 3 && i === 0 ? 'L' : c >= 3 && i === c - 1 ? 'R' : '';
-      let role = { B: 'CB', DM: 'DM', AM: 'AM', M: 'CM', F: 'ST' }[type];
-      if (side && type === 'B') role = c >= 5 ? `${side}WB` : c >= 4 ? `${side}B` : 'CB';
-      else if (side && type === 'M') role = c >= 4 ? `${side}M` : 'CM';
-      else if (side && type === 'F') role = `${side}W`;
-      else if (side && type === 'AM') role = `${side}W`;
+      const y = c === 1 ? 0.5 : 0.5 - sp / 2 + (i * sp) / (c - 1);
+      const side = (i === 0 ? 'L' : i === c - 1 ? 'R' : '');
+      let role;
+      if (type === 'B') role = side && c >= 5 ? `${side}WB` : side && c === 4 ? `${side}B` : 'CB';
+      else if (type === 'F') role = c >= 3 && side ? `${side}W` : c === 1 || c === 2 ? 'ST' : 'CF';
+      else if (type === 'DM') role = 'DM';
+      else if (type === 'AM') role = c >= 3 && side ? `${side}W` : 'AM';
+      else role = side && c >= 5 ? `${side}WB` : side && c === 4 ? `${side}M` : 'CM';
       out.push({ x, y, role });
     }
   });
@@ -55,10 +106,10 @@ export function positionsOf(f) {
 }
 // 포메이션 그림 (번호 보기 · 고치기)
 export function lineupHtml(lu, { edit = false, color = '#e5484d', keys = [] } = {}) {
-  if (!lu?.f) return '<p class="muted small">아직 정하지 않았어요.</p>';
+  if (!lu?.f) return edit ? '<p class="muted small lu-empty">위에서 <b>포메이션을 고르면</b> 경기장에 자리마다 번호 칸이 생겨요.</p>' : '<p class="muted small">아직 정하지 않았어요.</p>';
   const star = new Set(keys.map((k) => String(k.num || '').trim()).filter(Boolean));
-  return `<div class="lu-pitch" style="--c:${color}">${positionsOf(lu.f).map((p, i) => `<div class="lu-pos ${star.has(String(lu.nums?.[i] || '').trim()) ? 'key' : ''}" style="left:${p.x * 100}%;top:${p.y * 100}%">
-    ${edit ? `<input data-lunum="${i}" value="${esc(lu.nums?.[i] || '')}" maxlength="3" inputmode="numeric" aria-label="${p.role} 번호">` : `<b>${esc(lu.nums?.[i] || '')}</b>`}<small>${p.role}</small></div>`).join('')}</div>`;
+  return `<div class="lu-pitch" style="--c:${color}">${positionsOf(lu.f).map((p, i) => `<div class="lu-pos ${star.has(String(lu.nums?.[i] || '').trim()) ? 'key' : ''}" style="left:${4 + p.x * 90}%;top:${5 + p.y * 84}%">
+    ${edit ? `<input data-lunum="${i}" value="${esc(lu.nums?.[i] || '')}" maxlength="3" inputmode="numeric" placeholder="번호" aria-label="${p.role} 번호">` : `<b>${esc(lu.nums?.[i] || '')}</b>`}<small>${p.role}</small></div>`).join('')}</div>`;
 }
 // 저장 좌표: x 0 = 그 팀 골문 쪽, 1 = 공격 방향 / y 0 = 공격하는 팀 기준 왼쪽, 1 = 오른쪽
 const channel = (y) => (y < 1 / 3 ? '왼쪽' : y > 2 / 3 ? '오른쪽' : '가운데');
@@ -82,6 +133,110 @@ function pitchSvg(inner = '', { half = false, cls = '' } = {}) {
 }
 const dot = (x, y, c, r = 1.3, extra = '') => `<circle cx="${(x * 105).toFixed(1)}" cy="${(y * 68).toFixed(1)}" r="${r}" fill="${c}" ${extra}/>`;
 
+// ───────── 유튜브 영상 (IFrame API) — <video> 처럼 쓰게 감쌈: currentTime · paused · play() · 이벤트 ─────────
+export function ytIdOf(url) {
+  const u = String(url || '').trim();
+  const m = u.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : /^[A-Za-z0-9_-]{11}$/.test(u) ? u : '';
+}
+// 영상 링크: 유튜브 · Veo(공개 경기) · 영상 파일 주소(mp4 등) — 비메오도 몰래 지원
+export const LINK_NAME = { youtube: '유튜브', vimeo: '비메오', veo: 'Veo', file: '링크' };
+export function linkOf(raw) {
+  const u = String(raw || '').trim();
+  if (!u) return null;
+  const y = ytIdOf(u);
+  if (y) return { kind: 'youtube', id: y };
+  const v = u.match(/vimeo\.com\/(?:video\/|channels\/[^/]+\/)?(\d+)/i);
+  if (v) return { kind: 'vimeo', id: v[1], url: u };
+  const vo = u.match(/veo\.co\/matches\/([A-Za-z0-9_-]{6,200})/i);
+  if (vo) return { kind: 'veo', slug: vo[1], url: u.split('?')[0] };
+  if (/veo\.co|veo\.com/i.test(u)) return { kind: 'veo-bad' };
+  if (/^https?:\/\/\S+\.(mp4|webm|mov|m4v)(\?\S*)?$/i.test(u)) return { kind: 'file', url: u };
+  return null;
+}
+export const LINK_HELP = '유튜브 · Veo 경기 링크, 또는 mp4 같은 영상 파일 주소를 붙여 주세요.';
+export const VEO_HELP = 'Veo는 경기 페이지 주소(app.veo.co/matches/…)를 붙여 주세요. 경기가 공개(링크 공유)로 되어 있어야 열려요.';
+// 장면 시각으로 바로 가는 주소 (리포트에서 누르면 새 창)
+const timeUrl = (lk, sec) => (lk?.kind === 'youtube' ? `https://youtu.be/${lk.id}?t=${sec}` : lk?.kind === 'vimeo' ? `${(lk.url || `https://vimeo.com/${lk.id}`).split('#')[0]}#t=${sec}s` : '');
+let vmApi = null;
+const loadVimeo = () => (vmApi ||= new Promise((res, rej) => {
+  if (window.Vimeo?.Player) { res(window.Vimeo); return; }
+  const sc = document.createElement('script'); sc.src = 'https://player.vimeo.com/api/player.js';
+  sc.onload = () => res(window.Vimeo); sc.onerror = rej; document.head.appendChild(sc);
+}));
+function vimeoPlayer(box, lk) {
+  const ls = {}; let p = null; let cur = 0; let dur = 0; let paused = true; let rate = 1;
+  const emit = (type) => (ls[type] || []).forEach((f) => f());
+  const api = {
+    yt: true,
+    get currentTime() { return cur; },
+    set currentTime(v) { cur = Math.max(0, v); p?.setCurrentTime(cur).catch(() => {}); emit('timeupdate'); },
+    get paused() { return paused; },
+    get duration() { return dur; },
+    get playbackRate() { return rate; },
+    set playbackRate(v) { rate = v; p?.setPlaybackRate(v).catch(() => toast('이 비메오 영상은 재생 속도를 바꿀 수 없어요.')); },
+    play() { p?.play().catch(() => {}); return Promise.resolve(); },
+    pause() { p?.pause().catch(() => {}); },
+    addEventListener(type, f) { (ls[type] ||= []).push(f); },
+    destroy() { try { p?.destroy(); } catch { /* */ } },
+  };
+  loadVimeo().then((V) => {
+    if (!box.isConnected) return;
+    p = new V.Player(box, { url: lk.url || `https://vimeo.com/${lk.id}`, responsive: true });
+    p.on('timeupdate', (d) => { cur = d.seconds; dur = d.duration || dur; emit('timeupdate'); });
+    p.on('seeked', (d) => { cur = d.seconds; emit('timeupdate'); });
+    p.on('play', () => { paused = false; emit('play'); });
+    p.on('pause', () => { paused = true; emit('pause'); });
+    p.on('ended', () => { paused = true; emit('pause'); });
+    p.ready().then(() => p.getDuration()).then((d) => { dur = d; emit('loadedmetadata'); emit('timeupdate'); })
+      .catch(() => { box.innerHTML = '<p class="ma-yterr">이 비메오 영상을 열 수 없어요. 비공개이거나 다른 사이트에서 재생을 막아 둔 영상이에요.</p>'; });
+  }).catch(() => toast('비메오 플레이어를 불러오지 못했어요.'));
+  return api;
+}
+let ytApi = null;
+const loadYT = () => (ytApi ||= new Promise((res) => {
+  if (window.YT?.Player) { res(window.YT); return; }
+  const prev = window.onYouTubeIframeAPIReady;
+  window.onYouTubeIframeAPIReady = () => { prev?.(); res(window.YT); };
+  const sc = document.createElement('script'); sc.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(sc);
+}));
+function ytPlayer(box, id) {
+  const ls = {}; let p = null; let paused = true; let dur = 0; let rate = 1; let tick = 0; let want = null;
+  const emit = (type) => (ls[type] || []).forEach((f) => f());
+  const api = {
+    yt: true,
+    get currentTime() { return p?.getCurrentTime?.() || 0; },
+    set currentTime(v) { if (p?.seekTo) { p.seekTo(Math.max(0, v), true); setTimeout(() => emit('timeupdate'), 120); } else want = v; },
+    get paused() { return paused; },
+    get duration() { return dur || p?.getDuration?.() || 0; },
+    get playbackRate() { return rate; },
+    set playbackRate(v) { rate = v; p?.setPlaybackRate?.(v); },
+    play() { p?.playVideo?.(); return Promise.resolve(); },
+    pause() { p?.pauseVideo?.(); },
+    addEventListener(type, f) { (ls[type] ||= []).push(f); },
+    destroy() { clearInterval(tick); try { p?.destroy?.(); } catch { /* */ } },
+  };
+  loadYT().then((YT) => {
+    if (!box.isConnected) return;
+    p = new YT.Player(box, {
+      videoId: id, width: '100%', height: '100%',
+      playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+      events: {
+        onReady: () => { dur = p.getDuration() || 0; if (want != null) p.seekTo(want, true); emit('loadedmetadata'); emit('timeupdate'); },
+        onStateChange: (e) => {
+          const was = paused;
+          paused = e.data !== YT.PlayerState.PLAYING;
+          if (!dur) dur = p.getDuration() || 0;
+          if (was !== paused) emit(paused ? 'pause' : 'play');
+          emit('timeupdate');
+        },
+      },
+    });
+    tick = setInterval(() => { if (!box.isConnected && !document.contains(p?.getIframe?.())) { clearInterval(tick); return; } if (!paused) emit('timeupdate'); }, 250);
+  });
+  return api;
+}
+
 export async function matchStudio(el, post, { canEdit, files, sample = false }) {
   const data = {
     events: post.events || [],
@@ -91,10 +246,18 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     size: post.size || 11,
     lineups: post.lineups || {},
     keys: post.keys || {}, // 키 플레이어 { opp: [{ id, num, pos, name, note }], us: [...] }
+    halfStart: post.halfStart || {}, // 영상에서 하프가 시작하는 시각(초) { 1: 0, 2: 3120 }
   };
+  let half = data.events.length && halfOf(data.events[data.events.length - 1]) === 2 ? 2 : 1; // 지금 기록하는 하프
+  const flipDir = (d) => (d === 'right' ? 'left' : 'right');
+  // 경기 시간: 하프 킥오프 시각 기준 — 영상의 실제 재생 위치로 계산해서 1.5x · 2x로 봐도 정확해요
+  const matchMin = (e, mf = minuteFn(data.events, data.halfStart)) => `${HALF[halfOf(e)]} ${Math.floor(mf(e))}′`;
+  const fmtMatch = (vt) => { const st = data.halfStart[half]; if (st == null) return `영상 ${fmtT(vt)}`; const m = Math.max(0, vt - st); return `${HALF[half]} ${Math.floor(m / 60)}:${String(Math.floor(m % 60)).padStart(2, '0')}`; };
+  let delMode = false; // 지우기: Del 키(또는 Backspace) → 경기장의 점을 누르면 지워짐
+  const dirOf = (h) => (h === 2 ? flipDir(data.oppDir) : data.oppDir); // 후반은 자동으로 반대 방향
   const teams = data.target === 'both' ? ['opp', 'us'] : [data.target];
   const main = teams[0];
-  let tab = canEdit ? 'tag' : 'check';
+  let tab = sample ? 'report' : canEdit ? 'tag' : 'check';
   let kind = 'attack';
   let team = data.target === 'us' ? 'us' : 'opp';
   let saveT = null;
@@ -102,28 +265,64 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
   const file = files.get(post.id);
   const vsrc = post.video?.url || (file ? URL.createObjectURL(file) : '');
   if (file) state.cleanup.push(() => URL.revokeObjectURL(vsrc));
+  const linkNow = () => (post.link?.kind ? post.link : post.youtube ? { kind: 'youtube', id: post.youtube } : null);
+  const lk = vsrc ? null : linkNow(); // 내 컴퓨터 영상을 열지 않았으면 저장해 둔 영상 링크
+  const ctlHtml = `<div class="ma-ctl"><button class="icon-btn" data-play>▶</button><button class="icon-btn sm" data-step="-5">«</button><button class="icon-btn sm" data-step="5">»</button>
+          <span class="st-time" data-time>0:00</span><span class="ma-seek"><input type="range" min="0" max="1000" value="0" data-seek><span class="ma-marks" data-marks></span></span>
+          <select data-rate><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></div>`;
 
   el.innerHTML = `<div class="studio ma">
     <header class="studio-top"><a href="#/analysis" class="icon-btn" aria-label="목록">‹</a>
       <div class="st-title"><strong>${esc(post.title)}</strong><small>경기분석 · ${esc([post.opponent && `vs ${post.opponent}`, post.date].filter(Boolean).join(' · '))}</small></div>
-      <div class="st-actions"><span class="muted small" data-saved></span>${canEdit ? '<button class="btn ghost sm" data-del>삭제</button><button class="btn sm" data-savebtn>저장</button>' : ''}</div></header>
-    ${sample ? '<div class="banner sample-banner">예시 리포트예요 — 실제 경기 기록이 아니라, 경기분석으로 이런 걸 볼 수 있다는 걸 보여 드려요.</div>' : ''}
+      <div class="st-actions"><span class="muted small" data-saved></span>${canEdit ? '<button class="btn ghost sm" data-full title="영상 · 단축키 · 경기장 · 자세히 칸을 한 화면에 (Esc로 나가기)">전체화면으로 기록</button><button class="btn ghost sm" data-del>삭제</button><button class="btn sm" data-savebtn>저장</button>' : ''}</div></header>
+    ${sample ? '<div class="banner sample-banner">예시 리포트예요 — 코치님이 영상을 보며 단축키로 직접 기록하면(전반 · 후반 · 킥오프 · 결과 · 발 · 번호) 이렇게 한 장으로 정리돼요. 위 [전체 · 전반 · 후반]도 눌러 보세요.</div>' : ''}
     <nav class="tabs admin-tabs ma-tabs">${[...(canEdit ? [['tag', '기록하기']] : [['check', '체크 포인트']]), ['formation', '포메이션'], ['report', '리포트']].map(([k, l]) => `<a href="javascript:void 0" data-tab="${k}">${l}</a>`).join('')}</nav>
     <div class="ma-body">
       <div class="ma-video" ${canEdit ? '' : 'hidden'}>
-        ${vsrc ? `<div class="ma-vwrap"><video playsinline preload="auto" crossorigin="anonymous" src="${esc(vsrc)}"></video><canvas class="ma-ai" hidden></canvas>${canEdit ? '<div class="ma-status" data-status></div>' : ''}</div>
-          <div class="ma-ctl"><button class="icon-btn" data-play>▶</button><button class="icon-btn sm" data-step="-5">«</button><button class="icon-btn sm" data-step="5">»</button>
-          <span class="st-time" data-time>0:00</span><span class="ma-seek"><input type="range" min="0" max="1000" value="0" data-seek><span class="ma-marks" data-marks></span></span>
-          <select data-rate><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></div>`
-        : `<div class="card ma-novideo"><p>경기 영상을 열면 보면서 기록할 수 있어요. 영상은 서버에 올라가지 않아요.</p>
-          <label class="btn file-btn">경기 영상 파일 열기<input type="file" accept="video/*" hidden data-file></label>
+        ${vsrc ? `<div class="ma-vwrap"><video playsinline preload="auto" crossorigin="anonymous" src="${esc(vsrc)}"></video>${canEdit ? '<div class="ma-status" data-status></div>' : ''}</div>
+          ${ctlHtml}`
+        : lk ? `<div class="ma-vwrap ${['file', 'veo'].includes(lk.kind) ? '' : 'yt'}">${lk.kind === 'file' ? `<video playsinline preload="auto" src="${esc(lk.url)}"></video>` : lk.kind === 'veo' ? '<video playsinline preload="metadata" data-veo></video><p class="ma-veoload" data-veomsg>Veo 경기 영상을 불러오는 중…</p>' : '<div class="ma-yt" data-yt></div>'}${canEdit ? '<div class="ma-status" data-status></div>' : ''}</div>
+          ${ctlHtml}${canEdit ? `<div class="ma-ytbar"><span class="muted small">${LINK_NAME[lk.kind]} 영상으로 기록 중</span><button type="button" class="link-btn small" data-ytoff>다른 영상 열기</button></div>` : ''}`
+        : `<div class="card ma-novideo"><p>경기 영상을 열면 보면서 기록할 수 있어요.</p>
+          <label class="btn file-btn">내 컴퓨터 영상 파일 열기<input type="file" accept="video/*" hidden data-file></label>
+          <p class="muted small">파일은 서버에 올라가지 않아요.</p>
+          <div class="ma-ytin"><input type="url" placeholder="영상 링크 붙여넣기 (유튜브 · Veo · mp4 주소)" data-yturl><button type="button" class="btn" data-ytgo>링크로 열기</button></div>
+          <p class="muted small">링크는 이 분석에 저장돼서 다음에도 바로 열려요. 유튜브는 <b>공개 · 일부 공개</b>, Veo는 <b>공개(링크 공유)</b>된 경기만 돼요.</p>
           <p class="muted small">영상 없이도 <b>포메이션 · 리포트</b>는 볼 수 있어요.</p></div>`}
+      ${canEdit ? '<div class="ma-kb" data-kb></div><div class="card ma-tips" data-tips></div>' : ''}
       </div>
       <div class="ma-panel" data-panel></div>
     </div>
   </div>`;
 
-  const video = el.querySelector('video');
+  const video = el.querySelector('video') || (lk?.kind === 'youtube' ? ytPlayer(el.querySelector('[data-yt]'), lk.id) : lk?.kind === 'vimeo' ? vimeoPlayer(el.querySelector('[data-yt]'), lk) : null);
+  if (video?.yt) state.cleanup.push(() => video.destroy());
+  // Veo: 공개 경기의 원본 영상 주소를 서버 함수로 찾아서 바로 재생 (주소는 열 때마다 새로 받음)
+  const veoV = el.querySelector('[data-veo]');
+  if (veoV && lk?.slug) {
+    fetch(`/api/veo?m=${encodeURIComponent(lk.slug)}`).then((r) => r.json().then((j) => [r.ok, j])).then(([ok, j]) => {
+      const msg = el.querySelector('[data-veomsg]');
+      if (!ok || !j.url) { if (msg) msg.textContent = j.error === 'not public' ? 'Veo 경기가 공개되어 있지 않아 열 수 없어요. Veo에서 경기 공유(공개)를 켜거나, 영상을 다운로드해서 파일로 열어 주세요.' : 'Veo 영상을 찾지 못했어요. 링크를 확인해 주세요.'; return; }
+      veoV.src = j.url; msg?.remove();
+    }).catch(() => { const msg = el.querySelector('[data-veomsg]'); if (msg) msg.textContent = 'Veo 영상을 불러오지 못했어요. 잠시 뒤 다시 해 주세요.'; });
+  }
+  // 영상 링크 붙여넣기 → 이 분석에 저장하고 다시 그림
+  el.querySelector('[data-ytgo]')?.addEventListener('click', async () => {
+    const l = linkOf(el.querySelector('[data-yturl]').value);
+    if (l?.kind === 'veo-bad') return toast(VEO_HELP);
+    if (!l) return toast(`영상 링크를 확인해 주세요. ${LINK_HELP}`);
+    post.link = l; post.youtube = l.kind === 'youtube' ? l.id : '';
+    if (!sample) { try { await updateDoc(doc(db, ...col(), post.id), { link: l, youtube: post.youtube }); } catch (err) { fail(err); } }
+    files.delete(post.id);
+    matchStudio(el, post, { canEdit, files });
+  });
+  el.querySelector('[data-yturl]')?.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') el.querySelector('[data-ytgo]').click(); });
+  el.querySelector('[data-ytoff]')?.addEventListener('click', async () => {
+    if (!(await confirmBox('지금 영상 링크를 빼고 다른 영상을 열까요? 기록은 그대로 남아요.'))) return;
+    post.youtube = ''; post.link = null;
+    if (!sample) { try { await updateDoc(doc(db, ...col(), post.id), { youtube: '', link: null }); } catch (err) { fail(err); } }
+    matchStudio(el, post, { canEdit, files });
+  });
   const panel = el.querySelector('[data-panel]');
   const t = () => video?.currentTime || 0;
   el.querySelector('[data-file]')?.addEventListener('change', (e) => {
@@ -132,6 +331,24 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     files.set(post.id, f);
     matchStudio(el, post, { canEdit, files });
   });
+  // 전체화면 기록: 영상 · 키보드 그림 · 경기장 · 자세히 칸만 한 화면에
+  const studioEl = el.querySelector('.studio');
+  const setFull = (on) => {
+    studioEl.classList.toggle('ma-full', on);
+    const b = el.querySelector('[data-full]'); if (b) b.textContent = on ? '전체화면 나가기' : '전체화면으로 기록';
+    if (on && tab !== 'tag') setTab('tag');
+    try { if (on && !document.fullscreenElement) studioEl.requestFullscreen?.().catch(() => {}); if (!on && document.fullscreenElement) document.exitFullscreen?.(); } catch { /* */ }
+  };
+  el.querySelector('[data-full]')?.addEventListener('click', (ev) => { ev.currentTarget.blur(); setFull(!studioEl.classList.contains('ma-full')); });
+  // 유튜브 화면을 누르면 키보드가 유튜브로 넘어가서 단축키가 안 먹음 → 잠시 뒤 다시 이 화면으로 (재생 · 멈춤 클릭은 그대로 됨)
+  if (video?.yt) {
+    const back = () => setTimeout(() => { if (document.activeElement?.tagName === 'IFRAME' && tab === 'tag') { document.activeElement.blur(); window.focus(); } }, 250);
+    window.addEventListener('blur', back);
+    state.cleanup.push(() => window.removeEventListener('blur', back));
+  }
+  const onFs = () => { if (!document.fullscreenElement && studioEl.classList.contains('ma-full')) setFull(false); };
+  document.addEventListener('fullscreenchange', onFs);
+  state.cleanup.push(() => { document.removeEventListener('fullscreenchange', onFs); if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {}); });
   el.querySelector('[data-del]')?.addEventListener('click', async () => {
     if (!(await confirmBox('이 경기분석을 삭제할까요?'))) return;
     try { await deleteDoc(doc(db, ...col(), post.id)); go('/analysis'); } catch (err) { fail(err); }
@@ -139,7 +356,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
 
   // 저장: 바꿀 때마다 잠깐 기다렸다가 한 번에
   const payload = () => ({
-    events: data.events, formations: data.formations, oppDir: data.oppDir, target: data.target, size: data.size, lineups: data.lineups, keys: data.keys,
+    events: data.events, formations: data.formations, oppDir: data.oppDir, target: data.target, size: data.size, lineups: data.lineups, keys: data.keys, halfStart: data.halfStart,
     // 리포트 요약도 함께 (영상은 저장하지 않음)
     report: { opp: computeReport(data.events, 'opp').summary, us: computeReport(data.events, 'us').summary, n: data.events.length, at: new Date().toISOString() },
   });
@@ -162,13 +379,14 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       await updateDoc(doc(db, ...col(), post.id), payload());
       Object.assign(post, data);
       stamp('저장됨');
-      toast(`저장했어요 — 기록 ${data.events.length}개 · 포메이션 ${data.formations.length}개 · 리포트 (영상은 저장되지 않아요)`);
+      toast(`리포트로 저장했어요 — 기록 ${data.events.length}개 · 자동 분석 · 포메이션 · 키 플레이어 (영상은 저장되지 않아요)`);
+      setTab('report');
     } catch (err) { fail(err); }
   });
 
   // 공격 방향 표시: 우리 팀만 분석하면 '우리 공격' 기준으로
   const dirLabel = () => (main === 'us' ? '우리 공격' : '상대 공격');
-  const dirArrow = () => (attacksRight(main, data.oppDir) ? '→' : '←');
+  const dirArrow = () => (attacksRight(main, dirOf(half)) ? '→' : '←');
 
   // ── 기록 상태 표시: 영상이 자동으로 분석되지 않으니, 지금 기록 중인지 · 얼마나 기록했는지 늘 보이게 ──
   let idle = 0; // 마지막 기록 뒤 실제로 재생된 시간(초)
@@ -177,12 +395,12 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
   const drawStatus = () => {
     const box = el.querySelector('[data-status]');
     if (!box || !video) return;
-    const n = data.events.length;
     let cls = ''; let html;
-    if (flash && Date.now() - flash.at < 2500) { cls = 'ok'; html = `✓ 기록됨 · ${TEAM[flash.team]} ${KIND[flash.k].l} (${fmtT(flash.t)}) · 총 ${n}개`; }
-    else if (video.paused) html = `⏸ 멈춤 · 기록 ${n}개 — 장면(종류)을 고르고 오른쪽 경기장을 누르면 기록돼요`;
-    else if (idle >= 60) { cls = 'warn'; html = `⚠ ${Math.floor(idle / 60)}분 넘게 기록이 없어요 — 장면이 있었으면 <kbd>Space</kbd>로 멈추고 경기장을 눌러 주세요`; }
-    else { cls = 'rec'; html = `<i></i>기록 중 · ${n}개 — 장면이 나오면 오른쪽 경기장을 누르세요`; }
+    if (flash && Date.now() - flash.at < 2500) { cls = flash.del ? 'warn' : 'ok'; html = flash.del ? `지웠어요 · ${TEAM[flash.team]} ${KIND[flash.k].l} (${matchMin(flash)})` : `<b class="sthalf h${halfOf(flash)}">${HALF[halfOf(flash)]}</b> 기록함 · ${TEAM[flash.team]} ${KIND[flash.k].l} (${matchMin(flash)}) · ${HALF[half]} ${data.events.filter((e) => halfOf(e) === half).length}개`; }
+    else if (delMode) { cls = 'warn'; html = '지우기 — 오른쪽 경기장에서 <b>지울 점</b>을 누르세요 (Esc 취소)'; }
+    else if (video.paused) html = `<b class="sthalf h${half}">${HALF[half]}</b> 멈춤 — 단축키로 장면을 고르고 경기장을 누르면 기록돼요`;
+    else if (idle >= 120) { cls = 'warn'; html = `<b class="sthalf h${half}">${HALF[half]}</b> 재생 중 · ${Math.floor(idle / 60)}분 넘게 누른 기록이 없어요 — 장면이 있었으면 <kbd>Space</kbd>로 멈추고 눌러 주세요`; }
+    else { html = `<b class="sthalf h${half}">${HALF[half]}</b> 재생 중 · ${fmtMatch(t())} — 장면이 나오면 <kbd>Space</kbd>로 멈추고 단축키 → 경기장`; }
     box.className = `ma-status ${cls}`;
     box.innerHTML = html;
   };
@@ -190,7 +408,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     const box = el.querySelector('[data-marks]');
     const d = video?.duration;
     if (!box || !d) return;
-    box.innerHTML = data.events.filter((e) => e.t <= d).map((e) => `<i style="left:${(e.t / d) * 100}%;background:${KIND[e.k].c}"></i>`).join('');
+    box.innerHTML = data.events.filter((e) => e.t <= d && halfOf(e) === half).map((e) => `<i style="left:${(e.t / d) * 100}%;background:${KIND[e.k].c}"></i>`).join('');
   };
   const tagged = (e) => { idle = 0; flash = { ...e, at: Date.now() }; drawStatus(); drawMarks(); setTimeout(drawStatus, 2600); };
 
@@ -216,40 +434,144 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     el.querySelector('[data-play]').onclick = () => (video.paused ? video.play() : video.pause());
     el.querySelectorAll('[data-step]').forEach((b) => (b.onclick = () => { video.currentTime = Math.max(0, t() + +b.dataset.step); }));
     el.querySelector('[data-seek]').oninput = (e) => { video.currentTime = (e.target.value / 1000) * (video.duration || 0); };
-    el.querySelector('[data-rate]').onchange = (e) => { video.playbackRate = +e.target.value; };
+    el.querySelector('[data-rate]').onchange = (e) => { video.playbackRate = +e.target.value; e.target.blur(); };
     state.cleanup.push(() => video.pause());
   }
 
   // ── 탭 ──
   const setTab = (k) => {
     tab = k;
+    document.querySelectorAll('.tour-bubble').forEach((x) => x.remove()); document.querySelectorAll('.tour-on').forEach((x) => x.classList.remove('tour-on'));
     el.querySelectorAll('[data-tab]').forEach((a) => a.classList.toggle('active', a.dataset.tab === k));
     el.querySelector('.ma-video').hidden = !(canEdit && (k === 'tag' || k === 'formation'));
+    el.querySelectorAll('[data-kb], [data-tips]').forEach((x) => { x.hidden = k !== 'tag'; });
     el.querySelector('.ma-body').classList.toggle('wide', !(canEdit && (k === 'tag' || k === 'formation')));
     if (k === 'tag') drawTag(); else if (k === 'check') drawCheck(); else if (k === 'formation') drawFormation(); else drawReport();
   };
   el.querySelectorAll('[data-tab]').forEach((a) => (a.onclick = () => setTab(a.dataset.tab)));
 
   // ───────── 기록하기 ─────────
+  const ls = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* */ } };
+  let detailOn = ls('ssaka.ma.detail2', true); // 기록 뒤 자세히 칸
+  let pending = null; // 끝 지점을 기다리는 장면
   function drawTag() {
+    if (!KINDS.some(([k]) => k === kind)) kind = 'attack';
     panel.innerHTML = `
       <div class="ma-row">${teams.length > 1 ? `<div class="seg" data-team>${teams.map((k) => `<button class="${k === team ? 'on' : ''}" data-tm="${k}">${TEAM[k]} 팀</button>`).join('')}</div>` : `<span class="tag solid">${TEAM[main]} 팀 분석</span>`}
-        <button class="btn ghost sm" data-dir title="하프타임에 바꿔 주세요">${dirLabel()} 방향 ${dirArrow()}</button></div>
-      <div class="ma-kinds">${KINDS.map(([k, l, key, c]) => `<button class="${k === kind ? 'on' : ''}" data-kind="${k}" style="--c:${c}"><i></i>${l}<kbd>${key}</kbd></button>`).join('')}</div>
-      <p class="muted small ma-hint">${video ? `영상은 자동으로 분석되지 않아요 — <b>코치님이 누른 장면</b>으로 리포트가 만들어져요.<br><b>${KIND[kind].l}</b>(${TEAM[team]})을 고른 채로 아래 경기장에서 <b>일어난 곳</b>을 누르세요 → 지금 영상 시각(${fmtT(t())})으로 기록돼요. 화면에 보이는 그대로 누르면 돼요.` : '영상을 열면 기록할 수 있어요.'}</p>
-      <div class="ma-tagpitch" data-pitch></div>
-      <div class="ma-keys muted small">단축키: <kbd>Space</kbd> 재생 · <kbd>←</kbd><kbd>→</kbd> 5초 · <kbd>Q</kbd> 상대/우리 · ${KINDS.map(([, l, key]) => `<kbd>${key}</kbd> ${l}`).join(' · ')}</div>
-      <div class="ma-live" data-live></div>
+        <div class="seg ma-half" data-half>${[1, 2].map((h) => `<button class="hb${h} ${h === half ? 'on' : ''}" data-h="${h}">${HALF[h]} <small>${data.events.filter((e) => halfOf(e) === h).length}</small></button>`).join('')}</div>
+        <button class="btn ghost sm" data-kickoff title="영상에서 ${HALF[half]}이 시작하는 순간에 누르세요 — 리포트의 '몇 분'이 정확해져요">${data.halfStart[half] != null ? `${HALF[half]} 시작 ${fmtT(data.halfStart[half])}` : `지금이 ${HALF[half]} 킥오프`}</button>
+        ${half === 1 ? '<button class="btn sm" data-start2 title="영상에서 후반이 시작하는 순간에 누르세요">후반 시작</button>' : ''}
+        <button class="btn ghost sm" data-dir title="${half === 2 ? '후반은 전반과 반대로 자동으로 바뀌어요' : '전반에 화면에서 공격하는 방향'}">${dirLabel()} ${dirArrow()}</button>
+</div>
+      <div class="ma-halfbar h${half}"><b>${HALF[half]}</b> 기록하는 중<span>${half === 1 ? '후반이 되면 위 <b>후반 시작</b>을 누르세요' : '전반 기록은 위 <b>전반</b>을 누르면 다시 보여요'}</span></div>
+      ${data.halfStart[half] == null ? `<p class="ma-kowarn">${HALF[half]} 킥오프 시각을 아직 안 맞췄어요 — 영상에서 <b>휘슬이 울리는 순간</b> 위 <b>지금이 ${HALF[half]} 킥오프</b>를 누르면 리포트 시간(예: ${HALF[half]} 15분)이 정확해져요.</p>` : ''}
+      <p class="muted small ma-hint" data-hint></p>
+      <div class="ma-tagpitch h${half}" data-pitch></div>
+      <div class="ma-detail" data-detail></div>
+      <div class="ma-moderow"><label class="switch sm"><input type="checkbox" data-detailon ${detailOn ? 'checked' : ''}><span>기록 뒤 자세히 칸 (결과 · 발 · 번호)</span></label></div>
       <section class="card kp-edit" data-kps>${keysEditHtml()}</section>
-      <h4 class="ma-h">기록 <small>${data.events.length}개</small></h4>
+      <div class="ma-live" data-live></div>
+      <h4 class="ma-h">${HALF[half]} 기록 <small>${data.events.filter((e) => halfOf(e) === half).length}개</small> <span class="muted small">${HALF[3 - half]} ${data.events.filter((e) => halfOf(e) !== half).length}개는 위 <b>${HALF[3 - half]}</b>을 누르면 다시 보여요</span></h4>
       <ul class="list ma-log" data-log></ul>`;
-    panel.querySelectorAll('[data-tm]').forEach((b) => (b.onclick = () => { team = b.dataset.tm; drawTag(); }));
-    panel.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = () => { kind = b.dataset.kind; drawTag(); }));
-    panel.querySelector('[data-dir]').onclick = () => { data.oppDir = data.oppDir === 'right' ? 'left' : 'right'; save(); drawTag(); };
+    panel.querySelectorAll('[data-tm]').forEach((b) => (b.onclick = () => pickTeam(b.dataset.tm)));
+    panel.querySelector('[data-dir]').onclick = () => { data.oppDir = flipDir(data.oppDir); save(); drawTag(); };
+    panel.querySelectorAll('[data-h]').forEach((b) => (b.onclick = () => {
+      const h = +b.dataset.h;
+      if (h === half) return;
+      half = h; pending = null; lastId = null;
+      // 그 하프의 첫 기록(없으면 킥오프 시각)으로 영상 이동
+      const first = data.events.filter((e) => halfOf(e) === h).sort((a, c) => a.t - c.t)[0];
+      const to = first ? Math.max(0, first.t - 3) : data.halfStart[h];
+      if (video && to != null) { video.pause(); video.currentTime = to; toast(`${HALF[h]}${first ? ` 첫 기록(${fmtT(first.t)})` : ' 시작'}으로 돌아갔어요.`); }
+      drawTag(); drawMarks();
+    }));
+    // 후반 시작: 지금 영상 시각을 후반 킥오프로 → 새 경기장에서 후반 기록 (전반 기록은 그대로 저장돼 있고 '전반'을 누르면 다시 보여요)
+    panel.querySelector('[data-start2]')?.addEventListener('click', async () => {
+      if (!video) return toast('먼저 경기 영상을 열어 주세요.');
+      if (!(await confirmBox(`지금(${fmtT(t())})부터 후반으로 기록할까요? 전반 기록 ${data.events.filter((e) => halfOf(e) === 1).length}개는 따로 저장돼 있고, 위 '전반'을 누르면 다시 볼 수 있어요.`))) return;
+      data.halfStart = { ...data.halfStart, 2: +t().toFixed(1) };
+      half = 2; pending = null; lastId = null;
+      save(); drawTag(); drawMarks();
+      toast('후반 시작! 새 경기장에서 기록해요. 공격 방향도 자동으로 바뀌었어요.');
+    });
+    panel.querySelector('[data-kickoff]').onclick = async () => {
+      if (!video) return toast('먼저 경기 영상을 열어 주세요.');
+      if (data.halfStart[half] != null && !(await confirmBox(`${HALF[half]} 시작을 지금(${fmtT(t())})으로 바꿀까요?`))) return;
+      data.halfStart = { ...data.halfStart, [half]: +t().toFixed(1) };
+      save(); drawTag(); toast(`${HALF[half]} 킥오프를 ${fmtT(t())}로 맞췄어요.`);
+    };
+    panel.querySelector('[data-detailon]').onchange = (e) => { detailOn = e.target.checked; lsSet('ssaka.ma.detail2', detailOn); drawDetail(); drawHint(); };
+    drawHint();
     drawTagPitch();
+    drawDetail();
     drawLog();
     drawLive();
     bindKeys();
+    drawKb();
+  }
+  // 영상 밑 키보드 그림: 실제 키보드 자리 그대로 · 눌러도 장면이 골라짐
+  const KB_SHORT = { cross: '크로스 · 컷백', duel: '경합 · 태클', penalty: '페널티킥', offside: '오프사이드' };
+  const KB_ROWS = [['1', '2', '3', '4', '5', '6'], ['Q', 'W', 'E', 'R', 'T'], ['A', 'S', 'D', 'F', 'G'], ['Z', 'X', 'C', 'V', 'B']];
+  function drawKb() {
+    const kb = el.querySelector('[data-kb]');
+    const tips = el.querySelector('[data-tips]');
+    if (!kb) return;
+    kb.innerHTML = `<div class="kb-head"><b>단축키</b><span class="muted small">한글 · 영어 상관없이 이 자리를 누르면 돼요 · 그림을 눌러도 골라져요</span></div>
+      ${KB_ROWS.map((row, i) => `<div class="kb-row r${i}">${row.map((key) => { const k = KINDS.find((x) => x[2] === key); return k ? `<button type="button" class="kb-key g-${k[4]} ${k[0] === kind ? 'on' : ''}" data-kind="${k[0]}" style="--c:${k[3]}" title="${k[1]}"><b>${key}</b><span>${KB_SHORT[k[0]] || k[1]}</span></button>` : ''; }).join('')}</div>`).join('')}
+      <div class="kb-row r4"><button type="button" class="kb-key fn" data-kbtab ${teams.length > 1 ? '' : 'disabled'}><b>Tab</b><span>${teams.length > 1 ? `지금 ${TEAM[team]} · 바꾸기` : `${TEAM[main]} 팀`}</span></button>
+        <button type="button" class="kb-key fn space" data-kbplay><b>Space</b><span>재생 · 멈춤</span></button>
+        <button type="button" class="kb-key fn" data-kbesc><b>Esc</b><span>취소</span></button>
+        <button type="button" class="kb-key fn del ${delMode ? 'on' : ''}" data-kbdel><b>Del</b><span>기록 지우기</span></button></div>
+      <div class="kb-legend">${KGROUPS.map(([g, gl]) => `<span><i style="background:${GCOLOR[g]}"></i>${gl}</span>`).join('')}<span class="muted">경기장 점에도 이 글자가 찍혀요 · ← → 5초 이동</span></div>`;
+    kb.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = () => { pickKind(b.dataset.kind); b.blur(); }));
+    kb.querySelector('[data-kbtab]').onclick = (ev) => { if (teams.length > 1) pickTeam(team === 'opp' ? 'us' : 'opp'); ev.currentTarget.blur(); };
+    kb.querySelector('[data-kbplay]').onclick = (ev) => { if (video) (video.paused ? video.play() : video.pause()); ev.currentTarget.blur(); };
+    kb.querySelector('[data-kbesc]').onclick = (ev) => { pending = null; delMode = false; drawHint(); drawTagPitch(); drawStatus(); ev.currentTarget.blur(); };
+    kb.querySelector('[data-kbdel]').onclick = (ev) => { toggleDel(); ev.currentTarget.blur(); };
+    if (tips && !tips.innerHTML) tips.innerHTML = `<h4>이렇게 하면 빨라요</h4>
+      <ol><li><b>Space</b>로 영상 재생 — 아래 속도를 <b>1.5x · 2x</b>로 올려 봐도 돼요</li>
+        <li>장면이 나오면 <b>Space로 멈춤</b></li>
+        <li>위 키보드 그림대로 <b>단축키</b>를 눌러 장면 고르기 (예: <kbd>Q</kbd> 슈팅 · <kbd>D</kbd> 볼 뺏김)</li>
+        <li>오른쪽 경기장에서 <b>일어난 곳</b>을 누르기 — 패스 · 크로스 · 돌파는 <b>누른 채 공이 간 곳까지 끌어서</b> 놓으면 화살표로 남아요</li>
+        <li>필요하면 결과 · 선수 번호만 고르고 <b>Space로 다시 재생</b></li>
+        <li>잘못 눌렀으면 <kbd>Del</kbd>(또는 Backspace) → 경기장에서 <b>그 점</b>을 누르면 지워져요</li></ol>
+      <p class="muted small"><b>시간</b>: 기록 시각은 영상의 실제 재생 위치로 저장돼서 <b>1.5x · 2x로 봐도 정확</b>해요. 하프마다 <b>킥오프 시각</b>만 맞춰 두면 리포트에 '전반 15분'처럼 경기 시간으로 나와요.</p>
+      <p class="muted small"><b>전반 · 후반</b>: 하프가 시작하는 순간 <b>지금이 킥오프</b>를 눌러 두면 그 뒤 기록은 자동으로 나뉘고, 후반엔 공격 방향도 자동으로 바뀌어요.</p>
+      <p class="muted small">유튜브 화면 안을 누르면 단축키가 유튜브로 가요 — 경기장이나 키보드 그림을 한 번 누르면 다시 돼요.</p>`;
+  }
+  function drawHint() {
+    el.querySelector('[data-kbdel]')?.classList.toggle('on', delMode);
+    const box = panel.querySelector('[data-hint]');
+    if (!box) return;
+    const lineK = LINE_KINDS.includes(kind);
+    box.innerHTML = !video ? '영상을 열면 기록할 수 있어요.'
+      : delMode ? '<b class="ma-delhint">지우기</b> — 경기장에서 <b>지울 점</b>을 누르세요 (최근 30초 안의 기록이 보여요 · 예전 기록은 아래 목록의 ✕) · <kbd>Esc</kbd> 취소'
+      : pending ? `<b>끝 지점</b>을 누르세요 — 공(또는 선수)이 간 곳 · <kbd>Esc</kbd> 취소`
+        : `<b>${KIND[kind].l}</b>(${TEAM[team]})을 고른 채로 아래 경기장에서 <b>일어난 곳</b>을 누르세요${lineK ? ' — 공이 간 곳까지 보여 주려면 <b>누른 채 끝 지점까지 끌어서</b> 놓으세요' : ''}. 지금 영상 시각(${fmtT(t())})으로 기록돼요${detailOn ? ' — 아래에서 결과 · 발 · 번호를 더 고를 수 있어요' : ''}.`;
+  }
+  // 방금 기록한 장면: 결과 · 발 · 높이 · 번호를 바로 고름 (안 골라도 돼요)
+  function drawDetail() {
+    const box = panel.querySelector('[data-detail]');
+    if (!box) return;
+    const e = data.events.find((x) => x.id === lastId);
+    if (!e || (!detailOn && !box.dataset.force)) { box.innerHTML = ''; delete box.dataset.force; return; }
+    delete box.dataset.force;
+    const ds = DETAILS_OF[e.k] || [];
+    box.innerHTML = `<div class="ma-dhead"><span class="ma-tag" style="--c:${KIND[e.k].c}">${KIND[e.k].l}</span><b>${TEAM[e.team]}</b><small>${matchMin(e)} · ${third(e.x)} · ${channel(e.y)}${e.x2 != null ? ' · 끝 지점 있음' : ''}</small><span class="muted small">방금 기록 — 더 자세히 (안 골라도 돼요)</span></div>
+      ${ds.map((d) => `<div class="ma-drow"><span>${DETAIL[d][0]}</span>${DETAIL[d][1].map(([v, l]) => `<button type="button" class="chip ${e[fieldOf(d)] === v ? 'active' : ''}" data-dv="${d}:${v}">${l}</button>`).join('')}</div>`).join('')}
+      <div class="ma-drow"><span>선수 번호</span><input data-dnum value="${esc(e.num || '')}" maxlength="3" inputmode="numeric" placeholder="예) 7"><span class="muted small">${e.team === 'us' ? '우리' : '상대'} 선수 번호를 적으면 리포트에 선수별로 모여요</span></div>
+      ${e.k === 'note' || e.text ? `<div class="ma-drow"><span>메모</span><input data-dtext value="${esc(e.text || '')}" maxlength="80" placeholder="메모"></div>` : ''}`;
+    box.querySelectorAll('[data-dv]').forEach((b) => (b.onclick = () => {
+      const [d, v] = b.dataset.dv.split(':'); const f = fieldOf(d);
+      if (e[f] === v) delete e[f]; else e[f] = v;
+      save(); drawDetail(); drawLog(); drawLive();
+    }));
+    const ni = box.querySelector('[data-dnum]');
+    ni.oninput = () => { const v = ni.value.trim().slice(0, 3); if (v) e.num = v; else delete e.num; save(); drawLog(); };
+    ni.onkeydown = (ev) => { if (ev.key === 'Enter') ni.blur(); ev.stopPropagation(); };
+    const ti = box.querySelector('[data-dtext]');
+    if (ti) { ti.oninput = () => { e.text = ti.value.trim().slice(0, 80); save(); drawLog(); }; ti.onkeydown = (ev) => ev.stopPropagation(); }
   }
   // 키 플레이어 (기록하기에서 영상 보며 바로 적기) — 번호가 포메이션에 있으면 표시
   function keysEditHtml() {
@@ -286,47 +608,102 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
   // 기록할 때마다 바로 바뀌는 미니 리포트 (상대 팀)
   function drawLive() {
     const box = panel.querySelector('[data-live]');
-    if (box) box.innerHTML = liveHtml(data.events, main);
+    if (box) box.innerHTML = liveHtml(data.events.filter((e) => halfOf(e) === half), main, HALF[half]);
   }
+  const lineSvg = (x1, y1, x2, y2, c) => `<line x1="${(x1 * 105).toFixed(1)}" y1="${(y1 * 68).toFixed(1)}" x2="${(x2 * 105).toFixed(1)}" y2="${(y2 * 68).toFixed(1)}" stroke="${c}" stroke-width=".55" stroke-linecap="round" marker-end="url(#ma-ah)" opacity=".9"/>`;
   function drawTagPitch() {
     const box = panel.querySelector('[data-pitch]');
     if (!box) return;
     const now = t();
-    // 최근 30초의 기록은 화면 방향 그대로 점으로
-    const recent = data.events.filter((e) => Math.abs(e.t - now) <= 30).map((e) => {
-      const [sx, sy] = toScreen(e.x, e.y, e.team, data.oppDir);
-      return dot(sx, sy, KIND[e.k].c, 1.4, `stroke="${e.team === 'opp' ? '#fff' : '#000'}" stroke-width=".4"`);
+    // 최근 30초의 기록은 화면 방향 그대로 점으로 (끝 지점이 있으면 화살표)
+    const shown = () => data.events.filter((e) => halfOf(e) === half && Math.abs(e.t - t()) <= 30);
+    const shownEv = shown();
+    const recent = shownEv.map((e) => {
+      const d0 = dirOf(halfOf(e));
+      const [sx, sy] = toScreen(e.x, e.y, e.team, d0);
+      const ln = e.x2 != null ? (() => { const [ex, ey] = toScreen(e.x2, e.y2, e.team, d0); return lineSvg(sx, sy, ex, ey, KIND[e.k].c); })() : '';
+      return ln + dot(sx, sy, KIND[e.k].c, 1.5, `stroke="${e.team === 'opp' ? '#fff' : '#000'}" stroke-width=".3"`) + (KIND[e.k].key ? `<text x="${(sx * 105).toFixed(1)}" y="${(sy * 68 + 0.68).toFixed(1)}" class="ma-mk">${KIND[e.k].key}</text>` : '');
     }).join('');
+    const pend = pending ? (() => { const [sx, sy] = toScreen(pending.x, pending.y, pending.team, dirOf(pending.half)); return dot(sx, sy, KIND[pending.k].c, 2, 'stroke="#fff" stroke-width=".6" class="ma-pend"'); })() : '';
     const arrow = dirArrow() === '→' ? `${dirLabel()} →` : `← ${dirLabel()}`;
-    box.innerHTML = `${pitchSvg(`${recent}<text x="52.5" y="4.5" class="ma-dirtxt">${arrow}</text>`, { cls: 'tag' })}`;
-    const svg = box.querySelector('svg');
-    svg.onclick = (ev) => {
-      if (!video) return toast('먼저 경기 영상을 열어 주세요.');
-      const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
-      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
-      const sx = Math.min(1, Math.max(0, p.x / 105)); const sy = Math.min(1, Math.max(0, p.y / 68));
-      const [x, y] = toStore(sx, sy, team, data.oppDir);
-      const e = { id: uid(), t: +t().toFixed(1), team, k: kind, x: r3(x), y: r3(y) };
-      if (kind === 'note') { const s = prompt('메모'); if (!s) return; e.text = s.slice(0, 80); }
-      data.events.push(e);
-      data.events.sort((a, b) => a.t - b.t);
-      lastId = e.id;
-      save(); drawTagPitch(); drawLog(); drawLive();
-      el.querySelector('.ma-h small').textContent = `${data.events.length}개`;
-      tagged(e);
+    // 경기장은 한 번만 그리고, 재생 중엔 점만 바꿈 (다시 그리면 누르는 도중 클릭이 사라졌음)
+    let svg = box.querySelector('svg.tag');
+    const fresh = !svg;
+    if (fresh) {
+      box.innerHTML = pitchSvg('<defs><marker id="ma-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M0 0L10 5L0 10z" fill="#fff"/></marker></defs><g data-dots></g>', { cls: 'tag' });
+      svg = box.querySelector('svg');
+    }
+    svg.querySelector('[data-dots]').innerHTML = `${recent}${pend}<text x="52.5" y="4.5" class="ma-dirtxt">${arrow}</text>`;
+    svg.classList.toggle('wait-end', !!pending); svg.classList.toggle('del-mode', !!delMode);
+    if (!fresh) return;
+    // 누르기 = 그 자리 기록 · 누른 채 끌어서 놓기 = 시작점 → 공이 간 끝 지점까지 한 번에
+    const toPitch = (ev) => { const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const p = pt.matrixTransform(svg.getScreenCTM().inverse()); return [Math.min(1, Math.max(0, p.x / 105)), Math.min(1, Math.max(0, p.y / 68))]; };
+    let down = null; let rubber = null;
+    svg.onpointerdown = (ev) => {
+      if (ev.button !== 0) return;
+      down = toPitch(ev);
+      try { svg.setPointerCapture(ev.pointerId); } catch { /* */ }
     };
+    svg.onpointermove = (ev) => {
+      if (!down || delMode) return;
+      const [mx, my] = toPitch(ev);
+      if (Math.hypot((mx - down[0]) * 105, (my - down[1]) * 68) < 2.5) return;
+      if (!rubber) { rubber = document.createElementNS('http://www.w3.org/2000/svg', 'line'); rubber.setAttribute('class', 'ma-rubber'); svg.appendChild(rubber); }
+      rubber.setAttribute('x1', down[0] * 105); rubber.setAttribute('y1', down[1] * 68); rubber.setAttribute('x2', mx * 105); rubber.setAttribute('y2', my * 68);
+      rubber.setAttribute('stroke', KIND[kind].c);
+    };
+    svg.onpointercancel = () => { down = null; rubber?.remove(); rubber = null; };
+    svg.onpointerup = (ev) => {
+      if (!down) return;
+      const start = down; down = null; rubber?.remove(); rubber = null;
+      const [ex, ey] = toPitch(ev);
+      const dragged = Math.hypot((ex - start[0]) * 105, (ey - start[1]) * 68) >= 2.5;
+      tapAt(start[0], start[1], dragged ? [ex, ey] : null);
+    };
+    const tapAt = (sx, sy, end) => {
+      if (!video) return toast('먼저 경기 영상을 열어 주세요.');
+      if (delMode) { // 지우기: 누른 곳에서 가장 가까운 점 (지금 보이는 기록 중)
+        const near = shown().map((e) => { const [ex, ey] = toScreen(e.x, e.y, e.team, dirOf(halfOf(e))); return { e, d: Math.hypot((ex - sx) * 105, (ey - sy) * 68) }; }).sort((a, b) => a.d - b.d)[0];
+        delMode = false;
+        if (!near || near.d > 4) { toast('그 자리에 지울 점이 없어요. 점을 정확히 눌러 주세요.'); drawHint(); drawTagPitch(); drawStatus(); return; }
+        data.events = data.events.filter((x) => x.id !== near.e.id);
+        if (lastId === near.e.id) lastId = null;
+        save(); drawHint(); drawTagPitch(); drawDetail(); drawLog(); drawLive(); drawMarks();
+        el.querySelector('.ma-h small').textContent = `${data.events.filter((x) => halfOf(x) === half).length}개`;
+        flash = { ...near.e, del: true, at: Date.now() }; drawStatus(); setTimeout(drawStatus, 2600);
+        return;
+      }
+      const [x, y] = toStore(sx, sy, team, dirOf(half));
+      const e = { id: uid(), t: +t().toFixed(1), half, team, k: kind, x: r3(x), y: r3(y) };
+      if (end) { const [x2, y2] = toStore(end[0], end[1], team, dirOf(half)); e.x2 = r3(x2); e.y2 = r3(y2); } // 끌어서 놓은 곳 = 공이 간 끝 지점
+      if (kind === 'note') { const s0 = prompt('메모'); if (!s0) return; e.text = s0.slice(0, 80); }
+      addEvent(e);
+    };
+  }
+  function addEvent(e) {
+    // 후반 킥오프 시각을 맞춰 뒀으면 영상 시각으로 전반 · 후반을 자동으로
+    const h2 = data.halfStart[2];
+    if (h2 != null && h2 > (data.halfStart[1] || 0)) { e.half = e.t >= h2 ? 2 : 1; if (e.half !== half) { half = e.half; setTimeout(drawTag, 0); } }
+    data.events.push(e);
+    data.events.sort((a, b) => a.t - b.t);
+    lastId = e.id;
+    save(); drawHint(); drawTagPitch(); drawDetail(); drawLog(); drawLive();
+    el.querySelector('.ma-h small').textContent = `${data.events.filter((x) => halfOf(x) === half).length}개`;
+    tagged(e);
   }
   function drawLog() {
     const box = panel.querySelector('[data-log]');
     if (!box) return;
-    const list = [...data.events].reverse().slice(0, 300);
-    box.innerHTML = list.map((e) => `<li data-ev="${e.id}" class="${e.id === lastId ? 'new' : ''}"><button class="link-btn" data-go="${e.t}">${fmtT(e.t)}</button>
+    const list = data.events.filter((e) => halfOf(e) === half).reverse().slice(0, 300); // 지금 하프 기록만 (다른 하프는 위 전반 · 후반으로)
+    const mf = minuteFn(data.events, data.halfStart);
+    box.innerHTML = list.map((e) => `<li data-ev="${e.id}" class="${e.id === lastId ? 'new' : ''}"><i class="ma-hf h${halfOf(e)}">${HALF[halfOf(e)][0]}</i><button class="link-btn ma-min" data-go="${e.t}" title="영상 ${fmtT(e.t)}">${Math.floor(mf(e))}′</button>
       <span class="ma-tag" style="--c:${KIND[e.k].c}">${KIND[e.k].l}</span><b>${TEAM[e.team]}</b>
-      <small>${third(e.x)} · ${channel(e.y)}${e.text ? ` · ${esc(e.text)}` : ''}</small>${canEdit ? '<button class="link-btn small" data-rm>✕</button>' : ''}</li>`).join('') || '<li class="muted">아직 기록이 없어요.</li>';
+      <small>${third(e.x)} · ${channel(e.y)}${detailText(e) ? ` · ${esc(detailText(e))}` : ''}${e.text ? ` · ${esc(e.text)}` : ''}</small>${canEdit ? '<button class="link-btn small" data-pick>고치기</button><button class="link-btn small" data-rm>✕</button>' : ''}</li>`).join('') || '<li class="muted">아직 기록이 없어요.</li>';
     // 새 기록이 보이게 — 페이지 전체가 아니라 기록 목록 안에서만 스크롤 (영상이 화면 밖으로 밀리지 않게)
     const li = box.querySelector('li.new');
     if (li && box.scrollHeight > box.clientHeight) box.scrollTop += li.getBoundingClientRect().top - box.getBoundingClientRect().top - box.clientHeight / 2;
     box.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => { if (video) { video.currentTime = Math.max(0, +b.dataset.go - 3); video.play(); } }));
+    box.querySelectorAll('[data-pick]').forEach((b) => (b.onclick = () => { lastId = b.closest('li').dataset.ev; panel.querySelector('[data-detail]').dataset.force = '1'; drawDetail(); drawLog(); panel.querySelector('[data-detail]').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }));
     box.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => {
       const id = b.closest('li').dataset.ev;
       data.events = data.events.filter((x) => x.id !== id);
@@ -335,17 +712,36 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
   }
 
   // 단축키
-  const onKey = (e) => {
-    if (tab !== 'tag' || e.target.closest?.('input, textarea, select') || document.querySelector('.modal-wrap')) return;
-    const k = e.key.toUpperCase();
-    if (e.key === ' ' && video) { e.preventDefault(); video.paused ? video.play() : video.pause(); return; }
-    if (e.key === 'ArrowRight' && video) { video.currentTime = t() + 5; return; }
-    if (e.key === 'ArrowLeft' && video) { video.currentTime = Math.max(0, t() - 5); return; }
-    if (k === 'Q' && teams.length > 1) { team = team === 'opp' ? 'us' : 'opp'; drawTag(); return; }
-    const hit = KINDS.find(([, , key]) => key === k);
-    if (hit) { kind = hit[0]; drawTag(); }
+  // 장면 · 팀 고르기는 화면 전체를 다시 그리지 않고 표시만 바꿈 (단축키가 바로바로 먹게)
+  const pickKind = (k) => {
+    kind = k; pending = null;
+    el.querySelectorAll('[data-kind]').forEach((b) => b.classList.toggle('on', b.dataset.kind === k));
+    drawHint(); drawTagPitch();
   };
-  if (canEdit) { document.addEventListener('keydown', onKey); state.cleanup.push(() => document.removeEventListener('keydown', onKey)); }
+  const pickTeam = (tm) => {
+    team = tm; pending = null;
+    panel.querySelectorAll('[data-tm]').forEach((b) => b.classList.toggle('on', b.dataset.tm === tm));
+    const tb = el.querySelector('[data-kbtab] span'); if (tb) tb.textContent = `지금 ${TEAM[team]} · 바꾸기`;
+    drawHint(); drawTagPitch();
+  };
+  const toggleDel = () => { delMode = !delMode; pending = null; drawHint(); drawTagPitch(); drawStatus(); };
+  const typing = (t0) => !!t0?.closest?.('textarea, [contenteditable], input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=button])');
+  const onKey = (e) => {
+    if (tab !== 'tag' || typing(e.target) || document.querySelector('.modal-wrap')) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // 체크박스 · 속도 선택 · 버튼에 남은 포커스가 단축키를 먹지 않게
+    const ae = document.activeElement;
+    if (ae && ae !== document.body && ae.matches?.('button, select, input[type=checkbox], input[type=range]')) ae.blur();
+    if (e.key === ' ' || e.code === 'Space') { if (!video) return; e.preventDefault(); if (!e.repeat) (video.paused ? video.play() : video.pause()); return; }
+    if (e.key === 'ArrowRight' && video) { e.preventDefault(); video.currentTime = t() + 5; return; }
+    if (e.key === 'ArrowLeft' && video) { e.preventDefault(); video.currentTime = Math.max(0, t() - 5); return; }
+    if (e.key === 'Escape' && (pending || delMode)) { pending = null; delMode = false; drawHint(); drawTagPitch(); drawStatus(); return; }
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); toggleDel(); return; }
+    if (e.key === 'Tab') { e.preventDefault(); if (teams.length > 1 && !e.repeat) pickTeam(team === 'opp' ? 'us' : 'opp'); return; }
+    const hit = KEY_OF[e.code]; // e.code: 한글 자판이어도 'KeyQ'
+    if (hit) { e.preventDefault(); if (hit !== kind || pending) pickKind(hit); }
+  };
+  if (canEdit) { document.addEventListener('keydown', onKey, true); state.cleanup.push(() => document.removeEventListener('keydown', onKey, true)); }
 
   // ───────── 포메이션 ─────────
   const luPhase = { opp: 'base', us: 'base' };
@@ -359,8 +755,8 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     const lu = (tm, ph) => data.lineups?.[tm]?.[ph];
     panel.innerHTML = `
       ${canEdit ? `<div class="ma-row"><span class="muted small">경기 인원</span><div class="seg">${[11, 8].map((n) => `<button class="${data.size === n ? 'on' : ''}" data-size="${n}">${n} vs ${n}</button>`).join('')}</div>
-        ${video ? '<button class="btn ghost sm" data-fai>AI로 잡기 (지금 화면)</button>' : ''}</div>
-        <p class="muted small">포메이션을 고르고 자리마다 <b>등번호</b>만 적으면 돼요. 공격할 때 · 수비할 때 서는 모양이 다르면 <b>공격 시 · 수비 시</b>도 따로 정해요 (비워 두면 기본과 같아요). AI가 못 알아보면 직접 골라 주세요.</p>` : ''}
+        </div>
+        <p class="muted small">코치님이 직접 정해요: <b>포메이션을 고르면</b> 자리마다 칸이 생겨요 → 칸에 <b>등번호</b>를 적어요. 공격할 때 · 수비할 때 서는 모양이 다르면 <b>공격 시 · 수비 시</b>도 따로 정해요 (비워 두면 기본과 같아요).</p>` : ''}
       <div class="lu-cards">${teams.map((tm) => {
         if (!canEdit) {
           const set = PHASES.filter(([ph]) => lu(tm, ph)?.f);
@@ -401,7 +797,6 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       Object.values(data.lineups || {}).forEach((t) => Object.keys(t).forEach((ph) => { if (t[ph]?.f && !validForm(t[ph].f, n)) delete t[ph]; }));
       save(); drawFormation();
     }));
-    panel.querySelector('[data-fai]')?.addEventListener('click', aiFormation);
     panel.querySelectorAll('[data-lut]').forEach((card) => {
       const tm = card.dataset.lut;
       const setLu = (v) => {
@@ -433,77 +828,6 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     });
   }
 
-  // AI: 지금 화면에서 선수를 찾고 → 유니폼 색으로 팀 나누기 → 상대 선수 한 명을 누르면 → 줄을 세어 포메이션
-  async function aiFormation() {
-    video.pause();
-    const aiTeam = teams.length > 1 ? (luPhase.lastTeam || 'opp') : main;
-    const cv = el.querySelector('.ma-ai');
-    const wrap = el.querySelector('.ma-vwrap');
-    const VW = video.videoWidth; const VH = video.videoHeight;
-    let boxes;
-    try {
-      toast('AI가 화면의 선수들을 찾는 중… (처음엔 10초 정도)');
-      await loadAI();
-      boxes = await scanFrame(video);
-    } catch (err) { fail(err); return; }
-    if (boxes.length < 6) return toast(`선수를 ${boxes.length}명밖에 못 찾았어요. 선수들이 넓게 보이는 장면에서 다시 해 주세요.`);
-    // 상의 색 (잔디 빼고 평균)
-    const snap = document.createElement('canvas'); snap.width = VW; snap.height = VH;
-    const sx = snap.getContext('2d', { willReadFrequently: true }); sx.drawImage(video, 0, 0, VW, VH);
-    const colorOf = (b) => {
-      const w = b.x1 - b.x0; const h = b.y1 - b.y0;
-      const x0 = Math.round(b.x0 + w * 0.28); const y0 = Math.round(b.y0 + h * 0.18);
-      const ww = Math.max(2, Math.round(w * 0.44)); const hh = Math.max(2, Math.round(h * 0.3));
-      const d = sx.getImageData(x0, y0, ww, hh).data;
-      let r = 0; let g = 0; let bl = 0; let n = 0;
-      for (let i = 0; i < d.length; i += 4) { if (d[i + 1] > d[i] + 12 && d[i + 1] > d[i + 2] + 12) continue; r += d[i]; g += d[i + 1]; bl += d[i + 2]; n++; }
-      return n ? [r / n, g / n, bl / n] : [d[0], d[1], d[2]];
-    };
-    boxes.forEach((b) => { b.col = colorOf(b); });
-    // 색으로 3묶음 (두 팀 + 심판 · 골키퍼)
-    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-    let cents = [boxes[0].col];
-    while (cents.length < 3) cents.push(boxes.reduce((best, b) => (Math.min(...cents.map((c) => dist(c, b.col))) > Math.min(...cents.map((c) => dist(c, best.col))) ? b : best), boxes[0]).col);
-    for (let it = 0; it < 10; it++) {
-      boxes.forEach((b) => { b.g = cents.map((c) => dist(c, b.col)).indexOf(Math.min(...cents.map((c) => dist(c, b.col)))); });
-      cents = cents.map((c, i) => { const m = boxes.filter((b) => b.g === i); return m.length ? [0, 1, 2].map((j) => m.reduce((a, b) => a + b.col[j], 0) / m.length) : c; });
-    }
-    // 화면 위에 상자 그리고 '상대 선수 한 명을 누르세요'
-    cv.width = wrap.clientWidth; cv.height = video.clientHeight; cv.style.width = `${video.clientWidth}px`; cv.style.height = `${video.clientHeight}px`;
-    cv.hidden = false;
-    const k = cv.width / VW;
-    const cx = cv.getContext('2d');
-    const paint = (sel = -1) => {
-      cx.clearRect(0, 0, cv.width, cv.height);
-      boxes.forEach((b) => { cx.lineWidth = 2; cx.strokeStyle = sel < 0 ? `rgb(${b.col.map(Math.round).join(',')})` : b.g === sel ? '#ff3b30' : 'rgba(255,255,255,.35)'; cx.strokeRect(b.x0 * k, b.y0 * k, (b.x1 - b.x0) * k, (b.y1 - b.y0) * k); });
-      cx.fillStyle = 'rgba(0,0,0,.65)'; cx.fillRect(8, 8, 300, 26); cx.fillStyle = '#fff'; cx.font = '700 13px sans-serif';
-      cx.fillText(sel < 0 ? `${TEAM[aiTeam]} 팀 선수 한 명을 누르세요` : '이 팀이 맞으면 잠시 후 포메이션이 나와요', 16, 26);
-    };
-    paint();
-    cv.onclick = (ev) => {
-      const r = cv.getBoundingClientRect();
-      const px = (ev.clientX - r.left) / k; const py = (ev.clientY - r.top) / k;
-      const hitB = boxes.reduce((best, b) => { const d = Math.hypot((b.x0 + b.x1) / 2 - px, (b.y0 + b.y1) / 2 - py); return !best || d < best.d ? { b, d } : best; }, null)?.b;
-      if (!hitB) return;
-      paint(hitB.g);
-      setTimeout(() => {
-        cv.hidden = true; cv.onclick = null;
-        const grp = boxes.filter((b) => b.g === hitB.g);
-        const res = shapeFrom(grp, VW, VH, attacksRight(aiTeam, data.oppDir));
-        if (res.count < 5) return toast(`선수를 ${res.count}명만 찾았어요. 선수들이 더 많이 보이는 장면에서 해 보세요.`);
-        // 인원에 맞으면 지금 고른 칸(기본 · 공격 시 · 수비 시)에 바로 넣고, 아니면 직접 고르도록
-        if (validForm(res.name, data.size)) {
-          data.lineups = { ...data.lineups, [aiTeam]: { ...(data.lineups[aiTeam] || {}), [luPhase[aiTeam]]: { f: res.name, nums: [], ai: true } } };
-          save(); drawFormation();
-          toast(`AI가 ${TEAM[aiTeam]} 팀을 ${res.name}로 봤어요. 틀리면 목록에서 직접 고쳐 주세요.`);
-        } else {
-          drawFormation();
-          toast(`AI가 ${res.name} (${res.count}명)로 봤는데 ${data.size}명 기준과 안 맞아요. 화면에 안 보인 선수가 있을 수 있어요 — 목록에서 직접 골라 주세요.`);
-        }
-      }, 600);
-    };
-  }
-
   // ───────── 선수용: 체크 포인트 (이번 상대, 이것만 기억하자) ─────────
   function drawCheck() {
     const r = computeReport(data.events, main);
@@ -525,32 +849,73 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     panel.querySelectorAll('[data-goto]').forEach((b) => (b.onclick = () => setTab(b.dataset.goto)));
   }
 
-  // ───────── 리포트 ─────────
+  // ───────── 리포트: 기록 · 자동 분석 · 포메이션 · 키 플레이어를 한 번에 ─────────
   let rteam = main;
+  let rhalf = 'all'; // 리포트: 전체 · 전반(1) · 후반(2)
   function drawReport() {
-    const { ev, other, atk, ch, pct, shots, goals, crosses, losses, set, wins, flow, heatSvg, oursSide, summary } = computeReport(data.events, rteam);
-    const bar = (l, n) => `<div class="ma-bar"><span>${l}${rteam === 'opp' && l !== '가운데' ? `<small>${oursSide(l)}</small>` : ''}</span><div><i style="width:${pct(n)}%"></i></div><b>${pct(n)}%</b><small>${n}</small></div>`;
-
+    const evs = rhalf === 'all' ? data.events : data.events.filter((e) => halfOf(e) === rhalf);
+    const A = deepAnalysis(evs, rteam, { hs: data.halfStart, view: rhalf });
+    const { ev, other, atk, ch, pct, shots, goals, crosses, losses, set, wins, flow, heatSvg, oursSide } = A.R;
+    const opp = rteam === 'opp';
+    const col = opp ? '#e5484d' : '#4ea1ff';
+    const bar = (l, n) => `<div class="ma-bar"><span>${l}${opp && l !== '가운데' ? `<small>${oursSide(l)}</small>` : ''}</span><div><i style="width:${pct(n)}%"></i></div><b>${pct(n)}%</b><small>${n}</small></div>`;
+    const gOf = (tm, h) => data.events.filter((e) => e.team === tm && (e.k === 'goal' || e.res === 'goal') && (!h || halfOf(e) === h)).length;
+    const gUs = gOf('us'); const gOpp = gOf('opp');
+    // 전반 vs 후반 한눈에
+    const cmp = [1, 2].map((h) => { const r0 = computeReport(data.events.filter((e) => halfOf(e) === h), rteam); return { h, atk: r0.atk.length, sh: r0.shots.length, g: r0.goals.length, xg: r0.xg, win: r0.wins.length, loss: r0.losses.length, set: r0.set.length, n: r0.ev.length }; });
+    const lus = PHASES.filter(([ph]) => data.lineups?.[rteam]?.[ph]?.f);
+    const lineMap = (list, c) => list.filter((e) => e.x2 != null).map((e) => `<line x1="${(e.x * 105).toFixed(1)}" y1="${(e.y * 68).toFixed(1)}" x2="${(e.x2 * 105).toFixed(1)}" y2="${(e.y2 * 68).toFixed(1)}" stroke="${c}" stroke-width=".5" marker-end="url(#rp-ah)" opacity=".85"/>`).join('') + list.map((e) => dot(e.x, e.y, c, 1)).join('');
+    const ah = '<defs><marker id="rp-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M0 0L10 5L0 10z" fill="#fff"/></marker></defs>';
+    const ranked = A.sections.find((x) => x.table)?.table || [];
+    const rmf = minuteFn(data.events, data.halfStart); // 기록 목록: 경기 시간(킥오프 기준)
     panel.innerHTML = `
-      <div class="ma-row">${teams.length > 1 ? `<div class="seg">${teams.map((k) => `<button class="${k === rteam ? 'on' : ''}" data-rt="${k}">${TEAM[k]} 팀</button>`).join('')}</div>` : ''}
-        <span class="muted small">모든 그림은 <b>${TEAM[rteam]} 팀이 오른쪽(→)으로 공격</b>하는 방향으로 맞춰서 보여줘요</span></div>
-      ${data.lineups?.[rteam] && Object.keys(data.lineups[rteam]).length ? `<p class="ma-luline">${TEAM[rteam]} 포메이션 · ${PHASES.filter(([ph]) => data.lineups[rteam][ph]?.f).map(([ph, l]) => `${l} <b>${esc(data.lineups[rteam][ph].f)}</b>`).join(' · ')} <button class="link-btn small" data-goto-f>자세히</button></p>` : ''}
-      ${keysView(rteam) ? `<section class="card"><h3>${TEAM[rteam]} 키 플레이어</h3>${keysView(rteam)}</section>` : ''}
-      ${data.events.length ? '' : empty('아직 기록이 없어요. 기록하기에서 장면을 기록하면 리포트가 자동으로 만들어져요.')}
-      <section class="card ma-sum"><h3>요약</h3>${summary.length ? `<ul>${summary.map((s) => `<li>${s}</li>`).join('')}</ul>` : '<p class="muted">기록이 더 쌓이면 요약이 나와요.</p>'}
-        <div class="ma-counts">${[['공격 전개', ev.filter((e) => e.k === 'attack').length], ['슈팅', shots.length], ['득점', goals.length], ['크로스', crosses.length], ['볼 뺏김', losses.length], ['볼 탈취', wins.length], ['세트피스', set.length]].map(([l, n]) => `<div><span>${l}</span><b>${n}</b></div>`).join('')}</div></section>
-      <div class="ma-grid">
-        <section class="card"><h3>공격 방향 <small>공격 전개 · 크로스 · 슈팅 ${atk.length}개</small></h3>${bar('왼쪽', ch['왼쪽'])}${bar('가운데', ch['가운데'])}${bar('오른쪽', ch['오른쪽'])}</section>
-        <section class="card"><h3>위험 지역 <small>공격이 많이 일어난 곳</small></h3>${pitchSvg(heatSvg)}</section>
-        <section class="card"><h3>슈팅 · 득점 지도 <small>● 슈팅 ★ 득점</small></h3>${pitchSvg(shots.map((e) => (e.k === 'goal' ? `<text x="${(e.x * 105).toFixed(1)}" y="${(e.y * 68 + 1.6).toFixed(1)}" class="star">★</text>` : dot(e.x, e.y, '#ffd400', 1.2))).join(''), { half: true })}</section>
-        <section class="card"><h3>크로스 위치</h3>${pitchSvg(crosses.map((e) => dot(e.x, e.y, '#ff9f0a', 1.2)).join(''), { half: true })}</section>
-        <section class="card"><h3>공을 잃은 곳 <small>${rteam === 'opp' ? '압박 포인트' : '보완할 곳'}</small></h3>${pitchSvg(losses.map((e) => dot(e.x, e.y, '#ff3b30', 1.2)).join(''))}</section>
-        <section class="card"><h3>시간대별 공격 <small>15분 단위 · ${TEAM[rteam]} / ${TEAM[other]}</small></h3>
-          <div class="ma-flow">${flow.map(([i, es]) => { const a = es.filter((e) => e.team === rteam).length; const b = es.filter((e) => e.team === other).length; const mx = Math.max(1, ...flow.map(([, x]) => x.length)); return `<div><div class="cols"><i class="a" style="height:${(a / mx) * 100}%"></i><i class="b" style="height:${(b / mx) * 100}%"></i></div><small>${i * 15}′</small></div>`; }).join('')}</div></section>
+      <div class="ma-row">${teams.length > 1 ? `<div class="seg">${teams.map((k) => `<button class="${k === rteam ? 'on' : ''}" data-rt="${k}">${TEAM[k]} 팀 리포트</button>`).join('')}</div>` : ''}
+        <div class="seg">${[['all', '전체'], [1, '전반'], [2, '후반']].map(([k, l]) => `<button class="${k === rhalf ? 'on' : ''}" data-rh="${k}">${l}</button>`).join('')}</div>
+        <span class="muted small">그림은 모두 <b>${TEAM[rteam]} 팀이 오른쪽(→)으로 공격</b>하는 방향이에요</span>${canEdit ? '<button class="btn ghost sm" data-print>PDF · 인쇄</button>' : ''}</div>
+      <section class="card rp-head" style="--c:${col}">
+        <div><span class="eyebrow">MATCH REPORT</span><h2>${esc(post.title || '경기분석')}</h2><p class="muted small">${esc([post.opponent && `vs ${post.opponent}`, post.date, `${data.size} vs ${data.size}`].filter(Boolean).join(' · '))} · 기록 ${data.events.length}개</p></div>
+        ${data.target === 'both' ? `<div class="rp-score"><span>우리</span><b>${gUs} : ${gOpp}</b><span>상대</span><small>전반 ${gOf('us', 1)}:${gOf('opp', 1)} · 후반 ${gOf('us', 2)}:${gOf('opp', 2)}</small></div>` : ''}
+      </section>
+      ${!data.events.length ? empty('아직 기록이 없어요. 기록하기에서 장면을 기록하면 리포트가 자동으로 만들어져요.') : ''}
+      ${rhalf === 'all' && data.events.length ? `<section class="card rp-cmp"><h3>전반 vs 후반 <small class="muted">${TEAM[rteam]} 팀</small></h3>
+        <table class="tbl"><tr><th></th>${[['공격 장면', 'atk'], ['슈팅', 'sh'], ['득점', 'g'], ['기대 득점', 'xg'], ['공 따냄', 'win'], ['공 잃음', 'loss'], ['세트피스', 'set']].map(([l]) => `<th>${l}</th>`).join('')}</tr>
+        ${cmp.map((c) => `<tr><td><b>${HALF[c.h]}</b></td>${['atk', 'sh', 'g', 'xg', 'win', 'loss', 'set'].map((k) => { const o = cmp.find((x) => x.h !== c.h)[k]; const v = c[k]; const better = k === 'loss' ? v < o : v > o; return `<td class="${v !== o && better ? 'up' : ''}">${k === 'xg' ? v.toFixed(1) : v}</td>`; }).join('')}</tr>`).join('')}</table></section>` : ''}
+      <section class="rp-ai">
+        <div class="rp-aihead"><h3>자동 분석</h3><small class="muted">기록한 장면 ${A.n}개로 계산했어요 · 결과 · 발 · 번호 · 끝 지점을 적을수록 더 정확해져요</small></div>
+        <div class="rp-sw">
+          <div class="rp-swc good"><h4>${opp ? '상대 강점' : '우리 강점'}</h4>${A.strong.length ? `<ul>${[...new Set(A.strong)].map((x) => `<li>${x}</li>`).join('')}</ul>` : '<p class="muted small">기록이 더 쌓이면 나와요</p>'}</div>
+          <div class="rp-swc bad"><h4>${opp ? '상대 약점 · 우리 기회' : '우리 약점'}</h4>${A.weak.length ? `<ul>${[...new Set(A.weak)].map((x) => `<li>${x}</li>`).join('')}</ul>` : '<p class="muted small">기록이 더 쌓이면 나와요</p>'}</div>
+          <div class="rp-swc todo"><h4>${opp ? '우리가 준비할 것' : '훈련 추천'}</h4>${A.todo.length ? `<ol>${[...new Set(A.todo)].map((x) => `<li>${x}</li>`).join('')}</ol>` : '<p class="muted small">기록이 더 쌓이면 나와요</p>'}</div>
+        </div>
+        <div class="rp-secs">${A.sections.map((x, i) => `<article class="card rp-sec ${x.items.length ? '' : 'empty'}">
+          <header><span class="rp-no">${i + 1}</span><h4>${x.t}</h4></header>
+          ${x.k ? `<div class="rp-kpis">${x.k.map(([l, v]) => `<div><b>${v}</b><small>${l}</small></div>`).join('')}</div>` : ''}
+          ${x.items.length ? `<ul class="rp-points">${x.items.map((it) => `<li>${it}</li>`).join('')}</ul>` : '<p class="muted small">이 부분은 아직 기록이 없어요</p>'}
+        </article>`).join('')}</div>
+      </section>
+      <div class="ma-grid rp-two">
+        <section class="card"><h3>${TEAM[rteam]} 포메이션 <small>${data.size} vs ${data.size}</small></h3>
+          ${lus.length ? `<div class="lu-views">${lus.map(([ph, l]) => `<div><h4>${l} · <b>${esc(data.lineups[rteam][ph].f)}</b></h4>${lineupHtml(data.lineups[rteam][ph], { color: col, keys: data.keys[rteam] || [] })}</div>`).join('')}</div>` : `<p class="muted small">아직 포메이션이 없어요.${canEdit ? ' <button class="link-btn small" data-goto-f>포메이션 정하기</button>' : ''}</p>`}</section>
+        <section class="card"><h3>${TEAM[rteam]} 키 플레이어</h3>${keysView(rteam) || '<p class="muted small">아직 적은 키 플레이어가 없어요. 기록하기 아래에서 적어요.</p>'}
+          ${ranked.length ? `<h4>선수별 기록 <small class="muted">번호를 적은 장면만</small></h4><table class="tbl rp-ptbl"><tr><th>번호</th><th>관여</th><th>슈팅</th><th>골</th><th>성공/실패</th><th>뺏김</th><th>탈취</th></tr>${ranked.slice(0, 12).map(([n, b]) => `<tr><td><b>${esc(n)}</b></td><td>${b.n}</td><td>${b.shot}</td><td>${b.goal}</td><td>${b.ok}/${b.fail}</td><td>${b.loss}</td><td>${b.win}</td></tr>`).join('')}</table>` : ''}</section>
       </div>
-      ${data.formations.length ? `<p class="muted small">포메이션은 <b>포메이션</b> 탭에서 볼 수 있어요 (${data.formations.length}개).</p>` : ''}`;
+      <div class="ma-grid">
+        <section class="card"><h3>공격 방향 <small>공격 장면 ${atk.length}개</small></h3>${bar('왼쪽', ch['왼쪽'])}${bar('가운데', ch['가운데'])}${bar('오른쪽', ch['오른쪽'])}</section>
+        <section class="card"><h3>위험 지역 <small>공격이 많이 일어난 곳</small></h3>${pitchSvg(heatSvg)}</section>
+        <section class="card"><h3>슈팅 지도 <small>● 크기 = 기대 득점 · ★ 득점</small></h3>${pitchSvg(shots.map((e) => (e.k === 'goal' || e.res === 'goal' ? `<text x="${(e.x * 105).toFixed(1)}" y="${(e.y * 68 + 1.6).toFixed(1)}" class="star">★</text>` : dot(e.x, e.y, ['on', 'post'].includes(e.res) ? '#ffd400' : '#9a8a3a', 0.8 + xgOf(e) * 4))).join(''), { half: true })}</section>
+        <section class="card"><h3>크로스 · 컷백 <small>끝 지점을 찍은 건 화살표</small></h3>${pitchSvg(ah + lineMap(crosses, '#ff9f0a'), { half: true })}</section>
+        <section class="card"><h3>패스 · 돌파 경로 <small>끝 지점을 찍은 장면</small></h3>${pitchSvg(ah + lineMap(ev.filter((e) => [...PASS_KS, 'dribble', 'counter'].includes(e.k) && e.x2 != null), '#4ea1ff'))}</section>
+        <section class="card"><h3>공을 잃은 곳 <small>${opp ? '압박 포인트' : '보완할 곳'}</small></h3>${pitchSvg(losses.map((e) => dot(e.x, e.y, '#ff3b30', 1.2)).join(''))}</section>
+        <section class="card"><h3>공을 따낸 곳 <small>압박 · 탈취 · 인터셉트</small></h3>${pitchSvg(wins.map((e) => dot(e.x, e.y, '#bf5af2', 1.2)).join(''))}</section>
+        <section class="card"><h3>시간대별 공격 <small>${rhalf === 'all' ? '하프마다 15분' : `${HALF[rhalf]} 5분`} 단위 · ${TEAM[rteam]} / ${TEAM[other]}</small></h3>
+          <div class="ma-flow">${flow.map((f, i) => { const a0 = f.es.filter((e) => e.team === rteam).length; const b0 = f.es.filter((e) => e.team === other).length; const mx = Math.max(1, ...flow.map((x) => x.es.length)); return `<div class="${i && f.h !== flow[i - 1].h ? 'ht' : ''}"><div class="cols"><i class="a" style="height:${(a0 / mx) * 100}%"></i><i class="b" style="height:${(b0 / mx) * 100}%"></i></div><small>${rhalf === 'all' ? `${f.from === 0 ? `${HALF[f.h]} ` : ''}${f.from}′` : `${f.from}′`}</small></div>`; }).join('')}</div></section>
+      </div>
+      <details class="card rp-log" ${canEdit ? '' : 'open'}><summary><b>전체 기록</b> <small class="muted">${ev.length}개 · ${TEAM[rteam]} 팀</small></summary>
+        <ul class="list ma-log rp-loglist">${ev.map((e) => `<li>${timeUrl(linkNow(), 0) ? `<a class="small ma-min" href="${esc(timeUrl(linkNow(), Math.max(0, Math.floor(e.t) - 3)))}" target="_blank" rel="noopener" title="영상 ${fmtT(e.t)} — 눌러서 이 장면 보기">${Math.floor(rmf(e))}′ ↗</a>` : `<span class="small ma-min" title="영상 ${fmtT(e.t)}">${Math.floor(rmf(e))}′</span>`}<i class="ma-hf h${halfOf(e)}">${HALF[halfOf(e)][0]}</i><span class="ma-tag" style="--c:${KIND[e.k].c}">${KIND[e.k].l}</span><small>${third(e.x)} · ${channel(e.y)}${detailText(e) ? ` · ${esc(detailText(e))}` : ''}${e.text ? ` · ${esc(e.text)}` : ''}</small></li>`).join('') || '<li class="muted">기록이 없어요.</li>'}</ul></details>`;
     panel.querySelectorAll('[data-rt]').forEach((b) => (b.onclick = () => { rteam = b.dataset.rt; drawReport(); }));
+    panel.querySelectorAll('[data-rh]').forEach((b) => (b.onclick = () => { rhalf = b.dataset.rh === 'all' ? 'all' : +b.dataset.rh; drawReport(); }));
     panel.querySelector('[data-goto-f]')?.addEventListener('click', () => setTab('formation'));
+    panel.querySelector('[data-print]')?.addEventListener('click', () => window.print());
   }
 
   setTab(tab);
@@ -559,9 +924,9 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       if (!localStorage.getItem('ssaka.ma.tour')) {
         localStorage.setItem('ssaka.ma.tour', '1');
         setTimeout(() => tour([
-          ['.ma-kinds', '① 먼저 <b>어떤 장면</b>인지 고르세요 (공격 전개 · 슈팅 · 크로스 …)'],
+          ['.ma-kb', '① 영상 아래 <b>키보드 그림</b>대로 단축키를 누르거나 그림을 눌러 <b>어떤 장면</b>인지 고르세요'],
           ['.ma-tagpitch', '② 영상을 보다가 그 장면이 <b>일어난 곳</b>을 경기장에서 누르세요. 화면에 보이는 그대로요!'],
-          ['[data-live]', '③ 누를 때마다 <b>리포트가 바로</b> 쌓여요. 다 하면 위 <b>리포트</b> 탭에서 전체를 봐요'],
+          ['[data-live]', '③ 누른 뒤 아래 칸에서 <b>결과 · 발 · 선수 번호</b>를 더 고르면 리포트가 더 자세해져요. <b>저장</b>하면 리포트로 한 번에 정리돼요'],
         ]), 500);
       }
     } catch { /* */ }
@@ -596,51 +961,228 @@ export function tour(steps) {
 }
 
 // 미니 리포트 HTML (상대 팀) — 기록하기 · 체험하기에서 실시간으로
-export function liveHtml(events, tm = 'opp') {
+export function liveHtml(events, tm = 'opp', label = '') {
   const r = computeReport(events, tm);
   const n = r.atk.length;
   const bar = (l) => `<div class="ma-bar"><span>${l}${l !== '가운데' ? `<small>${r.oursSide(l)}</small>` : ''}</span><div><i style="width:${r.pct(r.ch[l])}%"></i></div><b>${r.pct(r.ch[l])}%</b><small>${r.ch[l]}</small></div>`;
-  return `<div class="card ma-livecard"><h4>실시간 리포트 <small>${TEAM[tm]} 팀 · 기록 ${events.filter((e) => e.team === tm).length}개</small></h4>
+  return `<div class="card ma-livecard"><h4>실시간 리포트 <small>${label ? `${label} · ` : ''}${TEAM[tm]} 팀 · 기록 ${events.filter((e) => e.team === tm).length}개</small></h4>
     ${n ? `${bar('왼쪽')}${bar('가운데')}${bar('오른쪽')}${r.summary[0] ? `<p class="ma-livesum">${r.summary[0]}</p>` : ''}` : '<p class="muted small">상대 공격 · 크로스 · 슈팅을 기록하면 여기서 바로 공격 방향이 계산돼요.</p>'}</div>`;
 }
 
-export function computeReport(events, rteam) {
-    const ev = events.filter((e) => e.team === rteam);
+// 슈팅 기대 득점 (거리 · 각도로 어림, 헤더는 낮게 · 페널티킥 0.76)
+export function xgOf(e) {
+  if (e.k === 'penalty') return 0.76;
+  const dx = Math.max(0.5, (1 - e.x) * 105); const dy = (e.y - 0.5) * 68;
+  const d = Math.hypot(dx, dy);
+  const ang = Math.atan2(7.32 * dx, dx * dx + dy * dy - (7.32 / 2) ** 2);
+  let v = 1 / (1 + Math.exp(-(-1.2 + 1.6 * (ang < 0 ? ang + Math.PI : ang) - 0.09 * d)));
+  if (e.foot === 'H') v *= 0.6;
+  return Math.min(0.95, Math.max(0.01, v));
+}
+// 전반 · 후반: 기록할 때 고른 하프 (예전 기록은 45분 넘으면 후반으로 봄)
+export const halfOf = (e) => e.half || (e.t >= 2700 ? 2 : 1);
+const HALF = { 1: '전반', 2: '후반' };
+// 하프 안에서 몇 분: 킥오프 시각(hs)이 있으면 그 기준, 없으면 전반은 영상 처음 · 후반은 후반 첫 기록 기준
+function minuteFn(events, hs = {}) {
+  const f2 = Math.min(Infinity, ...events.filter((e) => halfOf(e) === 2).map((e) => e.t));
+  return (e) => { const h = halfOf(e); const base = hs?.[h] != null ? hs[h] : h === 1 ? 0 : (isFinite(f2) ? f2 : 0); return Math.max(0, (e.t - base) / 60); };
+}
+const ATTACK_KS = ['attack', 'cross', 'cutback', 'shot', 'goal', 'dribble', 'through', 'chance', 'counter'];
+const SHOT_KS = ['shot', 'goal', 'penalty'];
+const SET_KS = ['corner', 'freekick', 'throw', 'penalty', 'setpiece'];
+const PASS_KS = ['buildup', 'prog', 'through', 'long', 'attack'];
+const WIN_KS = ['win', 'intercept'];
+
+export function computeReport(events, rteam, { hs = {}, view = 'all' } = {}) {
+  const ev = events.filter((e) => e.team === rteam);
   const other = rteam === 'opp' ? 'us' : 'opp';
-  const atk = ev.filter((e) => ['attack', 'cross', 'shot', 'goal'].includes(e.k));
+  const atk = ev.filter((e) => ATTACK_KS.includes(e.k));
   const ch = { 왼쪽: 0, 가운데: 0, 오른쪽: 0 };
   atk.forEach((e) => { ch[channel(e.y)]++; });
   const pct = (n) => (atk.length ? Math.round((n / atk.length) * 100) : 0);
-  const shots = ev.filter((e) => e.k === 'shot' || e.k === 'goal');
-  const goals = ev.filter((e) => e.k === 'goal');
-  const crosses = ev.filter((e) => e.k === 'cross');
+  const shots = ev.filter((e) => SHOT_KS.includes(e.k));
+  const goals = ev.filter((e) => e.k === 'goal' || (SHOT_KS.includes(e.k) && e.res === 'goal'));
+  const crosses = ev.filter((e) => e.k === 'cross' || e.k === 'cutback');
   const losses = ev.filter((e) => e.k === 'loss');
-  const set = ev.filter((e) => e.k === 'setpiece');
-  const wins = ev.filter((e) => e.k === 'win');
+  const set = ev.filter((e) => SET_KS.includes(e.k));
+  const wins = ev.filter((e) => WIN_KS.includes(e.k) || (['press', 'duel', 'gegen'].includes(e.k) && e.res === 'ok'));
   const inBox = shots.filter((e) => e.x > 0.843 && e.y > 0.204 && e.y < 0.796).length;
-  // 시간대 (15분)
-  const maxT = Math.max(5400, ...events.map((e) => e.t));
-  const bins = Math.ceil(maxT / 900);
-  const flow = Array.from({ length: bins }, (_, i) => [i, events.filter((e) => e.t >= i * 900 && e.t < (i + 1) * 900 && ['attack', 'shot', 'goal', 'cross'].includes(e.k))]);
-  const peak = flow.reduce((b, [i, es]) => { const n = es.filter((e) => e.team === rteam).length; return n > b.n ? { i, n } : b; }, { i: -1, n: 0 });
-  // 위험 지역: 공격 1/3에서의 공격 · 크로스 · 슈팅 (6 × 4 칸)
+  // 시간대: 전체는 하프마다 15분씩, 전반 · 후반만 볼 땐 5분씩
+  const minOf = minuteFn(events, hs);
+  const step = view === 'all' ? 15 : 5;
+  const flow = [];
+  (view === 'all' ? [1, 2] : [view]).forEach((h) => {
+    const es = events.filter((e) => halfOf(e) === h && ATTACK_KS.includes(e.k));
+    const n = 45 / step;
+    for (let i = 0; i < n; i++) flow.push({ h, from: i * step, to: (i + 1) * step, label: `${HALF[h]} ${i * step}′`, es: es.filter((e) => Math.min(n - 1, Math.floor(minOf(e) / step)) === i) });
+  });
+  const peak = flow.reduce((b, f) => { const n0 = f.es.filter((e) => e.team === rteam).length; return n0 > b.n ? { f, n: n0 } : b; }, { f: null, n: 0 });
+  // 위험 지역: 공격 · 크로스 · 슈팅 (6 × 4 칸)
   const heat = Array.from({ length: 4 }, () => Array(6).fill(0));
   atk.forEach((e) => { heat[Math.min(3, Math.floor(e.y * 4))][Math.min(5, Math.floor(e.x * 6))]++; });
   const hmax = Math.max(1, ...heat.flat());
   const heatSvg = heat.map((row, yi) => row.map((v, xi) => `<rect x="${xi * 17.5}" y="${yi * 17}" width="17.5" height="17" fill="rgba(255,59,48,${(v / hmax) * 0.75})"/>${v ? `<text x="${xi * 17.5 + 8.75}" y="${yi * 17 + 10}" class="hv">${v}</text>` : ''}`).join('')).join('');
-  // 상대 기준 왼쪽/오른쪽 → 우리 수비 기준 (반대)
   const oursSide = (c) => (c === '왼쪽' ? '우리 오른쪽' : c === '오른쪽' ? '우리 왼쪽' : '가운데');
-  const main = Object.entries(ch).sort((a, b) => b[1] - a[1])[0];
+  const mainCh = Object.entries(ch).sort((a, b) => b[1] - a[1])[0];
   const crossSide = crosses.length ? Object.entries(crosses.reduce((a, e) => ({ ...a, [channel(e.y)]: (a[channel(e.y)] || 0) + 1 }), {})).sort((a, b) => b[1] - a[1])[0] : null;
   const lossZone = losses.length ? Object.entries(losses.reduce((a, e) => { const z = `${third(e.x)} ${channel(e.y)}`; return { ...a, [z]: (a[z] || 0) + 1 }; }, {})).sort((a, b) => b[1] - a[1])[0] : null;
+  const xg = shots.reduce((a, e) => a + xgOf(e), 0);
   const summary = [];
-  if (atk.length) summary.push(`${TEAM[rteam]} 공격은 <b>${main[0]}</b>이 ${pct(main[1])}%로 가장 많아요${rteam === 'opp' && main[0] !== '가운데' ? ` → <b>${oursSide(main[0])} 측면 수비</b>를 대비해야 해요` : ''}.`);
+  if (atk.length) summary.push(`${TEAM[rteam]} 공격은 <b>${mainCh[0]}</b>이 ${pct(mainCh[1])}%로 가장 많아요${rteam === 'opp' && mainCh[0] !== '가운데' ? ` → <b>${oursSide(mainCh[0])} 측면 수비</b>를 대비해야 해요` : ''}.`);
   if (crossSide) summary.push(`크로스 ${crosses.length}개 중 ${crossSide[1]}개가 <b>${crossSide[0]}</b>에서 올라왔어요${rteam === 'opp' ? ` (${oursSide(crossSide[0])})` : ''}.`);
-  if (shots.length) summary.push(`슈팅 ${shots.length}개 중 박스 안 ${inBox}개 (${Math.round((inBox / shots.length) * 100)}%)${inBox / shots.length < 0.4 ? ' — 중거리 슈팅이 많아요' : ' — 박스 안까지 들어와서 때려요'}.`);
-  if (peak.n >= 3) summary.push(`<b>${peak.i * 15}~${peak.i * 15 + 15}분</b>에 공격이 가장 많았어요 (${peak.n}번).`);
+  if (shots.length) summary.push(`슈팅 ${shots.length}개 중 박스 안 ${inBox}개 (${Math.round((inBox / shots.length) * 100)}%) · 기대 득점 <b>${xg.toFixed(1)}</b> · 실제 ${goals.length}골.`);
+  if (peak.n >= 3) summary.push(`<b>${HALF[peak.f.h]} ${peak.f.from}~${peak.f.to}분</b>에 공격이 가장 많았어요 (${peak.n}번).`);
   if (lossZone) summary.push(`${TEAM[rteam]}가 공을 가장 많이 잃은 곳: <b>${lossZone[0]}</b> (${lossZone[1]}번)${rteam === 'opp' ? ' → 이곳에서 압박하면 효과적이에요' : ' → 이곳 빌드업을 보완해요'}.`);
-  if (set.length) summary.push(`세트피스 ${set.length}번${goals.length ? ` · 득점 ${goals.length}골` : ''}.`);
-  return { ev, other, atk, ch, pct, shots, goals, crosses, losses, set, wins, inBox, flow, heatSvg, oursSide, summary };
+  if (set.length) summary.push(`세트피스 ${set.length}번${set.filter((e) => e.res === 'shot').length ? ` · 슈팅까지 ${set.filter((e) => e.res === 'shot').length}번` : ''}.`);
+  return { ev, other, atk, ch, pct, shots, goals, crosses, losses, set, wins, inBox, flow, heatSvg, oursSide, summary, xg };
+}
+
+// ───────── 자동 분석 (기록한 장면만으로 아주 자세히) ─────────
+// 반환: [{ t: 제목, items: [문장 html] }] — 기록이 적으면 그 칸은 '기록이 더 필요해요'
+export function deepAnalysis(events, rteam, opt = {}) {
+  const R = computeReport(events, rteam, opt);
+  const { ev, other } = R;
+  const T = TEAM[rteam]; const O = TEAM[other];
+  const opp = rteam === 'opp';
+  const side = (c) => (opp && c !== '가운데' ? `${c}(${R.oursSide(c)})` : c);
+  const P = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+  const rate = (list) => { const d = list.filter((e) => e.res === 'ok' || e.res === 'fail'); return d.length ? { n: d.length, ok: d.filter((e) => e.res === 'ok').length, p: P(d.filter((e) => e.res === 'ok').length, d.length) } : null; };
+  const of = (...ks) => ev.filter((e) => ks.includes(e.k));
+  const top = (list, key) => { const m = {}; list.forEach((e) => { const k = key(e); if (k) m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
+  const S = [];
+  const strong = []; const weak = []; const todo = [];
+
+  // 1. 공격 경로 · 빌드업
+  const it1 = [];
+  const passes = of(...PASS_KS); const longs = of('long'); const builds = of('buildup'); const progs = of('prog', 'through');
+  if (passes.length) {
+    it1.push(`패스로 공격을 만든 장면 ${passes.length}번: 빌드업 ${builds.length} · 전진 패스 ${of('prog').length} · 스루패스 ${of('through').length} · 롱볼 ${longs.length}.`);
+    if (longs.length >= 3 && longs.length / passes.length >= 0.35) { it1.push(`롱볼 비율이 <b>${P(longs.length, passes.length)}%</b>로 높아요 — 짧게 만들기보다 <b>뒷공간 · 공중볼</b>로 바로 넘겨요.`); (opp ? strong : weak).push(opp ? '롱볼로 바로 넘기는 공격' : '롱볼 의존이 커요'); }
+    else if (builds.length + progs.length >= 4) it1.push(`짧은 패스로 <b>차근차근 만들어 가는</b> 팀이에요 (빌드업 · 전진 패스 ${builds.length + progs.length}번).`);
+    const rp = rate(passes);
+    if (rp && rp.n >= 4) { it1.push(`패스 연결 성공률 <b>${rp.p}%</b> (${rp.ok}/${rp.n}).`); if (rp.p < 60) { weak.push(`패스 연결 성공률 ${rp.p}%`); if (!opp) todo.push('압박 속 짧은 패스 · 몸 방향 만들기 훈련 (론도 · 4v2)'); } else if (rp.p >= 80) strong.push(`패스 연결이 안정적 (${rp.p}%)`); }
+    const lines = passes.filter((e) => e.x2 != null);
+    if (lines.length >= 3) {
+      const fw = lines.filter((e) => e.x2 - e.x > 0.08).length;
+      const sw = lines.filter((e) => Math.abs(e.y2 - e.y) > 0.3).length;
+      it1.push(`끝 지점까지 찍은 패스 ${lines.length}개 중 앞으로 간 패스 ${P(fw, lines.length)}% · 반대쪽으로 크게 바꾼 전환 패스 ${sw}개.`);
+      if (sw >= 3) it1.push(`<b>사이드 전환</b>이 잦아요 — ${opp ? '반대쪽 측면 커버를 빨리 해야 해요' : '반대쪽 공간을 잘 써요'}.`);
+    }
+  }
+  const lossBy = top(R.losses.filter((e) => e.x < 1 / 3), () => '수비 1/3');
+  if (lossBy.length && lossBy[0][1] >= 3) { it1.push(`<b>자기 진영(수비 1/3)</b>에서 공을 ${lossBy[0][1]}번 잃었어요 — ${opp ? '높은 압박이 통해요' : '빌드업 첫 패스가 불안해요'}.`); weak.push('자기 진영에서 볼 손실'); todo.push(opp ? '상대 빌드업 첫 패스에 높은 압박' : '골키퍼 · 센터백 빌드업 패턴 연습 (압박 탈출 3가지)'); }
+  const rp0 = rate(passes);
+  S.push({ t: '공격 경로 · 빌드업', items: it1, k: [['패스로 만든 공격', passes.length], ['패스 성공률', rp0 ? `${rp0.p}%` : '-'], ['롱볼 비율', passes.length ? `${P(longs.length, passes.length)}%` : '-'], ['자기 진영 볼 손실', R.losses.filter((e) => e.x < 1 / 3).length]] });
+
+  // 2. 측면 · 크로스 · 돌파
+  const it2 = [];
+  const atkN = R.atk.length;
+  if (atkN) it2.push(`공격 방향: 왼쪽 ${R.pct(R.ch['왼쪽'])}% · 가운데 ${R.pct(R.ch['가운데'])}% · 오른쪽 ${R.pct(R.ch['오른쪽'])}% (공격 장면 ${atkN}개).`);
+  const mainSide = Object.entries(R.ch).sort((a, b) => b[1] - a[1])[0];
+  if (atkN >= 6 && mainSide[1] / atkN >= 0.45) { it2.push(`<b>${side(mainSide[0])}</b>으로 쏠려요 (${R.pct(mainSide[1])}%).`); if (opp) todo.push(`${R.oursSide(mainSide[0])} 측면 수비 2v1 · 커버 연습`); }
+  const drb = of('dribble'); const rd = rate(drb);
+  if (drb.length) { it2.push(`돌파 ${drb.length}번${rd ? ` · 성공률 ${rd.p}%` : ''}${top(drb, (e) => channel(e.y))[0] ? ` · 주로 ${side(top(drb, (e) => channel(e.y))[0][0])}` : ''}.`); if (rd && rd.n >= 4 && rd.p >= 60) strong.push(`1v1 돌파 (${rd.p}%)`); }
+  const cr = R.crosses; const rc = rate(cr);
+  if (cr.length) {
+    const ft = top(cr, (e) => DLABEL[e.foot]); const hg = top(cr, (e) => DLABEL[e.height]);
+    it2.push(`크로스 · 컷백 ${cr.length}번 (컷백 ${of('cutback').length})${rc ? ` · 연결 ${rc.p}%` : ''}${ft[0] ? ` · ${ft[0][0]} ${ft[0][1]}번` : ''}${hg[0] ? ` · ${hg[0][0]}가 많음` : ''}.`);
+    if (rc && rc.n >= 4 && rc.p < 35) { weak.push(`크로스 연결 ${rc.p}%`); if (!opp) todo.push('크로스 정확도 · 박스 안 침투 타이밍 훈련'); }
+    if (opp && cr.length >= 4) todo.push(`${hg[0]?.[0] === '높게' ? '공중볼 경합 · 니어 포스트 수비' : '컷백 · 땅볼 크로스 대비 (박스 앞 커버)'}`);
+  }
+  S.push({ t: '측면 · 크로스 · 돌파', items: it2, k: [['왼쪽 · 가운데 · 오른쪽 (%)', atkN ? `${R.pct(R.ch['왼쪽'])}·${R.pct(R.ch['가운데'])}·${R.pct(R.ch['오른쪽'])}` : '-'], ['돌파 성공률', rd ? `${rd.p}%` : '-'], ['크로스 · 컷백', cr.length], ['크로스 연결', rc ? `${rc.p}%` : '-']] });
+
+  // 3. 마무리 · 슈팅
+  const it3 = [];
+  const sh = R.shots;
+  if (sh.length) {
+    const on = sh.filter((e) => e.k === 'goal' || ['on', 'post', 'goal'].includes(e.res)).length;
+    const decided = sh.filter((e) => e.k === 'goal' || e.res).length;
+    it3.push(`슈팅 ${sh.length}개 · 박스 안 ${R.inBox}개 (${P(R.inBox, sh.length)}%) · 득점 ${R.goals.length} · 기대 득점 <b>${R.xg.toFixed(2)}</b>.`);
+    if (decided >= 3) it3.push(`유효 슈팅 비율 <b>${P(on, decided)}%</b> (${on}/${decided}).`);
+    const ft = top(sh, (e) => DLABEL[e.foot]);
+    if (ft.length) it3.push(`슈팅 발: ${ft.map(([k, n]) => `${k} ${n}`).join(' · ')}${ft[0][0] === '왼발' && ft[0][1] >= 3 ? ' — <b>왼발</b> 슈팅이 많아요' : ''}.`);
+    if (R.goals.length - R.xg >= 1) it3.push(`기대보다 <b>${(R.goals.length - R.xg).toFixed(1)}골 더</b> 넣었어요 — 결정력이 좋았어요.`);
+    else if (R.xg - R.goals.length >= 1) { it3.push(`기대 득점보다 <b>${(R.xg - R.goals.length).toFixed(1)}골 적게</b> 넣었어요 — 찬스를 놓쳤어요.`); if (!opp) { weak.push('결정력 (기대 득점보다 적은 골)'); todo.push('박스 안 원터치 마무리 · 침착성 훈련'); } }
+    if (sh.length >= 4 && P(R.inBox, sh.length) < 40) it3.push(`박스 밖 <b>중거리 슈팅</b>이 많아요 — ${opp ? '박스 앞 선수에게 슈팅 각을 주지 마세요' : '박스 안까지 더 들어가야 해요'}.`);
+  }
+  const chances = of('chance');
+  if (chances.length) it3.push(`결정적 찬스 ${chances.length}번.`);
+  const on0 = sh.filter((e) => e.k === 'goal' || ['on', 'post', 'goal'].includes(e.res)).length; const dec0 = sh.filter((e) => e.k === 'goal' || e.res).length;
+  S.push({ t: '마무리 · 슈팅', items: it3, k: [['슈팅', sh.length], ['유효 슈팅', dec0 ? `${P(on0, dec0)}%` : '-'], ['박스 안', sh.length ? `${P(R.inBox, sh.length)}%` : '-'], ['득점 / 기대 득점', `${R.goals.length} / ${R.xg.toFixed(1)}`]] });
+
+  // 4. 수비 · 압박
+  const it4 = [];
+  const pr = of('press'); const rpr = rate(pr); const du = of('duel'); const rdu = rate(du);
+  if (R.wins.length) {
+    const zone = top(R.wins, (e) => third(e.x));
+    it4.push(`공을 따낸 장면 ${R.wins.length}번 (탈취 ${of('win').length} · 인터셉트 ${of('intercept').length}) · 주로 <b>${zone[0][0]}</b>.`);
+    const high = R.wins.filter((e) => e.x > 2 / 3).length;
+    if (high >= 3) { it4.push(`상대 진영(공격 1/3)에서 ${high}번 따냈어요 — <b>높은 압박</b>이 통했어요.`); strong.push('높은 위치 볼 탈취'); }
+  }
+  if (rpr) it4.push(`압박 ${pr.length}번 · 성공 ${rpr.p}%.`);
+  if (rdu) { it4.push(`경합 · 태클 ${du.length}번 · 이긴 비율 ${rdu.p}%.`); if (rdu.n >= 4 && rdu.p < 45) { weak.push(`경합 승률 ${rdu.p}%`); if (!opp) todo.push('1v1 수비 자세 · 몸싸움 훈련'); } }
+  if (of('clear').length) it4.push(`클리어링 ${of('clear').length}번.`);
+  if (of('save').length) it4.push(`골키퍼 선방 ${of('save').length}번.`);
+  S.push({ t: '수비 · 압박', items: it4, k: [['공 따냄', R.wins.length], ['높은 위치 탈취', R.wins.filter((e) => e.x > 2 / 3).length], ['압박 성공', rpr ? `${rpr.p}%` : '-'], ['경합 승률', rdu ? `${rdu.p}%` : '-']] });
+
+  // 5. 공수 전환 (공을 잃은 뒤 · 따낸 뒤 15초)
+  const it5 = [];
+  const within = (a, list, sec = 15) => list.some((e) => e.t > a.t && e.t - a.t <= sec);
+  const oppShots = events.filter((e) => e.team === other && SHOT_KS.includes(e.k));
+  const myShots = R.shots;
+  if (R.losses.length) {
+    const danger = R.losses.filter((l) => within(l, oppShots)).length;
+    const how = top(R.losses, (e) => DLABEL[e.how]);
+    it5.push(`공을 잃은 장면 ${R.losses.length}번${how.length ? ` (${how.map(([k, n]) => `${k} ${n}`).join(' · ')})` : ''} · 그 뒤 15초 안에 ${O} 슈팅 <b>${danger}번</b>.`);
+    if (danger >= 2) { weak.push(`볼 손실 뒤 ${O} 슈팅 ${danger}번`); todo.push(opp ? '공을 따내면 바로 역습 (상대 전환이 느려요)' : '공 잃은 직후 5초 재압박 (게겐프레싱) 훈련'); }
+  }
+  const gain = R.wins;
+  if (gain.length) { const fast = gain.filter((w) => within(w, myShots)).length; it5.push(`공을 따낸 뒤 15초 안에 슈팅까지 간 장면 <b>${fast}번</b>.`); if (fast >= 2) strong.push(`빠른 역습 (${fast}번 슈팅까지)`); }
+  const ct = of('counter'); const rct = rate(ct);
+  if (ct.length) it5.push(`역습 ${ct.length}번${rct ? ` · 성공 ${rct.p}%` : ''}.`);
+  S.push({ t: '공수 전환', items: it5, k: [['공 잃음', R.losses.length], ['잃은 뒤 상대 슈팅', R.losses.filter((l) => within(l, oppShots)).length], ['따낸 뒤 슈팅', gain.filter((w) => within(w, myShots)).length], ['역습', ct.length]] });
+
+  // 6. 세트피스
+  const it6 = [];
+  if (R.set.length) {
+    const byK = top(R.set, (e) => KIND[e.k].l);
+    it6.push(`세트피스 ${R.set.length}번: ${byK.map(([k, n]) => `${k} ${n}`).join(' · ')}.`);
+    const res = top(R.set, (e) => DLABEL[e.res]);
+    if (res.length) it6.push(`결과: ${res.map(([k, n]) => `${k} ${n}`).join(' · ')}.`);
+    const setGoals = R.goals.filter((g) => R.set.some((sp) => g.t >= sp.t && g.t - sp.t <= 12)).length;
+    if (setGoals) { it6.push(`세트피스 뒤 12초 안에 득점 <b>${setGoals}번</b>.`); (opp ? todo : strong).push(opp ? '세트피스 수비 (마크 · 지역 정하기)' : '세트피스 득점력'); }
+    const cn = of('corner'); if (cn.length >= 3) { const ft = top(cn, (e) => DLABEL[e.foot]); if (ft[0]) it6.push(`코너킥은 주로 ${ft[0][0]}로 차요.`); }
+  }
+  S.push({ t: '세트피스', items: it6, k: [['세트피스', R.set.length], ['코너킥', of('corner').length], ['프리킥', of('freekick').length], ['슈팅까지', R.set.filter((e) => e.res === 'shot').length]] });
+
+  // 7. 시간대 흐름
+  const it7 = [];
+  const tm = R.flow.map((f) => [f, f.es.filter((e) => e.team === rteam).length, f.es.filter((e) => e.team === other).length]);
+  const used = tm.filter(([, a, b]) => a + b > 0);
+  const fl = (f) => `${HALF[f.h]} ${f.from}~${f.to}분`;
+  if (used.length >= 2) {
+    const best = [...tm].sort((a, b) => (b[1] - b[2]) - (a[1] - a[2]))[0]; const worst = [...tm].sort((a, b) => (a[1] - a[2]) - (b[1] - b[2]))[0];
+    it7.push(`가장 좋았던 시간 <b>${fl(best[0])}</b> (공격 ${best[1]} : ${best[2]}) · 가장 밀린 시간 <b>${fl(worst[0])}</b> (${worst[1]} : ${worst[2]}).`);
+    const h1 = ev.filter((e) => halfOf(e) === 1 && ATTACK_KS.includes(e.k)).length; const h2 = ev.filter((e) => halfOf(e) === 2 && ATTACK_KS.includes(e.k)).length;
+    if (h1 + h2 >= 6) { it7.push(`전반 공격 ${h1} · 후반 ${h2}${h2 > h1 * 1.4 ? ' — <b>후반에 몰아쳐요</b>' : h1 > h2 * 1.4 ? ' — <b>후반에 힘이 떨어져요</b>' : ''}.`); if (h1 > h2 * 1.4) { weak.push('후반에 공격이 줄어요'); todo.push(opp ? '후반에 더 밀어붙이기' : '후반 체력 · 집중력 (고강도 인터벌)'); } }
+  }
+  S.push({ t: '시간대 흐름', items: it7, k: [['전반 공격', ev.filter((e) => halfOf(e) === 1 && ATTACK_KS.includes(e.k)).length], ['후반 공격', ev.filter((e) => halfOf(e) === 2 && ATTACK_KS.includes(e.k)).length]] });
+
+  // 8. 선수별
+  const it8 = [];
+  const byNum = {};
+  ev.filter((e) => e.num).forEach((e) => { const b = (byNum[e.num] ||= { n: 0, shot: 0, goal: 0, ok: 0, fail: 0, loss: 0, win: 0 }); b.n++; if (SHOT_KS.includes(e.k)) b.shot++; if (e.k === 'goal') b.goal++; if (e.res === 'ok') b.ok++; if (e.res === 'fail') b.fail++; if (e.k === 'loss') b.loss++; if (WIN_KS.includes(e.k)) b.win++; });
+  const ranked = Object.entries(byNum).sort((a, b) => b[1].n - a[1].n);
+  if (ranked.length) {
+    it8.push(`가장 많이 관여한 선수: ${ranked.slice(0, 3).map(([n, b]) => `<b>${esc(n)}번</b> ${b.n}번`).join(' · ')}.`);
+    const scorer = ranked.filter(([, b]) => b.shot).sort((a, b) => b[1].shot - a[1].shot)[0];
+    if (scorer) it8.push(`슈팅이 가장 많은 선수 <b>${esc(scorer[0])}번</b> (${scorer[1].shot}개${scorer[1].goal ? ` · ${scorer[1].goal}골` : ''})${opp ? ' — 집중 마크' : ''}.`);
+    const lost = ranked.filter(([, b]) => b.loss >= 2).sort((a, b) => b[1].loss - a[1].loss)[0];
+    if (lost) it8.push(`공을 가장 많이 잃은 선수 <b>${esc(lost[0])}번</b> (${lost[1].loss}번)${opp ? ' — 이 선수에게 압박을 몰아요' : ''}.`);
+  }
+  S.push({ t: '선수별', items: it8, table: ranked, k: [['번호 적은 선수', ranked.length], ['가장 많이 관여', ranked[0] ? `${ranked[0][0]}번` : '-']] });
+
+  return { sections: S, strong, weak, todo, n: ev.length, R };
 }
 
 // 상대 선수 위치(화면) → 줄 나누기 → 포메이션 이름 + 작전판 배치
@@ -687,22 +1229,42 @@ export function shapeFrom(boxes, VW, VH, oppRight) {
   return { name, count: n + (gk ? 1 : 0), pad };
 }
 
-// 분석실 소개용 예시 경기 (저장하지 않음) — 상대가 오른쪽(우리 왼쪽) 측면 · 크로스가 많고 후반에 몰아침
+// 분석실 소개용 예시 경기 (저장하지 않음) — 지금 기록 방식 그대로: 전반 · 후반 · 킥오프 · 세분화 장면 · 결과 · 발 · 번호 · 끝 지점
+// 이야기: 상대는 오른쪽(우리 왼쪽) 7번의 크로스 · 10번 왼발 중거리가 무기, 자기 진영에서 공을 자주 잃고, 후반 15~30분에 몰아침
 export function sampleMatch() {
   let sd = 11; const rnd = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
-  const ev = []; const add = (t, team, k, x, y) => ev.push({ id: `s${ev.length}`, t: Math.round(t), team, k, x: +x.toFixed(3), y: +y.toFixed(3) });
-  for (let i = 0; i < 64; i++) add(rnd() < 0.6 ? 2700 + rnd() * 2700 : rnd() * 2700, 'opp', 'attack', 0.45 + rnd() * 0.45, rnd() < 0.5 ? 0.8 + rnd() * 0.18 : rnd() < 0.5 ? 0.4 + rnd() * 0.2 : rnd() * 0.3);
-  for (let i = 0; i < 13; i++) add(rnd() * 5400, 'opp', 'cross', 0.78 + rnd() * 0.18, rnd() < 0.75 ? 0.86 + rnd() * 0.12 : 0.04 + rnd() * 0.1);
-  for (let i = 0; i < 11; i++) add(rnd() * 5400, 'opp', 'shot', rnd() < 0.55 ? 0.86 + rnd() * 0.1 : 0.7 + rnd() * 0.12, 0.25 + rnd() * 0.5);
-  add(3100, 'opp', 'goal', 0.93, 0.56); add(4380, 'opp', 'goal', 0.9, 0.43);
-  for (let i = 0; i < 15; i++) add(rnd() * 5400, 'opp', 'loss', 0.15 + rnd() * 0.3, rnd() < 0.6 ? rnd() * 0.33 : 0.33 + rnd() * 0.6);
-  for (let i = 0; i < 5; i++) add(rnd() * 5400, 'opp', 'setpiece', rnd() < 0.5 ? 0.99 : 0.75, rnd() < 0.5 ? 0.02 : 0.95);
-  for (let i = 0; i < 38; i++) add(rnd() * 5400, 'us', 'attack', 0.45 + rnd() * 0.45, rnd());
-  for (let i = 0; i < 8; i++) add(rnd() * 5400, 'us', 'shot', 0.75 + rnd() * 0.2, 0.3 + rnd() * 0.4);
-  add(1500, 'us', 'goal', 0.92, 0.5);
-  for (let i = 0; i < 12; i++) add(rnd() * 5400, 'us', 'loss', 0.2 + rnd() * 0.5, rnd());
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const HS = { 1: 15, 2: 2955 }; // 영상에서 전반 · 후반 킥오프
+  const ev = [];
+  const add = (half, min, team, k, x, y, more = {}) => ev.push({ id: `s${ev.length}`, t: Math.round(HS[half] + min * 60 + rnd() * 50), half, team, k, x: +Math.min(0.99, Math.max(0.01, x)).toFixed(3), y: +Math.min(0.99, Math.max(0.01, y)).toFixed(3), ...more });
+  const halfMin = (h) => (h === 2 && rnd() < 0.55 ? 15 + rnd() * 15 : rnd() * 44); // 후반 15~30분에 몰림
+  for (const h of [1, 2]) {
+    const n = h === 1 ? 1 : 1.5;
+    // 상대 공격
+    for (let i = 0; i < 26 * n; i++) { const right = rnd() < 0.55; add(h, halfMin(h), 'opp', 'attack', 0.45 + rnd() * 0.4, right ? 0.72 + rnd() * 0.25 : rnd() < 0.5 ? 0.4 + rnd() * 0.2 : rnd() * 0.3, { res: rnd() < 0.62 ? 'ok' : 'fail' }); }
+    for (let i = 0; i < 6 * n; i++) add(h, halfMin(h), 'opp', 'long', 0.2 + rnd() * 0.15, 0.3 + rnd() * 0.4, { res: rnd() < 0.45 ? 'ok' : 'fail', x2: 0.72 + rnd() * 0.15, y2: 0.6 + rnd() * 0.35, num: pick(['4', '5']) });
+    for (let i = 0; i < 4 * n; i++) add(h, halfMin(h), 'opp', 'through', 0.55 + rnd() * 0.15, 0.4 + rnd() * 0.3, { res: rnd() < 0.5 ? 'ok' : 'fail', x2: 0.8 + rnd() * 0.12, y2: 0.45 + rnd() * 0.3, num: '10' });
+    for (let i = 0; i < 5 * n; i++) add(h, halfMin(h), 'opp', 'dribble', 0.65 + rnd() * 0.2, 0.8 + rnd() * 0.17, { res: rnd() < 0.6 ? 'ok' : 'fail', num: '7', x2: 0.8 + rnd() * 0.12, y2: 0.82 + rnd() * 0.12 });
+    for (let i = 0; i < 7 * n; i++) add(h, halfMin(h), 'opp', 'cross', 0.8 + rnd() * 0.17, rnd() < 0.75 ? 0.86 + rnd() * 0.12 : 0.03 + rnd() * 0.1, { res: rnd() < 0.38 ? 'ok' : 'fail', foot: 'R', height: rnd() < 0.7 ? 'high' : 'ground', num: rnd() < 0.7 ? '7' : '2', x2: 0.9 + rnd() * 0.06, y2: 0.4 + rnd() * 0.2 });
+    for (let i = 0; i < 6 * n; i++) { const far = rnd() < 0.55; add(h, halfMin(h), 'opp', 'shot', far ? 0.7 + rnd() * 0.12 : 0.86 + rnd() * 0.1, 0.3 + rnd() * 0.4, { res: pick(['on', 'off', 'off', 'block']), foot: far ? 'L' : pick(['R', 'L', 'H']), num: far ? '10' : pick(['9', '11', '7']) }); }
+    for (let i = 0; i < 8 * n; i++) add(h, halfMin(h), 'opp', 'loss', 0.12 + rnd() * 0.25, rnd() < 0.6 ? rnd() * 0.33 : 0.33 + rnd() * 0.6, { how: pick(['press', 'press', 'mistake', 'duel']), num: pick(['3', '5', '6']) });
+    for (let i = 0; i < 4 * n; i++) add(h, halfMin(h), 'opp', 'press', 0.55 + rnd() * 0.3, rnd(), { res: rnd() < 0.4 ? 'ok' : 'fail' });
+    for (let i = 0; i < 3; i++) add(h, halfMin(h), 'opp', 'corner', 0.99, rnd() < 0.5 ? 0.02 : 0.97, { res: pick(['shot', 'danger', 'none', 'none']), foot: 'R' });
+    for (let i = 0; i < 2; i++) add(h, halfMin(h), 'opp', 'freekick', 0.66 + rnd() * 0.1, 0.3 + rnd() * 0.4, { res: pick(['shot', 'none']), foot: 'L', num: '10' });
+    for (let i = 0; i < 3; i++) add(h, halfMin(h), 'opp', 'foul', 0.3 + rnd() * 0.4, rnd(), { ...(rnd() < 0.3 ? { card: 'Y' } : {}), num: pick(['4', '6', '8']) });
+    // 우리 공격
+    for (let i = 0; i < 18 * (h === 1 ? 1.2 : 0.8); i++) add(h, halfMin(h), 'us', 'attack', 0.45 + rnd() * 0.4, rnd(), { res: rnd() < 0.55 ? 'ok' : 'fail' });
+    for (let i = 0; i < 4; i++) add(h, halfMin(h), 'us', 'cross', 0.8 + rnd() * 0.15, rnd() < 0.5 ? 0.9 : 0.1, { res: rnd() < 0.3 ? 'ok' : 'fail', foot: pick(['R', 'L']), num: pick(['11', '7']) });
+    for (let i = 0; i < 5 * (h === 1 ? 1.2 : 0.7); i++) add(h, halfMin(h), 'us', 'shot', 0.78 + rnd() * 0.18, 0.3 + rnd() * 0.4, { res: pick(['on', 'off', 'block']), foot: pick(['R', 'L']), num: pick(['9', '10', '11']) });
+    for (let i = 0; i < 6; i++) add(h, halfMin(h), 'us', 'loss', 0.2 + rnd() * 0.5, rnd(), { how: pick(['press', 'mistake']) });
+    for (let i = 0; i < 7; i++) add(h, halfMin(h), 'us', 'win', 0.55 + rnd() * 0.4, rnd(), { num: pick(['8', '6', '10']) });
+    add(h, halfMin(h), 'us', 'corner', 0.99, 0.97, { res: 'danger', foot: 'L' });
+  }
+  add(1, 23, 'us', 'goal', 0.92, 0.5, { foot: 'R', num: '9' });
+  add(2, 18, 'opp', 'goal', 0.93, 0.56, { foot: 'H', num: '9' });
+  add(2, 27, 'opp', 'goal', 0.74, 0.44, { foot: 'L', num: '10' });
   ev.sort((a, b) => a.t - b.t);
-  return { id: 'sample', mode: 'match', title: '예시) vs 상대 FC 경기분석', opponent: '상대 FC', date: '', oppDir: 'right', events: ev, target: 'both', size: 11,
-    lineups: { opp: { base: { f: '4-4-2', nums: ['1', '2', '4', '5', '3', '7', '8', '6', '11', '9', '10'] }, att: { f: '2-3-5', nums: [] }, def: { f: '4-5-1', nums: [] } } },
-    keys: { opp: [{ id: 'k1', num: '10', pos: 'ST', name: '', note: '왼발 · 박스 앞 중거리 슈팅' }, { id: 'k2', num: '7', pos: 'LM', name: '', note: '스피드 · 오른쪽으로 꺾어 크로스' }] }, formations: [] };
+  return { id: 'sample', mode: 'match', title: '예시) vs 상대 FC 경기분석', opponent: '상대 FC', date: '', oppDir: 'right', events: ev, target: 'both', size: 11, halfStart: HS,
+    lineups: { opp: { base: { f: '4-2-3-1', nums: ['1', '2', '4', '5', '3', '6', '8', '11', '10', '7', '9'] }, def: { f: '4-4-1-1', nums: [] } }, us: { base: { f: '4-3-3', nums: ['1', '2', '4', '5', '3', '6', '8', '10', '11', '9', '7'] } } },
+    keys: { opp: [{ id: 'k1', num: '10', pos: 'AM', name: '', note: '왼발 · 박스 앞 중거리 · 프리킥 키커' }, { id: 'k2', num: '7', pos: 'RW', name: '', note: '스피드 · 오른쪽 돌파 뒤 높은 크로스' }], us: [{ id: 'k3', num: '9', pos: 'ST', name: '', note: '침투 · 첫 골' }] }, formations: [] };
 }

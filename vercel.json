@@ -9,6 +9,9 @@
     },
     "api/usage.py": {
       "maxDuration": 20
+    },
+    "api/veo.py": {
+      "maxDuration": 15
     }
   },
   "headers": [
