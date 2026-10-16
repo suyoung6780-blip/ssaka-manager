@@ -64,9 +64,10 @@ export function modal(html, { wide = false } = {}) {
   wrap.className = 'modal-wrap';
   wrap.innerHTML = `<div class="modal ${wide ? 'wide' : ''}"><button class="modal-x" aria-label="닫기">✕</button>${html}</div>`;
   document.body.appendChild(wrap);
-  const close = () => wrap.remove();
-  wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('.modal-x')) close(); });
-  return { el: wrap.querySelector('.modal'), close };
+  const api = { el: wrap.querySelector('.modal'), onClose: null };
+  api.close = () => { if (!wrap.isConnected) return; wrap.remove(); api.onClose?.(); };
+  wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('.modal-x')) api.close(); });
+  return api;
 }
 
 export function confirmBox(msg) {

@@ -6,6 +6,7 @@ import {
   ROLES, MATCH_TYPES, sortGroups, sortBar, bindSortBar, getSort, byName } from '../ui.js';
 import { state, isCoach, isOwner } from '../store.js';
 import { createPad, formationData, is8 } from '../tactic.js';
+import { keepDraft, fillFields, draftStrip } from '../drafts.js';
 
 const tcol = (...p) => collection(db, 'teams', state.team.id, ...p);
 const tdoc = (...p) => doc(db, 'teams', state.team.id, ...p);
@@ -56,13 +57,28 @@ export async function gameModel(el) {
     <section class="gm-pats">
       <div class="card-head"><h2>패턴 · 작전판 <small class="muted">${(gm.patterns || []).length}개</small></h2>${isCoach() ? '<button class="btn sm" data-padd>+ 패턴 만들기</button>' : ''}</div>
       <div class="chips wrap">${['전체', ...PATTERN_CATS].map((c) => `<button class="chip ${c === patCat ? 'on' : ''}" data-pcat="${c}">${c}${c !== '전체' ? ` <small>${(gm.patterns || []).filter((x) => x.cat === c).length}</small>` : ''}</button>`).join('')}</div>
-      <div class="pat-grid" data-pats></div>
+      ${isCoach() ? '<div data-pdrafts hidden></div>' : ''}<div class="pat-grid" data-pats></div>
     </section>`;
     createPad(el.querySelector('[data-pad]'), gm.pad || formationData(gm.formation || '4-3-3', false), { editable: false });
     el.querySelector('[data-edit]')?.addEventListener('click', edit);
     drawPats();
     el.querySelectorAll('[data-pcat]').forEach((b) => (b.onclick = () => { patCat = b.dataset.pcat; view(); }));
     el.querySelector('[data-padd]')?.addEventListener('click', () => patEditor(null));
+    mountDrafts();
+  };
+  // 만들다 만 패턴 (새로 만들 때마다 따로 남음)
+  let drawDrafts = () => {};
+  const PSCOPE = () => `${state.team.id}/pattern`;
+  const mountDrafts = () => {
+    const box = el.querySelector('[data-pdrafts]');
+    if (!box) return;
+    drawDrafts = draftStrip(box, PSCOPE(), {
+      label: '만들다 만 패턴',
+      onResume: (d) => {
+        const x = d.id.startsWith('new') ? null : (gm.patterns || []).find((p) => p.id === d.id);
+        patEditor(x, d);
+      },
+    });
   };
 
   // ───────── 패턴 (세트피스 · 빌드업 등 작전판 여러 개) ─────────
@@ -101,7 +117,7 @@ export async function gameModel(el) {
       try { await savePats(gm.patterns.filter((p) => p.id !== x.id)); m.close(); toast('삭제했어요.'); view(); } catch (err) { fail(err); }
     });
   }
-  function patEditor(x) {
+  function patEditor(x, dr = null) {
     const m = modal(`<span class="eyebrow">PATTERN</span><h2>${x ? '패턴 수정' : '패턴 만들기'}</h2>
       <form class="stack">
         <div class="grid2"><label>제목<input name="title" required maxlength="40" value="${esc(x?.title || '')}" placeholder="예) 오른쪽 코너킥 — 니어 포스트 런"></label>
@@ -110,7 +126,12 @@ export async function gameModel(el) {
         <label>설명 <small class="muted">누가 · 언제 · 어떻게 (선수들이 함께 봐요)</small><textarea name="note" rows="3" maxlength="1500">${esc(x?.note || '')}</textarea></label>
         <div class="row end"><button type="button" class="btn ghost" data-cancel>취소</button><button class="btn">저장</button></div>
       </form>`, { wide: true });
-    const pad = createPad(m.el.querySelector('[data-epad]'), x?.pad || formationData('4-3-3', true), { motion: true, draft: `${state.team.id}/pattern/${x?.id || 'new'}` });
+    const form = m.el.querySelector('form');
+    if (dr) fillFields(form, dr.fields);
+    let keep = null;
+    const pad = createPad(m.el.querySelector('[data-epad]'), dr?.pad || x?.pad || formationData('4-3-3', true), { motion: true, onChange: () => keep?.touch() });
+    keep = keepDraft(form, { scope: PSCOPE(), id: x?.id, key: dr?.key, getPad: () => pad.getData() });
+    m.onClose = () => { keep.close(); drawDrafts(); };
     m.el.querySelector('[data-cancel]').onclick = m.close;
     m.el.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
@@ -118,7 +139,7 @@ export async function gameModel(el) {
       const item = { id: x?.id || `p${Date.now().toString(36)}`, title: d.title.trim(), cat: d.cat, note: d.note.trim(), pad: pad.getData() };
       const all = gm.patterns || [];
       const next = x ? all.map((p) => (p.id === x.id ? item : p)) : [...all, item];
-      try { await savePats(next); pad.clearDraft(); m.close(); toast('저장했어요.'); view(); } catch (err) { fail(err); }
+      try { await savePats(next); keep.clear(); pad.clearDraft(); m.close(); toast('저장했어요.'); view(); } catch (err) { fail(err); }
     };
   }
 

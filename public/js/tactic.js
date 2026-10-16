@@ -32,6 +32,12 @@ export const TEAMS = {
   b: { label: 'B', fill: '#151515', text: '#ffffff', stroke: '#ffffff' },
   c: { label: 'C', fill: '#e5484d', text: '#ffffff', stroke: '#7a1c1f' },
   d: { label: 'D', fill: '#3b82f6', text: '#ffffff', stroke: '#173a75' },
+  e: { label: 'E', fill: '#22c55e', text: '#000000', stroke: '#0f5a2a' },
+  f: { label: 'F', fill: '#f97316', text: '#ffffff', stroke: '#7a3609' },
+  g: { label: 'G', fill: '#8b5cf6', text: '#ffffff', stroke: '#3d2380' },
+  h: { label: 'H', fill: '#38bdf8', text: '#000000', stroke: '#0b5a7a' },
+  i: { label: 'I', fill: '#ec4899', text: '#ffffff', stroke: '#7a1f4c' },
+  k: { label: 'K', fill: '#8a8a8a', text: '#ffffff', stroke: '#3a3a3a' },
   j: { label: '조커', fill: '#f5c400', text: '#000000', stroke: '#6b5600' },
 };
 const THEME = {
@@ -518,7 +524,7 @@ const newId = () => `i${Date.now().toString(36)}${(++idSeq).toString(36)}`;
 const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2);
 
 // draft: 임시 보관 이름 (예: '팀id/gm') — 주면 고칠 때마다 이 컴퓨터에 자동 보관 → 저장 안 하고 나갔다 와도 불러오기
-export function createPad(container, initial, { editable = true, motion = false, play = true, draft = null } = {}) {
+export function createPad(container, initial, { editable = true, motion = false, play = true, draft = null, onChange = null } = {}) {
   let data = normalize(initial);
   data.steps ||= [];
   let scene = 0; // 0 = 장면 1 (기본)
@@ -574,7 +580,8 @@ export function createPad(container, initial, { editable = true, motion = false,
     <div class="pad-acts pad-sel" data-selbar>
       <span class="pad-num" data-pnum><b data-pnlab>번호</b> <input data-pnin maxlength="4" title="선수 번호 (또는 짧은 이름) 적고 Enter"></span>
       <span class="pad-num pad-txt" data-ptxt>글자 <input data-ptin maxlength="30" title="글자를 고치고 Enter (더블클릭해도 돼요)"></span>
-      <span class="pad-teams" data-teams>${Object.entries(TEAMS).map(([k, t]) => `<button type="button" class="pteam" data-team="${k}" style="--c:${t.fill};--t:${t.text}">${t.label}</button>`).join('')}</span>
+      <span class="pad-teams" data-teams><small class="muted" data-tlab>팀 색</small>${Object.entries(TEAMS).map(([k, t]) => `<button type="button" class="pteam" data-team="${k}" style="--c:${t.fill};--t:${t.text}">${t.label}</button>`).join('')}</span>
+      <span class="pad-tsel" data-tsel><button type="button" class="chip" data-selteam title="고른 선수와 같은 색 선수를 모두 골라요">같은 색 모두 선택</button><button type="button" class="chip" data-selall title="이 장면의 선수를 모두 골라요">선수 모두 선택</button></span>
       <span class="pad-colors" data-colors>${TOOL_COLORS.map((c) => `<button type="button" class="pcol ${c ? '' : 'def'}" data-col="${c}" style="--c:${c || 'transparent'}" title="${c || '기본색'}"></button>`).join('')}</span>
       <span class="pad-opt" data-spread>시야 ${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="chip" data-sp="${v}">${l}</button>`).join('')}</span>
       <button type="button" class="chip" data-straight>직선으로</button>
@@ -588,7 +595,7 @@ export function createPad(container, initial, { editable = true, motion = false,
   container.appendChild(svg);
 
 
-  const snapshot = () => { history.push(JSON.stringify(data)); if (history.length > 80) history.shift(); future.length = 0; queueDraft(); };
+  const snapshot = () => { history.push(JSON.stringify(data)); if (history.length > 80) history.shift(); future.length = 0; queueDraft(); onChange?.(); };
   // ── 임시 보관 ──
   const DKEY = editable && draft ? `ssaka-pad:${draft}` : null;
   let draftT = null;
@@ -702,6 +709,16 @@ export function createPad(container, initial, { editable = true, motion = false,
           op, prog: anim?.prog?.[it.id], badge: badges && it.k === 'arrow', origin: who,
         });
       });
+    // 지금 장면 번호 (수정할 때만 · 재생 중엔 숨김)
+    if (editable && !anim && animOn() && data.steps.length) {
+      const VW = vertical ? h + 2 * m : w + 2 * m;
+      const fs = Math.max(0.9, VW * 0.019);
+      const label = `장면 ${scene + 1} / ${data.steps.length + 1}`;
+      const g = el('g', { 'pointer-events': 'none' }, svg);
+      el('rect', { x: -m + fs * 0.5, y: -m + fs * 0.5, width: fs * (label.length * 0.62 + 1.2), height: fs * 1.7, rx: fs * 0.45, fill: 'rgba(0,0,0,.72)', stroke: '#ffd400', 'stroke-width': fs * 0.08 }, g);
+      const t = el('text', { x: 0, y: 0, 'font-size': fs * 20, 'font-weight': 800, fill: '#ffd400', transform: `translate(${-m + fs * 1.1} ${-m + fs * 1.72}) scale(0.05)` }, g);
+      t.textContent = label;
+    }
     vertical = false;
     if (editable) syncUi();
     drawMotion();
@@ -878,8 +895,13 @@ export function createPad(container, initial, { editable = true, motion = false,
       g.querySelector('[data-gbtn] b').textContent = on ? TOOL_INFO[tool].ic : ic;
       g.querySelector('[data-glabel]').textContent = on ? TOOL_INFO[tool].l : l;
     });
-    container.querySelectorAll('[data-team]').forEach((b) => b.classList.toggle('on', b.dataset.team === team));
-    container.querySelector('[data-teams]').hidden = tool !== 'player';
+    // 팀 색: 선수 도구일 땐 새로 놓을 선수 색 · 선수를 고르면 고른 선수들 색 바꾸기
+    const selPl = selected().filter((x) => x.k === 'player');
+    const selTeams = [...new Set(selPl.map((x) => x.team || 'a'))];
+    container.querySelectorAll('[data-team]').forEach((b) => b.classList.toggle('on', selPl.length ? selTeams.length === 1 && selTeams[0] === b.dataset.team : b.dataset.team === team));
+    container.querySelector('[data-teams]').hidden = !(tool === 'player' || selPl.length);
+    container.querySelector('[data-tlab]').textContent = selPl.length ? `선수 ${selPl.length}명 색 바꾸기` : '팀 색';
+    container.querySelector('[data-tsel]').hidden = !selPl.length;
     const s = items()[sel];
     container.querySelector('[data-act="rotate"]').hidden = !(s && ROTATABLE.includes(s.k));
     const multiScene = data.steps.length > 0;
@@ -1061,7 +1083,19 @@ export function createPad(container, initial, { editable = true, motion = false,
   };
   container.querySelector('[data-act="full"]').onclick = () => setFull(!container.classList.contains('pad-full'));
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && container.classList.contains('pad-full')) setFull(false); });
-  container.querySelectorAll('[data-team]').forEach((b) => (b.onclick = () => { team = b.dataset.team; syncUi(); }));
+  container.querySelectorAll('[data-team]').forEach((b) => (b.onclick = () => {
+    team = b.dataset.team;
+    const ps = selected().filter((x) => x.k === 'player');
+    if (ps.length) { snapshot(); ps.forEach((x) => { x.team = team; }); render(); } else syncUi();
+  }));
+  // 선수 여러 명 한꺼번에 고르기 (휴대폰에서도 — Ctrl 없이)
+  const pickPlayers = (f) => {
+    const ps = data.items.filter((x) => x.k === 'player' && visIn(x, scene) && f(x));
+    if (!ps.length) return;
+    sel = data.items.indexOf(ps[0]); extra.clear(); ps.slice(1).forEach((x) => extra.add(x)); render();
+  };
+  container.querySelector('[data-selteam]').onclick = () => { const t0 = selected().find((x) => x.k === 'player')?.team || 'a'; pickPlayers((x) => (x.team || 'a') === t0); };
+  container.querySelector('[data-selall]').onclick = () => pickPlayers(() => true);
   // 화살표에 붙은 이동(다음 장면 자리) 지우기
   const unlinkArrow = (x) => {
     const st = data.steps[x.from || 0];

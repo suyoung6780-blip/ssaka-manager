@@ -687,7 +687,7 @@ img.bthumb { aspect-ratio: 16/10; object-fit: cover; }
 .ptool b { font-size: 12px; width: 14px; text-align: center; }
 .ptool:hover { color: var(--text); }
 .ptool.on { background: var(--text); color: var(--invert); border-color: var(--text); }
-.pad-teams { display: flex; gap: 5px; align-items: center; margin-bottom: 6px; }
+.pad-teams { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-bottom: 6px; }
 .pad-teams[hidden] { display: none; }
 .pteam { min-width: 30px; height: 30px; padding: 0 8px; border-radius: 999px; background: var(--c); color: var(--t); border: 2px solid var(--line2); font-size: 11px; font-weight: 800; }
 .pteam.on { border-color: #4ea1ff; box-shadow: 0 0 0 2px rgba(78,161,255,.35); }
@@ -1691,7 +1691,7 @@ fieldset .pick-chips + input, fieldset .pick-chips + textarea { margin-top: 12px
 .pgmenu button.on { background: var(--text); color: var(--invert); }
 .pfull { margin-left: auto; }
 .pad-acts { gap: 6px; margin-bottom: 4px; min-height: 30px; }
-.pad-acts .pad-teams, .pad-acts .pad-colors { margin: 0; display: inline-flex; gap: 4px; align-items: center; padding-right: 6px; border-right: 1px solid var(--line); }
+.pad-acts .pad-teams, .pad-acts .pad-colors { margin: 0; display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; padding-right: 6px; border-right: 1px solid var(--line); }
 .pad-acts .pad-teams[hidden], .pad-acts .pad-colors[hidden] { display: none; }
 .pteam { min-width: 26px; height: 26px; }
 .pcol { width: 20px; height: 20px; }
@@ -2311,3 +2311,11 @@ input[type=checkbox], input[type=radio], input[type=range] { accent-color: var(-
 
 /* iPhone: 16px 보다 작은 입력칸은 누를 때 화면이 확대됨 → 휴대폰에선 모든 입력칸 16px */
 @media (max-width: 720px) { input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea { font-size: 16px !important; min-width: 0; max-width: 100%; } }
+.pad-tsel { display: inline-flex; gap: 6px; align-items: center; }
+.pad-tsel[hidden] { display: none; }
+/* 만들다 만 것 (임시저장) */
+.draft-strip { border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--line2)); border-radius: var(--r-sm); padding: 10px 12px; margin: 0 0 12px; display: grid; gap: 6px; background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.draft-strip > b { font-size: 13px; }
+.draft-strip ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.draft-strip li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+.draft-strip li > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }

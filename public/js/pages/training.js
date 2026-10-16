@@ -8,6 +8,7 @@ import {
 } from '../ui.js';
 import { state, isCoach } from '../store.js';
 import { createPad, blank } from '../tactic.js';
+import { keepDraft, fillFields, draftStrip } from '../drafts.js';
 
 const AGES = ['U8', 'U10', 'U12', 'U15', 'U18', '성인'];
 const PEOPLE = [['', '전체 인원'], ['1-6', '6명 이하'], ['7-12', '7~12명'], ['13-18', '13~18명'], ['19-99', '19명 이상']];
@@ -40,6 +41,7 @@ export async function loadPrograms() {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+let redrawDrafts = () => {}; // 훈련장 목록의 '만들다 만 훈련' 다시 그리기
 export async function library(el) {
   const all = await loadPrograms();
   knownTopics = all.flatMap((x) => x.topics || []);
@@ -49,6 +51,7 @@ export async function library(el) {
 
   el.innerHTML = `${pageHead('TRAINING GROUND', '훈련장', isCoach() ? '<button class="btn" data-new>+ 프로그램 만들기</button>' : '')}
     ${trainingTabs('/training/library')}
+    ${isCoach() ? '<div data-tdrafts hidden></div>' : ''}
     <div class="lib-bar">
       <input type="search" placeholder="제목 · 주제 · 내용 · 코칭 포인트 검색" data-q>
       <div class="lib-selects">
@@ -110,6 +113,12 @@ export async function library(el) {
     draw();
   }));
   el.querySelector('[data-new]')?.addEventListener('click', () => editor(null, refresh));
+  const dbox = el.querySelector('[data-tdrafts]');
+  redrawDrafts = () => {};
+  if (dbox) redrawDrafts = draftStrip(dbox, `${state.team.id}/program`, {
+    label: '만들다 만 훈련',
+    onResume: (d) => editor(d.id.startsWith('new') ? null : all.find((x) => x.id === d.id) || null, refresh, d),
+  });
   draw();
 }
 
@@ -190,7 +199,7 @@ export function present(p) {
 
 let knownTopics = [];
 
-export function editor(p, refresh) {
+export function editor(p, refresh, dr = null) {
   p ||= {};
   const m = modal(`
     <span class="eyebrow">TRAINING</span><h2>${p.id ? '훈련 수정' : '훈련 올리기'}</h2>
@@ -223,6 +232,7 @@ export function editor(p, refresh) {
     </form>`, { wide: true });
 
   const form = m.el.querySelector('form');
+  if (dr) fillFields(form, dr.fields);
   let image = p.image || '';
   form.querySelector('[data-img]').onchange = async (e) => {
     const file = e.target.files[0];
@@ -240,9 +250,13 @@ export function editor(p, refresh) {
   const padBox = form.querySelector('[data-pad]');
   const usePad = form.querySelector('[data-use-pad]');
   const syncPad = () => {
-    if (usePad.checked && !pad) pad = createPad(padBox, p.pad || { ...blank('custom'), grid: { preset: 'none', cols: 0, rows: 0 } }, { motion: true, draft: `${state.team.id}/program/${p.id || 'new'}` });
+    if (usePad.checked && !pad) pad = createPad(padBox, dr?.pad || p.pad || { ...blank('custom'), grid: { preset: 'none', cols: 0, rows: 0 } }, { motion: true, onChange: () => keep.touch() });
     padBox.hidden = !usePad.checked;
   };
+  if (dr && dr.pad) usePad.checked = true;
+  const keep = keepDraft(form, { scope: `${state.team.id}/program`, id: p.id, key: dr?.key, getPad: () => (usePad.checked && pad ? pad.getData() : null) });
+  // 닫으면 바로 보관 · 목록의 '만들다 만 훈련' 새로 그림
+  m.onClose = () => { keep.close(); if (document.querySelector('[data-tdrafts]')?.isConnected) redrawDrafts(); };
   usePad.onchange = syncPad;
   syncPad();
 
@@ -262,6 +276,7 @@ export function editor(p, refresh) {
       const col = collection(db, 'teams', state.team.id, 'posts');
       if (p.id) await updateDoc(doc(col, p.id), { ...data, updatedAt: serverTimestamp(), updatedBy: state.profile.name });
       else await addDoc(col, { ...data, authorUid: state.user.uid, authorName: state.profile.name, createdAt: serverTimestamp() });
+      keep.clear();
       pad?.clearDraft();
       m.close();
       toast('저장했습니다.');
