@@ -111,13 +111,13 @@ const FOOTER = `
     </nav>
   </div>
   <dl class="sf-info">
-    <div><dt>상호</dt><dd>KEEPER LAB</dd></div>
+    <div><dt>상호</dt><dd>싸카매니저</dd></div>
     <div><dt>대표</dt><dd>유수영</dd></div>
     <div><dt>사업자등록번호</dt><dd>451-15-03077</dd></div>
   </dl>
   <div class="sf-bottom">
-    <span>© ${new Date().getFullYear()} KEEPER LAB. All rights reserved.</span>
-    <span class="sf-mark">KEEPER LAB</span>
+    <span>© ${new Date().getFullYear()} 싸카매니저. All rights reserved.</span>
+    <span class="sf-mark">SSAKA MANAGER</span>
   </div>
 </footer>`;
 
