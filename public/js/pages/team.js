@@ -403,7 +403,7 @@ export async function records(el) {
       <div><small>실점</small><strong>${st.ga}</strong><small>경기당 ${st.gaAvg}</small></div>
       <div><small>골득실</small><strong>${st.gd > 0 ? '+' : ''}${st.gd}</strong><small>승점 ${st.points}</small></div>
       <div><small>클린시트</small><strong>${st.cleanSheets}</strong><small>${st.csRate}%</small></div>
-      <div><small>무승부율 · 패배율</small><strong>${st.drawRate}<i>/</i>${st.lossRate}</strong><small>%</small></div>
+      <div class="duo-cell"><small>무승부율 · 패배율</small><strong class="duo"><span><em>무</em>${st.drawRate}<i>%</i></span><span class="sep">/</span><span><em>패</em>${st.lossRate}<i>%</i></span></strong></div>
     </section>
     <div class="form-line">최근 경기 ${rows.slice(0, 10).map((m) => `<span class="res ${result(m)}">${result(m)}</span>`).join('') || '-'}</div>
     <div class="grid2 top">

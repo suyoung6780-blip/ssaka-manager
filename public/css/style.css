@@ -2578,3 +2578,38 @@ input[type=date]::-webkit-date-and-time-value, input[type=time]::-webkit-date-an
 .ver-h b { font-size: 15px; font-weight: 900; }
 .ver-h small { color: var(--muted); }
 .ver-list ul { margin: 6px 0 0; padding-left: 18px; color: var(--sub); font-size: 13.5px; line-height: 1.6; }
+/* 기록판 숫자: 칸이 좁아도 잘리거나 붙어 보이지 않게 */
+.stat-board > div { min-width: 0; }
+.stat-board strong { white-space: nowrap; } /* 숫자는 중간에 끊지 않음 */
+.stat-board strong.duo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 0; font-size: 28px; letter-spacing: -0.02em; }
+.stat-board strong.duo > span { white-space: nowrap; }
+.stat-board strong.duo em { font-style: normal; font-size: 13px; font-weight: 700; color: var(--muted); margin-right: 5px; letter-spacing: 0; }
+.stat-board strong.duo .sep { margin: 0 8px; font-size: 20px; font-weight: 700; color: var(--muted); }
+/* 칸이 좁으면 (컴퓨터에서 6칸 한 줄일 때 등) 무 · 패를 두 줄로 — 66.7% / 33.3% 같은 긴 숫자도 안 넘치게 */
+.stat-board > div { container-type: inline-size; }
+/* 숫자 크기는 칸 너비에 맞춰 (좁은 칸에서도 128 · 66.7% 가 칸 안에) */
+.stat-board > div > strong { font-size: clamp(20px, 24cqi, 36px); }
+.stat-board .big > strong { font-size: clamp(30px, 24cqi, 60px); }
+.stat-board strong.duo { font-size: clamp(15px, 9.5cqi, 28px); }
+@container (max-width: 250px) {
+  .stat-board strong.duo { flex-direction: column; font-size: clamp(14px, 15cqi, 24px); }
+  .stat-board strong.duo .sep { display: none; }
+}
+@container (max-width: 150px) { .stat-board strong.duo em { font-size: 11px; margin-right: 3px; } }
+/* 기록판 · 목표판: 칸 수가 안 맞아 마지막 줄에 빈 칸이 생기지 않게 마지막 칸을 늘림 */
+@media (max-width: 1200px) { .stat-board:not(.small) > div:nth-child(6):last-child { grid-column: span 2; } }
+@media (max-width: 860px) {
+  .stat-board:not(.small) > div:nth-child(6):last-child, .goal-summary > :nth-child(6):last-child, .stat-board.small > :nth-child(5):last-child { grid-column: 1 / -1; }
+}
+/* 승 · 무 · 패 막대: 승 초록 · 무 회색 · 패 어두운 빨강 */
+.stat-board .wdl { background: #2a302d; }
+.stat-board .wdl .w { background: var(--brand); }
+.stat-board .wdl .d { background: #6b736f; }
+.stat-board .wdl .l { background: #8a3b36; }
+.stat-board strong.duo i { font-size: 0.62em; }
+.stat-board > div > strong i { font-size: 0.5em; }
+/* 목표판 숫자도 칸 너비에 맞춰 (100% 같은 긴 숫자) */
+.goal-summary > * { container-type: inline-size; min-width: 0; }
+.goal-summary > * > strong { white-space: nowrap; font-size: clamp(20px, 24cqi, 36px); }
+.goal-summary .gs-main > strong { font-size: clamp(30px, 24cqi, 48px); }
+.goal-summary strong i { font-size: 0.5em; }
