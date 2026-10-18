@@ -1,9 +1,10 @@
 import { isConfigured, FREE_MODE } from './config.js';
 import { installButton, bindInstall } from './install.js';
 import { attachHelp } from './help.js';
+import { versionLabel, CHANGELOG } from './version.js';
 import { startNews, stopNews, markSeen, paint } from './news.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
-import { $, $$, esc, avatar, ROLES, pageHead, toast, isQuota, quotaNotice, quotaHooks } from './ui.js';
+import { $, $$, esc, avatar, ROLES, pageHead, toast, modal, isQuota, quotaNotice, quotaHooks } from './ui.js';
 import {
   state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, waitApproval, teamRestricted,
 } from './store.js';
@@ -116,7 +117,7 @@ const FOOTER = `
     <div><dt>사업자등록번호</dt><dd>451-15-03077</dd></div>
   </dl>
   <div class="sf-bottom">
-    <span>© ${new Date().getFullYear()} 싸카매니저. All rights reserved.</span>
+    <span>© ${new Date().getFullYear()} 싸카매니저. All rights reserved. <button type="button" class="sf-ver" data-ver title="업데이트 내역">${versionLabel()}</button></span>
     <span class="sf-mark">SSAKA MANAGER</span>
   </div>
 </footer>`;
@@ -261,6 +262,15 @@ function updateShell(path = location.hash.slice(1) || '/') {
     ? '<div class="banner danger">운영자가 이 팀의 기능을 제한했어요. <a href="#/support">운영자에게 문의하기 →</a></div>' : '';
   paint();
 }
+
+// 맨 아래 버전을 누르면 업데이트 내역
+document.addEventListener('click', (e) => {
+  if (!e.target.closest?.('[data-ver]')) return;
+  modal(`<span class="eyebrow">UPDATES</span><h2>업데이트 내역 <small class="muted">${versionLabel()}</small></h2>
+    <p class="muted small">지금은 무료로 시험 운영하는 <b>베타</b>예요. 유료 정식 출시 때 1.0이 돼요.</p>
+    <div class="ver-list">${CHANGELOG.map((c) => `<section><div class="ver-h"><b>v${esc(c.ver)}</b><small>${esc(c.date.replace(/-/g, '.'))}</small></div>
+      <ul>${c.items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></section>`).join('')}</div>`);
+});
 
 hooks.route = route;
 hooks.updateShell = updateShell;
