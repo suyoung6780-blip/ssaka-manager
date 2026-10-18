@@ -3,9 +3,9 @@ import { esc, modal } from '../ui.js';
 import { FEEDS_URL } from '../config.js';
 
 const PREF_KEY = 'ssaka.briefing';
-// 기본 인스타그램: 대한축구협회 · 더유스필드 · 라이징스타 축구유망주
-const DEFAULT_IG = ['thekfa', 'theyouthfield', 'risingstar_football'];
-const IG_VER = 2; // 기본 목록을 바꾸면 올림 — 예전 기본 목록을 저장해 둔 사람도 새 목록으로
+// 기본 인스타그램: 싸카매니저(공식) · 대한축구협회 · 더유스필드 · 라이징스타 축구유망주
+const DEFAULT_IG = ['ssakamanager', 'thekfa', 'theyouthfield', 'risingstar_football'];
+const IG_VER = 3; // 기본 목록을 바꾸면 올림 — 예전 기본 목록을 저장해 둔 사람도 새 목록으로
 const RANGES = [[24, '24시간'], [72, '3일'], [168, '1주']];
 
 function loadPrefs() {

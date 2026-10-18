@@ -549,7 +549,7 @@ export function createPad(container, initial, { editable = true, motion = false,
 
   container.classList.add('pad');
   container.innerHTML = editable ? `
-    <div class="pad-field">
+    <div class="pad-field" data-fieldbox hidden>
       <select data-ft title="필드">${Object.entries(FIELDS).map(([k, f]) => `<option value="${k}">${f.label}</option>`).join('')}</select>
       <span class="pad-size"><i>경기장 가로</i><input type="number" data-fw min="5" max="120" step="any" form="_pad" title="가로(m)"><i>m × 세로</i><input type="number" data-fh min="5" max="90" step="any" form="_pad" title="세로(m)"><i>m</i></span>
       <select data-fo title="경기장 방향"><option value="">방향 자동</option><option value="h">↔ 가로로 보기</option><option value="v">↕ 세로로 보기</option></select>
@@ -557,7 +557,7 @@ export function createPad(container, initial, { editable = true, motion = false,
       <select data-gp title="그리드">${Object.entries(GRIDS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
       <span class="pad-size" data-gsize><i>가로</i><input type="number" data-gc min="0" max="20" form="_pad" title="가로 칸 수"><i>칸 × 세로</i><input type="number" data-gr min="0" max="20" form="_pad" title="세로 칸 수"><i>칸</i></span>
       <span class="pad-size" data-gmsize><i>칸 가로</i><input type="number" data-gcw min="1" max="60" step="any" form="_pad" title="칸 가로(m)"><i>m × 세로</i><input type="number" data-gch min="1" max="60" step="any" form="_pad" title="칸 세로(m)"><i>m</i></span>
-      <select data-form title="포메이션"><option value="">포메이션 넣기</option>
+      <select data-form title="포메이션 넣기"><option value="">포메이션 넣기</option>
         <optgroup label="A팀 · 11대11">${formOpts('a', false)}</optgroup>
         <optgroup label="A팀 · 8대8">${formOpts('a', true)}</optgroup>
         <optgroup label="B팀 (상대) · 11대11">${formOpts('b', false)}</optgroup>
@@ -566,27 +566,29 @@ export function createPad(container, initial, { editable = true, motion = false,
     </div>
     <div class="pad-tools">
       ${TOOL_GROUPS.map(([l, ic, ks], gi) => (ks.length === 1
-        ? `<button type="button" class="ptool" data-tool="${ks[0]}" title="${l}"><b>${ic}</b>${l}</button>`
-        : `<span class="pgroup" data-grp="${gi}"><button type="button" class="ptool" data-gbtn="${gi}" title="${l}"><b>${ic}</b><span data-glabel>${l}</span> ▾</button>
+        ? `<button type="button" class="ptool" data-tool="${ks[0]}" title="${l}"><b>${ic}</b><span class="plab">${l}</span></button>`
+        : `<span class="pgroup" data-grp="${gi}"><button type="button" class="ptool" data-gbtn="${gi}" title="${l}"><b>${ic}</b><span class="plab"><span data-glabel>${l}</span> ▾</span></button>
           <span class="pgmenu" hidden>${ks.map((k) => `<button type="button" data-tool="${k}"><b>${TOOL_INFO[k].ic}</b>${TOOL_INFO[k].l}</button>`).join('')}</span></span>`)).join('')}
-      <button type="button" class="ptool pfull" data-act="full" title="크게 (Esc로 닫기)"><b>⛶</b><span data-flabel>크게</span></button>
+      <span class="pad-tsep"></span>
+      <button type="button" class="ptool" data-act="undo" title="되돌리기 (Ctrl+Z)"><b>↶</b><span class="plab">되돌리기</span></button>
+      <button type="button" class="ptool" data-act="clear" title="모두 지우기"><b>⌫</b><span class="plab">모두 지우기</span></button>
+      <button type="button" class="ptool" data-fieldtg title="경기장 · 그리드 · 포메이션"><b>⚙</b><span class="plab">경기장</span></button>
+      <button type="button" class="ptool pfull" data-act="full" title="크게 (Esc로 닫기)"><b>⛶</b><span class="plab" data-flabel>크게</span></button>
     </div>
     <div class="pad-acts">
-      <button type="button" class="chip" data-act="undo">되돌리기</button>
-      <button type="button" class="chip" data-act="clear">모두 지우기</button>
-      <span class="pad-sz" data-size>크기 <button type="button" class="chip" data-sz="-1" title="작게 (- 키)">−</button><input type="number" min="1" max="300" form="_pad" data-szin title="1~300 적고 Enter"><i>%</i><button type="button" class="chip" data-sz="1" title="크게 (+ 키)">+</button></span>
-      <span class="pad-ord" data-order title="같은 번호끼리 한꺼번에 움직여요 · 기본 1">순서 <input type="number" min="1" max="20" form="_pad" data-ordin> <small>번째</small></span>
+      <span class="pad-sz" data-size title="크기"><button type="button" class="chip" data-sz="-1" title="작게 (- 키)">−</button><input type="number" min="1" max="300" form="_pad" data-szin title="1~300 적고 Enter"><i>%</i><button type="button" class="chip" data-sz="1" title="크게 (+ 키)">+</button></span>
+      <span class="pad-ord" data-order title="움직이는 순서 (같은 번호끼리 함께)">순서 <input type="number" min="1" max="20" form="_pad" data-ordin></span>
     </div>
     <div class="pad-acts pad-sel" data-selbar>
-      <span class="pad-num" data-pnum><b data-pnlab>번호</b> <input data-pnin maxlength="4" title="선수 번호 (또는 짧은 이름) 적고 Enter"></span>
-      <span class="pad-num pad-txt" data-ptxt>글자 <input data-ptin maxlength="30" title="글자를 고치고 Enter (더블클릭해도 돼요)"></span>
+      <span class="pad-num" data-pnum><b data-pnlab hidden>번호</b><input data-pnin maxlength="4" placeholder="번호" title="번호 적고 Enter"></span>
+      <span class="pad-num pad-txt" data-ptxt><input data-ptin maxlength="30" placeholder="글자" title="글자를 고치고 Enter"></span>
       <span class="pad-teams" data-teams><small class="muted" data-tlab>팀 색</small>${Object.entries(TEAMS).map(([k, t]) => `<button type="button" class="pteam" data-team="${k}" style="--c:${t.fill};--t:${t.text}">${t.label}</button>`).join('')}</span>
-      <span class="pad-tsel" data-tsel><button type="button" class="chip" data-selteam title="고른 선수와 같은 색 선수를 모두 골라요">같은 색 모두 선택</button><button type="button" class="chip" data-selall title="이 장면의 선수를 모두 골라요">선수 모두 선택</button></span>
+      <span class="pad-tsel" data-tsel><button type="button" class="chip" data-selteam title="같은 색 선수 모두 고르기">같은 색 고르기</button><button type="button" class="chip" data-selall title="선수 모두 고르기">전체 고르기</button></span>
       <span class="pad-colors" data-colors>${TOOL_COLORS.map((c) => `<button type="button" class="pcol ${c ? '' : 'def'}" data-col="${c}" style="--c:${c || 'transparent'}" title="${c || '기본색'}"></button>`).join('')}</span>
-      <span class="pad-opt" data-spread>시야 ${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="chip" data-sp="${v}">${l}</button>`).join('')}</span>
-      <button type="button" class="chip" data-straight>직선으로</button>
-      <span class="pad-grp"><button type="button" class="chip" data-act="front" title="맨 앞으로 (Ctrl+])">⬆ 맨 앞으로</button><button type="button" class="chip" data-act="back" title="맨 뒤로 (Ctrl+[)">⬇ 맨 뒤로</button><button type="button" class="chip" data-act="rotate">회전</button></span>
-      <span class="pad-grp"><button type="button" class="chip" data-act="delete">선택 삭제</button><button type="button" class="chip" data-act="delonly">이 장면에서만 삭제</button><button type="button" class="chip" data-act="delall">모든 장면 삭제</button><button type="button" class="chip" data-act="unmove">움직임 취소</button></span>
+      <span class="pad-opt" data-spread title="시야 넓이">${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="chip" data-sp="${v}">${l}</button>`).join('')}</span>
+      <button type="button" class="chip" data-straight title="직선으로">⟋ 직선</button>
+      <span class="pad-grp"><button type="button" class="chip" data-act="front" title="맨 앞으로 (Ctrl+])">⬆ 앞으로</button><button type="button" class="chip" data-act="back" title="맨 뒤로 (Ctrl+[)">⬇ 뒤로</button><button type="button" class="chip" data-act="rotate" title="회전">⟳ 회전</button></span>
+      <span class="pad-grp"><button type="button" class="chip" data-act="delete">선택 삭제</button><button type="button" class="chip" data-act="delonly">이 장면에서만 삭제</button><button type="button" class="chip" data-act="delall" title="모든 장면에서 삭제">✕ 전체</button><button type="button" class="chip" data-act="unmove" title="이 장면 움직임 취소">↺ 움직임</button></span>
     </div>
     <small class="muted pad-hint" data-hint></small>` : '';
 
@@ -750,19 +752,19 @@ export function createPad(container, initial, { editable = true, motion = false,
       if (!motion) { mbar.hidden = true; return; }
       mbar.hidden = false;
       if (!animOn()) {
-        mbar.innerHTML = `<b>움직임</b><button type="button" class="chip" data-animon>애니메이션 사용</button>
-          <small class="muted">지금은 그림 한 장이에요 · 켜면 장면 1 · 2 · 3을 추가해서 선수 · 공이 움직이게 만들 수 있어요</small>`;
+        mbar.innerHTML = `<span class="pm-lab">움직임</span><button type="button" class="chip" data-animon title="장면을 추가해서 선수 · 공을 움직이게">▶ 움직임 만들기</button>`;
         mbar.querySelector('[data-animon]').onclick = () => { snapshot(); data.anim = true; render(); };
         return;
       }
       const n = N1;
-      mbar.innerHTML = `<b>움직임</b><button type="button" class="chip on" data-animoff title="누르면 그림 한 장으로 돌아가요">애니메이션 사용 중</button>
-        <span class="pm-scenes">${Array.from({ length: n }, (_, k) => `<button type="button" class="chip ${k === (anim ? anim.scene : scene) ? 'on' : ''}" data-sc="${k}">장면 ${k + 1}</button>`).join('')}
-        <button type="button" class="chip" data-addsc>+ 장면</button></span>
-        ${hasMotion() ? (anim ? '<button type="button" class="chip on" data-pause title="지금 장면에서 멈추고 바로 고칠 수 있어요">❚❚ 멈춤 · 여기서 수정</button>'
-          : `<button type="button" class="chip" data-playhere title="이 장면으로 오는 움직임부터 재생">▶ ${scene > 0 ? '이 장면부터 재생' : '재생'}</button>${scene > 0 ? '<button type="button" class="chip" data-play0>⏮ 처음부터</button>' : ''}`) : ''}
-        ${scene > 0 && !anim ? '<button type="button" class="chip" data-delsc>이 장면 삭제</button>' : ''}
-        <small class="muted">${anim ? '재생 중 — 멈추면 그 장면에서 바로 고칠 수 있어요' : n === 1 ? '<b>+ 장면</b>을 누르고 선수 · 공 · 기구를 끌어서 옮기면 ▶ 재생할 때 그 자리로 움직여요' : scene > 0 ? `장면 ${scene + 1}: 끌어서 옮겨요 · <b>노란 점선 위 작은 점</b>을 끌면 휘는 점이 하나씩 늘어나요(사이드 스텝도 표현) · 흰 점 더블클릭하면 그 점만 지움 · 여기서 지우면 이 장면부터 안 나와요 (앞 장면엔 남아요)` : '장면 1: 처음 위치예요'}</small>`;
+      mbar.innerHTML = `<span class="pm-lab">장면</span>
+        <span class="pm-scenes">${Array.from({ length: n }, (_, k) => `<button type="button" class="chip pnum ${k === (anim ? anim.scene : scene) ? 'on' : ''}" data-sc="${k}" title="장면 ${k + 1}">${k + 1}</button>`).join('')}
+        <button type="button" class="chip pnum" data-addsc title="장면 추가">+</button></span>
+        ${hasMotion() ? (anim ? '<button type="button" class="chip on" data-pause title="멈추고 이 장면에서 고치기">❚❚</button>'
+          : `<button type="button" class="chip on" data-playhere title="${scene > 0 ? '이 장면부터 재생' : '재생'}">▶ 재생</button>${scene > 0 ? '<button type="button" class="chip pico" data-play0 title="처음부터">⏮</button>' : ''}`) : ''}
+        ${scene > 0 && !anim ? '<button type="button" class="chip" data-delsc title="이 장면 삭제">✕ 이 장면 삭제</button>' : ''}
+        <button type="button" class="chip pm-off" data-animoff title="움직임 끄기 (그림 한 장으로)">움직임 끄기</button>
+        `;
       mbar.querySelectorAll('[data-sc]').forEach((b) => (b.onclick = () => { stop(); scene = +b.dataset.sc; sel = -1; render(); }));
       mbar.querySelector('[data-addsc]').onclick = () => { stop(); snapshot(); data.steps.splice(scene, 0, {}); if (data.stepOrder) data.stepOrder.splice(scene, 0, {}); shiftScenes(scene + 1, 1); scene += 1; sel = -1; extra.clear(); render(); };
       mbar.querySelector('[data-delsc]')?.addEventListener('click', () => {
@@ -894,6 +896,7 @@ export function createPad(container, initial, { editable = true, motion = false,
       g.querySelector('[data-gbtn]').classList.toggle('on', on);
       g.querySelector('[data-gbtn] b').textContent = on ? TOOL_INFO[tool].ic : ic;
       g.querySelector('[data-glabel]').textContent = on ? TOOL_INFO[tool].l : l;
+      g.querySelector('[data-gbtn]').title = on ? TOOL_INFO[tool].l : l;
     });
     // 팀 색: 선수 도구일 땐 새로 놓을 선수 색 · 선수를 고르면 고른 선수들 색 바꾸기
     const selPl = selected().filter((x) => x.k === 'player');
@@ -907,9 +910,9 @@ export function createPad(container, initial, { editable = true, motion = false,
     const multiScene = data.steps.length > 0;
     // 장면이 여러 개: [장면 N부터 삭제] [장면 N에서만 삭제] [모든 장면 삭제] (장면 1에선 '부터'가 '모든 장면'과 같아서 숨김)
     container.querySelector('[data-act="delete"]').hidden = !s || (multiScene && scene === 0);
-    container.querySelector('[data-act="delete"]').textContent = multiScene ? `장면 ${scene + 1}부터 삭제` : '삭제';
+    const delB = container.querySelector('[data-act="delete"]'); delB.textContent = multiScene ? `✕ ${scene + 1}장면부터` : '✕ 삭제'; delB.title = multiScene ? `장면 ${scene + 1}부터 삭제` : '삭제 (Delete)';
     container.querySelector('[data-act="delonly"]').hidden = !(s && multiScene);
-    container.querySelector('[data-act="delonly"]').textContent = `장면 ${scene + 1}에서만 삭제`;
+    const delO = container.querySelector('[data-act="delonly"]'); delO.textContent = `✕ ${scene + 1}장면만`; delO.title = `장면 ${scene + 1}에서만 삭제`;
     container.querySelector('[data-act="delall"]').hidden = !(s && multiScene);
     ['front', 'back'].forEach((k) => { container.querySelector(`[data-act="${k}"]`).hidden = !s; });
     container.querySelector('[data-act="unmove"]').hidden = !(s && scene > 0 && selected().some((x) => data.steps[scene - 1]?.[x.id]));
@@ -1059,6 +1062,8 @@ export function createPad(container, initial, { editable = true, motion = false,
 
   // ───────── 도구 ─────────
   const closeMenus = () => container.querySelectorAll('.pgmenu').forEach((m) => { m.hidden = true; });
+  // ⚙ 경기장 설정 펼치기
+  container.querySelector('[data-fieldtg]')?.addEventListener('click', (e) => { const fb = container.querySelector('[data-fieldbox]'); fb.hidden = !fb.hidden; e.currentTarget.classList.toggle('on', !fb.hidden); });
   container.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = () => { tool = b.dataset.tool; sel = -1; extra.clear(); closeMenus(); render(); }));
   container.querySelectorAll('[data-gbtn]').forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();

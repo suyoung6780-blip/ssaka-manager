@@ -1,5 +1,5 @@
 import {
-  db, collection, doc, query, where, orderBy, limit, getDoc, getDocs, setDoc, updateDoc, deleteDoc, serverTimestamp,
+  db, collection, doc, query, where, orderBy, limit, getDoc, getDocs, setDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch,
 } from '../fb.js';
 import {
   esc, text, toast, fail, formData, modal, confirmBox, todayStr, pageHead, empty, avatar, ROLES, MATCH_TYPES, options, sortGroups, sortBar, bindSortBar, getSort } from '../ui.js';
@@ -449,13 +449,25 @@ export async function daily(el, _p, date = todayStr()) {
     // 고른 일지만 남김 (다른 쪽은 지움)
     if (d.kind === 'match') Object.assign(data, { sessions: null, training: null, good: null, improve: null, goalScore: null, learned: null, tomorrow: null });
     else data.match = null;
+    // 저장하는 동안: 두 번 누르지 않게 버튼을 막고 '저장 중' 표시 (휴대폰 인터넷이 느릴 때 멈춘 것처럼 보이지 않게)
+    const btns = [...form.querySelectorAll('.daily-save .btn')];
+    const label = e.submitter?.textContent;
+    btns.forEach((b) => { b.disabled = true; });
+    if (e.submitter) e.submitter.textContent = submit ? '제출하는 중…' : '저장하는 중…';
     try {
-      await setDoc(doc(db, ...base, `${state.user.uid}_${date}`), data, { merge: true });
-      // 세션은 통째로 바꿈 (merge 는 지운 세션을 남겨 둠)
-      if (data.sessions) await updateDoc(doc(db, ...base, `${state.user.uid}_${date}`), { sessions: data.sessions });
+      // 한 번에 저장 (예전엔 두 번 따로 보내서 휴대폰에서 느렸음). 세션은 통째로 바꿈 (merge 는 지운 세션을 남겨 둠)
+      const ref = doc(db, ...base, `${state.user.uid}_${date}`);
+      const b = writeBatch(db);
+      b.set(ref, data, { merge: true });
+      if (data.sessions) b.update(ref, { sessions: data.sessions });
+      await b.commit();
       toast(submit ? '일지를 제출했어요! 코치님이 확인할 거예요.' : '임시 저장했어요. 다 쓰면 제출하기를 눌러주세요.');
       daily(el, _p, date);
-    } catch (err) { fail(err); }
+    } catch (err) {
+      fail(err);
+      btns.forEach((x) => { x.disabled = false; });
+      if (e.submitter && label) e.submitter.textContent = label;
+    }
   };
 }
 

@@ -34,6 +34,32 @@ export function codeModal(code, title = '팀 코드가 만들어졌어요') {
   return m;
 }
 
+// 팀 · 팀 코드 · 대표 지도자 입장을 한 번에 (하나라도 실패하면 전부 취소)
+async function makeTeam(info) {
+  const teamRef = doc(collection(db, 'teams'));
+  let code = '';
+  for (let i = 0; i < 5 && !code; i++) {
+    const c = genTeamCode();
+    if (!(await getDoc(doc(db, 'teamCodes', c))).exists()) code = c;
+  }
+  if (!code) throw new Error('팀 코드를 만들지 못했습니다. 다시 시도해 주세요.');
+  const b = writeBatch(db);
+  b.set(teamRef, { ...info, status: 'active', free: true });
+  b.set(doc(db, 'teamCodes', code), { teamId: teamRef.id, createdAt: serverTimestamp() });
+  b.set(doc(db, 'teams', teamRef.id, 'private', 'billing'), { code, issuedAt: serverTimestamp() });
+  b.set(doc(db, 'teams', teamRef.id, 'members', state.user.uid), {
+    ...publicProfile(state.profile), role: 'coach', joinedAt: serverTimestamp(),
+  });
+  b.update(doc(db, 'users', state.user.uid), { teamId: teamRef.id });
+  await b.commit();
+  await loadContext();
+  hooks.updateShell();
+  // 홈으로 넘어간 뒤에 띄움 (화면이 바뀔 때 열린 창을 닫으므로)
+  if (location.hash === '#/' || location.hash === '') { go('/'); setTimeout(() => codeModal(code), 0); return; }
+  window.addEventListener('hashchange', () => setTimeout(() => codeModal(code), 0), { once: true });
+  go('/');
+}
+
 export function createTeam(el) {
   if (state.team) return go('/');
   el.innerHTML = `${pageHead('CREATE TEAM', '팀계정 만들기')}
@@ -64,27 +90,7 @@ export function createTeam(el) {
         await loadContext();
         return go('/pay');
       }
-      // 무료: 팀 · 팀 코드 · 대표 지도자 입장을 한 번에 (하나라도 실패하면 전부 취소)
-      const teamRef = doc(collection(db, 'teams'));
-      let code = '';
-      for (let i = 0; i < 5 && !code; i++) {
-        const c = genTeamCode();
-        if (!(await getDoc(doc(db, 'teamCodes', c))).exists()) code = c;
-      }
-      if (!code) throw new Error('팀 코드를 만들지 못했습니다. 다시 시도해 주세요.');
-      const b = writeBatch(db);
-      b.set(teamRef, { ...info, status: 'active', free: true });
-      b.set(doc(db, 'teamCodes', code), { teamId: teamRef.id, createdAt: serverTimestamp() });
-      b.set(doc(db, 'teams', teamRef.id, 'private', 'billing'), { code, issuedAt: serverTimestamp() });
-      b.set(doc(db, 'teams', teamRef.id, 'members', state.user.uid), {
-        ...publicProfile(state.profile), role: 'coach', joinedAt: serverTimestamp(),
-      });
-      b.update(doc(db, 'users', state.user.uid), { teamId: teamRef.id });
-      await b.commit();
-      await loadContext();
-      hooks.updateShell();
-      go('/');
-      codeModal(code);
+      await makeTeam(info);
     } catch (err) { btn.disabled = false; fail(err); }
   };
 }

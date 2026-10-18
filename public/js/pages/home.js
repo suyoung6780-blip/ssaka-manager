@@ -11,10 +11,30 @@ import { sleepOf, SHORT_SLEEP } from '../sleep.js';
 const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const DOW_KO = ['일', '월', '화', '수', '목', '금', '토'];
 
+// 인사말: 날마다 한 줄씩 바뀜 (같은 날엔 같은 문장)
+const HELLO_COACH = [
+  '코치님, 오늘 훈련장에서 나올 좋은 장면을 기대합니다.',
+  '코치님, 오늘의 한마디가 선수의 내일을 바꿉니다.',
+  '코치님, 좋은 팀은 매일의 작은 약속에서 만들어집니다.',
+  '코치님, 오늘도 휘슬 하나에 팀이 하나로 움직이길.',
+  '코치님, 준비한 만큼 경기장에서 보입니다. 오늘도 좋은 준비를.',
+  '코치님, 선수들은 코치님의 열정을 보고 자랍니다.',
+  '코치님, 오늘도 한 경기 한 훈련, 차근차근 쌓아가요.',
+];
+const HELLO_PLAYER = [
+  '{n} 선수, 오늘 터치 하나가 내일의 무기가 됩니다.',
+  '{n} 선수, 어제보다 한 발 더 뛰는 하루로 만들어 봐요.',
+  '{n} 선수, 좋은 선수는 공이 없을 때도 생각합니다.',
+  '{n} 선수, 오늘 기록 한 줄이 성장의 증거예요.',
+  '{n} 선수, 실수는 괜찮아요. 다시 시도하는 게 실력입니다.',
+  '{n} 선수, 오늘도 즐겁게, 그리고 끝까지.',
+  '{n} 선수, 몸 관리도 훈련이에요. 오늘 컨디션 기록 잊지 마세요.',
+];
 function greeting() {
-  const r = role();
-  if (r === 'player') return `${esc(state.profile.name)} 선수, 오늘도 한 걸음 더 성장하는 하루를 응원합니다.`;
-  return '코치님, 오늘 하루도 꿈나무들을 위해서 일하시는 당신을 응원합니다.';
+  const d = new Date();
+  const day = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
+  if (role() === 'player') return HELLO_PLAYER[day % HELLO_PLAYER.length].replace('{n}', esc(state.profile.name));
+  return HELLO_COACH[day % HELLO_COACH.length];
 }
 
 // 팀 업데이트: 처음엔 3개만, 펼치면 전부 (고른 상태는 이 기기에 기억)

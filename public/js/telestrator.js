@@ -3,6 +3,8 @@
 
 export const GLASS = 'rgba(255,255,255,0.42)'; // 투명색 (반투명 흰색)
 export const PALETTE = ['#ffd400', '#ff3b30', '#ffffff', '#00d1ff', '#34c759', GLASS];
+// 유니폼 색 고르기용 (트래킹 링 안쪽 · 바깥 · 이름표)
+export const TEAM_COLORS = ['#ffffff', '#ffd400', '#ff9f0a', '#ff3b30', '#c8102e', '#ff2d92', '#af52de', '#1e4fd8', '#0a2a6b', '#00d1ff', '#34c759', '#0b6e3b', '#8e8e93', '#111111'];
 export const uid = () => Math.random().toString(36).slice(2, 9);
 
 // ───────── 호모그래피 (원근 그리드 · 거리 측정) ─────────
@@ -42,6 +44,84 @@ export function project(H, x, y) {
 }
 
 const UNIT = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+
+// ───────── 경기장 맞추기 (캘리브레이션) ─────────
+// 멈춘 화면에서 실제 크기를 아는 네모(페널티박스 등)의 네 모서리를 맞추면, 그 장면의 그림이 진짜 원근으로 잔디 위에 깔림
+// 바닥 좌표(m): X = 골라인에서 앞으로(깊이), Y = 골라인을 따라. q[0]=(0,0) q[1]=(w,0) q[2]=(w,h) q[3]=(0,h) → q[0]–q[3] 이 골라인
+export const CAL_TPL = {
+  box: { l: '페널티박스', w: 16.5, h: 40.32 },
+  six: { l: '골 에어리어', w: 5.5, h: 18.32 },
+  rect: { l: '직접 입력', w: 20, h: 20 },
+};
+export const calSize = (c) => (c.tpl === 'rect' ? { w: +c.w || 20, h: +c.h || 20 } : CAL_TPL[c.tpl] || CAL_TPL.box);
+// c: { q: 화면 네 점(0~1) } → { G(X,Y) 바닥→화면 px, S(px) 화면→바닥 }
+export function calFrom(c, Wpx, Hpx) {
+  if (!c?.q || c.q.length !== 4) return null;
+  const { w, h } = calSize(c);
+  const src = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+  const dst = c.q.map((p) => ({ x: p.x * Wpx, y: p.y * Hpx }));
+  const Hg = homography(src, dst);
+  const Hs = homography(dst, src);
+  if (!Hg || !Hs) return null;
+  return { G: (X, Y) => project(Hg, X, Y), S: (p) => project(Hs, p.x, p.y), w, h, W: Wpx, H: Hpx, src: c };
+}
+// 지금 장면에 맞춘 원근 (그리는 동안만 쓰는 값 — 스튜디오가 장면마다 정해 줌)
+let CAL = null;
+export function setCal(c) { CAL = c; }
+export const getCal = () => CAL;
+// 바닥 위 점들 → 화면 px
+const gpath = (ctx, pts, close = true) => { ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); if (close) ctx.closePath(); };
+// 바닥의 원 (반지름 r m) → 화면 다각형
+const gcircle = (C, r, n = 56) => Array.from({ length: n }, (_, i) => { const a = (i / n) * Math.PI * 2; return CAL.G(C.x + Math.cos(a) * r, C.y + Math.sin(a) * r); });
+// 바닥 1m 가 이 자리에서 화면 몇 px 인지 (굵기 · 그림자 크기를 원근에 맞추는 데 씀)
+const pxPerM = (C) => { const a = CAL.G(C.x, C.y); const b = CAL.G(C.x, C.y + 1); const c2 = CAL.G(C.x + 1, C.y); return (Math.hypot(b.x - a.x, b.y - a.y) + Math.hypot(c2.x - a.x, c2.y - a.y)) / 2; };
+
+// 맞추기 안내선 (수정 화면에서만): 네모 + 골라인 + 박스 안 골 에어리어 · 페널티 지점 · 아크, 바깥으로 길게 뻗은 보조선
+export function drawCalGuide(ctx, c, Wpx, Hpx, active) {
+  const cal = calFrom(c, Wpx, Hpx);
+  if (!cal) return;
+  const { w, h } = cal;
+  const L = (pts) => pts.map(([X, Y]) => cal.G(X, Y));
+  const lw = Math.max(1.5, Wpx / 700);
+  ctx.save();
+  ctx.lineJoin = 'round';
+  // 보조선: 골라인 · 앞 선 · 양옆 선을 화면 밖까지 길게 (영상의 선과 겹치는지 보기 쉽게)
+  ctx.setLineDash([lw * 4, lw * 4]);
+  ctx.strokeStyle = 'rgba(0,209,255,0.55)';
+  ctx.lineWidth = lw;
+  [[[0, -60], [0, h + 60]], [[w, -60], [w, h + 60]], [[-40, 0], [w + 60, 0]], [[-40, h], [w + 60, h]]].forEach((seg) => { gpath(ctx, L(seg), false); ctx.stroke(); });
+  ctx.setLineDash([]);
+  // 네모 · 골라인
+  ctx.strokeStyle = active ? '#00d1ff' : 'rgba(0,209,255,0.8)';
+  ctx.lineWidth = lw * 2;
+  gpath(ctx, L([[0, 0], [w, 0], [w, h], [0, h]])); ctx.stroke();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = lw * 3.2;
+  gpath(ctx, L([[0, 0], [0, h]]), false); ctx.stroke();
+  // 박스: 골 에어리어 · 페널티 지점 · 아크
+  if (c.tpl !== 'rect') {
+    ctx.strokeStyle = 'rgba(0,209,255,0.75)'; ctx.lineWidth = lw * 1.4;
+    if (c.tpl === 'box') {
+      const y0 = (h - 18.32) / 2;
+      gpath(ctx, L([[0, y0], [5.5, y0], [5.5, y0 + 18.32], [0, y0 + 18.32]]), false); ctx.stroke();
+      const s = cal.G(11, h / 2); ctx.fillStyle = '#00d1ff'; ctx.beginPath(); ctx.arc(s.x, s.y, lw * 2.4, 0, Math.PI * 2); ctx.fill();
+      const arc = []; const a0 = Math.acos((w - 11) / 9.15);
+      for (let i = 0; i <= 24; i++) { const a = -a0 + (i / 24) * 2 * a0; arc.push(cal.G(11 + Math.cos(a) * 9.15, h / 2 + Math.sin(a) * 9.15)); }
+      gpath(ctx, arc, false); ctx.stroke();
+    }
+    // 골대 (골라인 가운데 7.32m)
+    const g0 = cal.G(0, h / 2 - 3.66); const g1 = cal.G(0, h / 2 + 3.66);
+    ctx.strokeStyle = '#ffd400'; ctx.lineWidth = lw * 4; ctx.beginPath(); ctx.moveTo(g0.x, g0.y); ctx.lineTo(g1.x, g1.y); ctx.stroke();
+  }
+  // 모서리 손잡이 · 골라인 글자
+  c.q.forEach((p, i) => {
+    const x = p.x * Wpx; const y = p.y * Hpx; const r = Math.max(7, Wpx / 120);
+    ctx.fillStyle = i === 0 || i === 3 ? '#ffffff' : '#00d1ff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  });
+  const m = cal.G(-1.2, h / 2);
+  label(ctx, '골라인', m.x, m.y, Wpx, '#ffffff');
+  ctx.restore();
+}
 
 // ───────── 프레임 분석 ─────────
 export class FrameAnalyzer {
@@ -373,15 +453,25 @@ export class PlayerTracker {
   // 클릭 지점에서 선수의 발 위치 · 키 찾기.
   // 잔디 아닌 픽셀 → 세로 방향 닫기(작은 틈 메우기) · 열기(가로 라인 같은 얇은 것 지우기) → 클릭에 가장 가까운 덩어리
   measure(video, cx, cy, key, hz = null) {
+    const m1 = this.measureK(video, cx, cy, key, hz, 1);
+    if (m1 && m1.ph >= 26) return m1;
+    // 멀리 있는(작게 보이는) 선수: 주변만 2배 확대해서 다시 — 가는 다리 · 몸이 잡음으로 지워지지 않게
+    const m2 = this.measureK(video, cx, cy, key, hz, 2);
+    return m2 || m1;
+  }
+  measureK(video, cx, cy, key, hz, K) {
     const VW = video.videoWidth;
     const VH = video.videoHeight;
-    const box = Math.round(VH * 0.24);
-    const x0 = Math.max(0, Math.round(cx - box / 2));
-    const y0 = Math.max(0, Math.round(cy - box * 0.85));
-    const w = Math.min(box, VW - x0);
-    const h = Math.min(Math.round(box * 1.0), VH - y0);
-    const { d } = this.read(video, x0, y0, w, h);
-    const t = Math.max(2, Math.round(VH / 240)); // 720p 기준 3px
+    const box0 = Math.round(VH * (K > 1 ? 0.12 : 0.24));
+    const X0 = Math.max(0, Math.round(cx - box0 / 2));
+    const Y0 = Math.max(0, Math.round(cy - box0 * 0.85));
+    const W0 = Math.min(box0, VW - X0);
+    const H0 = Math.min(box0, VH - Y0);
+    const rd = this.read(video, X0, Y0, W0, H0, K);
+    const d = rd.d; const w = rd.w; const h = rd.h;
+    const box = box0 * K; const x0 = 0; const y0 = 0;
+    cx = (cx - X0) * K; cy = (cy - Y0) * K;
+    const t = K > 1 ? Math.max(1, Math.round(VH / 480)) : Math.max(2, Math.round(VH / 240)); // 확대했을 땐 가늘게
     const fg = bodyMask(d, w, h, key, t);
     const lx = Math.round(cx - x0);
     const ly = Math.round(cy - y0);
@@ -399,6 +489,7 @@ export class PlayerTracker {
     const q = [seed];
     seen[seed] = 1;
     let x1 = w; let y1 = h; let x2 = 0; let y2 = 0; let n = 0; let sx = 0;
+    const gapY = Math.max(2, Math.round(VH / 180) * K);
     const rows = new Float32Array(h);
     const rowsN = new Uint16Array(h);
     while (q.length) {
@@ -406,8 +497,10 @@ export class PlayerTracker {
       const x = i % w; const y = (i / w) | 0;
       n++; sx += x; rows[y] += x; rowsN[y]++;
       if (x < x1) x1 = x; if (x > x2) x2 = x; if (y < y1) y1 = y; if (y > y2) y2 = y;
-      for (let dy = -1; dy <= 1; dy++) {
+      // 위아래로는 작은 틈(상의 · 하의 · 양말 사이)을 건너 이어 붙임 — 몸이 끊겨 키를 반만 재지 않게
+      for (let dy = -gapY; dy <= gapY; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
+          if (Math.abs(dy) > 1 && dx !== 0) continue;
           const xx = x + dx; const yy = y + dy;
           if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
           const j = yy * w + xx;
@@ -419,7 +512,7 @@ export class PlayerTracker {
     let top = y1;
     // 원근 기준 키 범위: 잔디 시작선(hz)에서 아래로 내려올수록 크게 보인다
     if (hz != null) {
-      const below = cy - hz * VH;
+      const below = (cy / K + Y0 - hz * VH) * K;
       if (below > 10) {
         const maxH = below * 0.8;
         const minH = below * 0.18;
@@ -427,13 +520,13 @@ export class PlayerTracker {
         if (ph < minH) { top = y2 + 1 - Math.round(minH); ph = Math.round(minH); }
       }
     }
-    if (ph < 8 || x2 - x1 + 1 > ph * 1.8) return null;
+    if (ph < (K > 1 ? 9 : 8) || x2 - x1 + 1 > ph * 1.8) return null;
     // 몸 중심: 아래쪽 2/3 행들의 가운데값
     const cs = [];
     for (let y = Math.max(top, y2 - Math.round(ph * 0.66)); y <= y2; y++) if (rowsN[y]) cs.push(rows[y] / rowsN[y]);
     cs.sort((a, b) => a - b);
     const mx = cs.length ? cs[cs.length >> 1] : sx / n;
-    return { x: x0 + mx, y: y0 + y2 + 1, ph: Math.min(ph, box * 0.95) };
+    return { x: X0 + (x0 + mx) / K, y: Y0 + (y0 + y2 + 1) / K, ph: Math.min(ph, box * 0.95) / K };
   }
 
   // 유니폼 색 분포 (잔디 제외) — 위(상의) / 아래(하의·양말) 따로 48칸씩
@@ -513,7 +606,7 @@ export class PlayerTracker {
     const x1 = Math.min(VW, px + b.tw / 2 + R);
     const y1 = Math.min(VH, py + R * 0.7);
     if (x1 - x0 < b.tw || y1 - y0 < b.th) return null;
-    const k = Math.min(1, 26 / st.ph);
+    const k = Math.min(2.5, 26 / st.ph); // 큰 선수는 줄이고, 작은 선수는 확대해서 비교
     const r = this.read(video, x0, y0, x1 - x0, y1 - y0, k);
     const tw = Math.max(4, Math.round(b.tw * k));
     const th = Math.max(6, Math.round(b.th * k));
@@ -538,7 +631,7 @@ export class PlayerTracker {
         if (score > best) { best = score; bestBc = bc; bx = x; by = y; }
       }
     }
-    if (bx < 0 || bestBc < 0.42) {
+    if (bx < 0 || bestBc < (st.ph < 30 ? 0.36 : 0.42)) {
       // 놓침: 카메라 이동 + 예측 경로로 잠깐 이어감
       st.miss++;
       st.x = px; st.y = py;
@@ -553,9 +646,9 @@ export class PlayerTracker {
     if (m && Math.abs(m.ph - st.ph) < st.ph * 0.45 && Math.hypot(m.x - nx, m.y - ny) < st.ph * 0.5) {
       nx = m.x; ny = m.y;
       // 멀어지거나 가까워지면 크기도 천천히 따라감 (다리 들기 등 순간 측정값에 휘둘리지 않게 프레임당 1%, 처음 크기의 0.6~1.6배)
-      if (Math.abs(m.ph - st.ph) < st.ph * 0.25) {
-        const target = Math.min(st.ph * 1.01, Math.max(st.ph * 0.99, m.ph));
-        st.ph = Math.min(st.ph0 * 1.6, Math.max(st.ph0 * 0.6, target));
+      if (Math.abs(m.ph - st.ph) < st.ph * 0.3) {
+        const target = Math.min(st.ph * 1.02, Math.max(st.ph * 0.98, m.ph));
+        st.ph = Math.min(st.ph0 * 2.2, Math.max(st.ph0 * 0.35, target));
       }
     }
     if (dt > 0) {
@@ -570,7 +663,7 @@ export class PlayerTracker {
     // 확실할 때만 색 분포를 천천히 갱신 (조명 · 그늘 변화 대응)
     if (bestBc > 0.7) {
       const bb = this.box(st);
-      const cr = this.read(video, bb.x0, bb.y0, bb.tw, bb.th, Math.min(1, 26 / st.ph));
+      const cr = this.read(video, bb.x0, bb.y0, bb.tw, bb.th, Math.min(2.5, 26 / st.ph));
       const cur = this.hist(cr.d, cr.w, 0, 0, cr.w, cr.h, key).hst;
       for (let i = 0; i < 96; i++) H[i] = H[i] * 0.88 + cur[i] * 0.12;
     }
@@ -612,6 +705,57 @@ export function trackerPos(tr, t) {
     return { x: herm(1), y: herm(2), h };
   }
   return { x: a[1] + (b[1] - a[1]) * k, y: a[2] + (b[2] - a[2]) * k, h };
+}
+
+export function steadyPos(tr, t) {
+  if (!tr?.path?.length) return null;
+  if (tr.manual) return trackerPos(tr, t);
+  const tEnd = tr.path[tr.path.length - 1][0];
+  if (t > tEnd - 0.45) return steadyRaw(tr, t);
+  // 같은 기록이면 계산해 둔 점을 다시 씀
+  const key = `${tr.path.length}:${tEnd}`;
+  if (tr._sk !== key) { tr._sk = key; tr._sc = new Map(); }
+  const STEP = 0.2;
+  const at = (k) => { let v = tr._sc.get(k); if (!v) { v = steadyRaw(tr, k * STEP); if (v) tr._sc.set(k, v); } return v; };
+  const k1 = Math.floor(t / STEP); const u = t / STEP - k1;
+  const p0 = at(k1 - 1); const p1 = at(k1); const p2 = at(k1 + 1); const p3 = at(k1 + 2);
+  if (!p0 || !p1 || !p2 || !p3 || (k1 + 1) * STEP > tEnd - 0.45) return steadyRaw(tr, t);
+  const cr = (a, b, c, d) => 0.5 * ((2 * b) + (-a + c) * u + (2 * a - 5 * b + 4 * c - d) * u * u + (-a + 3 * b - 3 * c + d) * u * u * u);
+  return { x: cr(p0.x, p1.x, p2.x, p3.x), y: cr(p0.y, p1.y, p2.y, p3.y), h: p1.h + (p2.h - p1.h) * u };
+}
+function steadyRaw(tr, t) {
+  const avg = (c, half, step) => {
+    let sx = 0; let sy = 0; let sh = 0; let sw = 0; const sg = half / 2;
+    for (let d = -half; d <= half + 1e-9; d += step) {
+      const q = trackerPos(tr, c + d); if (!q) continue;
+      const w = Math.exp(-(d * d) / (2 * sg * sg)); sx += q.x * w; sy += q.y * w; sh += (q.h || 0) * w; sw += w;
+    }
+    return sw ? { x: sx / sw, y: sy / sw, h: sh / sw } : null;
+  };
+  const tEnd = tr.path[tr.path.length - 1][0];
+  if (t > tEnd - 0.45) {
+    const back = (c, span) => { let sx = 0; let sy = 0; let sh = 0; let sw = 0; for (let d = 0; d <= span + 1e-9; d += 0.04) { const q = trackerPos(tr, c - d); if (!q) continue; const w = 1 - d / (span + 0.04); sx += q.x * w; sy += q.y * w; sh += (q.h || 0) * w; sw += w; } return sw ? { x: sx / sw, y: sy / sw, h: sh / sw } : null; };
+    const now = Math.min(t, tEnd);
+    const m0 = back(now, 0.28); const m1 = back(now - 0.2, 0.28);
+    if (!m0 || !m1) return trackerPos(tr, t);
+    const hh0 = Math.max(0.02, m0.h || tr.h || 0.08);
+    const slow = back(now, 1.0); const before = back(now - 0.7, 0.3);
+    // 서 있는지: 지금과 0.7초 전 위치 차이를 선수 키와 비교
+    const mvL = before ? Math.hypot(m0.x - before.x, m0.y - before.y) / hh0 : 1;
+    const k2 = Math.min(1, Math.max(0, (mvL - 0.12) / 0.25)); // 서 있으면 0 → 1초 평균으로 고정
+    const lead = 0.5 * k2; // 뛸 때만 평균 때문에 늦어진 만큼 앞으로
+    const fx = m0.x + (m0.x - m1.x) * lead; const fy = m0.y + (m0.y - m1.y) * lead;
+    return { x: slow.x + (fx - slow.x) * k2, y: slow.y + (fy - slow.y) * k2, h: slow.h || m0.h };
+  }
+  const near = avg(t, 0.4, 0.05); const wide = avg(t, 1.0, 0.08);
+  const a = avg(t - 0.5, 0.3, 0.05); const b = avg(t + 0.5, 0.3, 0.05);
+  if (!near || !wide || !a || !b) return near || trackerPos(tr, t);
+  // 가만히 있는지: 앞뒤 1초 사이에 움직인 거리를 선수 키와 비교 (멀리 있는 작은 선수도 같은 기준)
+  const hh = Math.max(0.02, wide.h || tr.h || 0.08);
+  const mv = Math.hypot(a.x - b.x, a.y - b.y) / hh;
+  const k = Math.min(1, Math.max(0, (mv - 0.18) / 0.3)); // 키의 18% 안쪽이면 고정, 키의 절반 넘게 움직이면 그대로 따라감
+  // 키(링 크기)는 항상 넓게 평균 — 커졌다 작아졌다 하지 않게
+  return { x: wide.x + (near.x - wide.x) * k, y: wide.y + (near.y - wide.y) * k, h: wide.h };
 }
 
 // 이 시점부터 새로 따라가기: 이후 기록은 지우고 이 위치부터
@@ -742,6 +886,7 @@ function arrowHead(ctx, x, y, ang, s) {
 export function gridH(it) { return it.q.length === 4 ? homography(UNIT, it.q.map((p) => ({ x: p.x, y: p.y }))) : null; }
 
 export function meters(items, a, b) {
+  if (CAL) { const pa = CAL.S({ x: a.x * CAL.W, y: a.y * CAL.H }); const pb = CAL.S({ x: b.x * CAL.W, y: b.y * CAL.H }); return Math.hypot(pa.x - pb.x, pa.y - pb.y); }
   const g = [...items].reverse().find((x) => x.k === 'grid' && x.q.length === 4);
   if (!g) return null;
   const inv = homography(g.q, UNIT);
@@ -765,7 +910,7 @@ const easeOut = (x) => 1 - (1 - Math.min(1, Math.max(0, x))) ** 3;
 
 // 바닥에 깔린 두꺼운 리본 화살표: 원근(멀수록 가늘게) + 그림자 + 밝은 테두리. dash 면 띠를 끊어서 '이동' 표시
 // ph: 화살표 시작점에 서 있는 선수의 화면 키(px) — 있으면 선수 크기에 맞춰 굵기를 정함 (멀리 작게 · 가까이 크게)
-function ribbonArrow(ctx, pts, { W, H, hz, col, dash, ph }) {
+function ribbonArrow(ctx, pts, { W, H, hz, col, dash, ph, bold }) {
   if (pts.length < 2) return;
   const hzPx = (hz ?? 0.3) * H;
   const p0 = pts[0];
@@ -783,10 +928,11 @@ function ribbonArrow(ctx, pts, { W, H, hz, col, dash, ph }) {
   }
   // 짧은 화살표: 머리가 몸통보다 커지지 않게 굵기 · 머리를 길이에 맞춰 줄임
   const tip = pts[pts.length - 1];
-  const want = widthAt(tip) * 2.8;
+  if (!bold) base = Math.max(4, base * 0.55); // 패스 선 (widthAt 은 base 를 씀)
+  const want = widthAt(tip) * (bold ? 2.8 : 5);
   const shrink = Math.min(1, (L * 0.45) / Math.max(1, want));
   if (shrink < 1) { const wa = widthAt; const k = Math.max(0.35, shrink); widthAt = (p) => wa(p) * k; base *= k; }
-  const headLen = Math.min(widthAt(tip) * 2.8, L * 0.45);
+  const headLen = Math.min(widthAt(tip) * (bold ? 2.8 : 4.6), L * 0.45);
   let acc = 0;
   let cut = pts.length - 1;
   for (let i = pts.length - 1; i > 0; i--) { acc += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); if (acc >= headLen) { cut = i; break; } cut = i - 1; }
@@ -794,18 +940,21 @@ function ribbonArrow(ctx, pts, { W, H, hz, col, dash, ph }) {
   const neck = body[body.length - 1];
   const ang = Math.atan2(tip.y - neck.y, tip.x - neck.x);
   // 몸통 띠 (구간마다 법선 방향으로 폭만큼)
+  const cum = new Map(); { let acc = 0; body.forEach((p, i) => { if (i) acc += Math.hypot(p.x - body[i - 1].x, p.y - body[i - 1].y); cum.set(p, acc); }); }
+  const Lb = cum.get(body[body.length - 1]) || 1;
+  const tap = (p) => (bold ? 0.4 + 0.6 * Math.min(1, (cum.get(p) ?? Lb) / Lb) : 1);
   const side = (arr, sgn) => arr.map((p, i) => {
     const q = arr[Math.min(arr.length - 1, i + 1)];
     const o = arr[Math.max(0, i - 1)];
     const a2 = Math.atan2(q.y - o.y, q.x - o.x);
-    const w = widthAt(p) / 2;
+    const w = (widthAt(p) / 2) * tap(p);
     return { x: p.x + Math.cos(a2 + (Math.PI / 2) * sgn) * w, y: p.y + Math.sin(a2 + (Math.PI / 2) * sgn) * w };
   });
   const segs = [];
   if (dash && body.length > 2) {
     // 길이를 따라 띠를 끊기
     let run = 0; let on = true; let cur = [body[0]];
-    const dashLen = base * 2.2; const gap = base * 1.3;
+    const dashLen = base * (bold ? 2.2 : 4.5); const gap = base * (bold ? 1.3 : 3);
     for (let i = 1; i < body.length; i++) {
       run += Math.hypot(body[i].x - body[i - 1].x, body[i].y - body[i - 1].y);
       cur.push(body[i]);
@@ -813,60 +962,95 @@ function ribbonArrow(ctx, pts, { W, H, hz, col, dash, ph }) {
     }
     if (on && cur.length > 1) segs.push(cur);
   } else segs.push(body);
-  const hw = widthAt(tip) * 1.5;
+  const hw = widthAt(tip) * (bold ? 1.5 : 1.9);
   const head = [
     { x: tip.x, y: tip.y },
     { x: neck.x + Math.cos(ang + Math.PI / 2) * hw, y: neck.y + Math.sin(ang + Math.PI / 2) * hw },
     { x: neck.x + Math.cos(ang - Math.PI / 2) * hw, y: neck.y + Math.sin(ang - Math.PI / 2) * hw },
   ];
   const shapes = [...segs.map((sg) => [...side(sg, 1), ...side(sg, -1).reverse()]), head];
-  const path = (poly) => { ctx.beginPath(); poly.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); };
-  const fillAll = () => shapes.forEach((sh) => { path(sh); ctx.fill(); });
-  const depth = Math.max(2, base * 0.5); // 띠 두께(옆면) — 바닥에서 살짝 떠 있는 입체 화살표
-  // 1) 바닥 그림자 (부드럽게)
-  ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.38)';
-  ctx.filter = `blur(${Math.max(1, base * 0.3)}px)`;
-  ctx.translate(base * 0.12, depth + base * 0.35);
-  fillAll();
-  ctx.restore();
-  // 2) 옆면 (어두운 색으로 아래쪽에 겹겹이)
-  ctx.save();
-  ctx.fillStyle = shade(col, -0.45);
-  const stepD = Math.max(1, depth / 6);
-  for (let d = depth; d > 0; d -= stepD) { ctx.save(); ctx.translate(0, d); fillAll(); ctx.restore(); }
-  ctx.restore();
-  // 3) 윗면 + 위는 밝고 아래는 어두운 음영
-  ctx.save();
-  ctx.fillStyle = col;
-  fillAll();
+  if (bold) paintSlab(ctx, shapes, col, base, pts[0], tip); else paintCrisp(ctx, shapes, col, Math.max(2, base));
+}
+
+// ───────── 원근을 맞춘 장면: 바닥(m)에서 만든 화살표 → 화면 ─────────
+// 몸통 폭 1.1m · 머리 길이 2m · 폭 2.3m 로 잔디에 칠한 것처럼 (멀리 가면 자연스럽게 가늘고 납작해짐)
+function groundArrow(ctx, ptsPx, { col, dash, bold }) {
+  const g = ptsPx.map((p) => CAL.S(p));
+  const segL = []; let L = 0;
+  for (let i = 1; i < g.length; i++) { const d = Math.hypot(g[i].x - g[i - 1].x, g[i].y - g[i - 1].y); segL.push(d); L += d; }
+  if (L < 0.3) return;
+  const k = Math.min(1, (L * 0.4) / (bold ? 2.0 : 1.5));
+  const bw = bold ? 1.1 * Math.max(0.5, k) / 2 : 0.3; const headL = (bold ? 2.0 : 1.9) * k; const headW = bold ? 1.15 * Math.max(0.55, k) : 0.95 * Math.max(0.7, k);
+  // 몸통 끝(머리 시작) 찾기
+  let left = L - headL; const body = [g[0]];
+  for (let i = 1; i < g.length; i++) {
+    if (left >= segL[i - 1]) { body.push(g[i]); left -= segL[i - 1]; continue; }
+    const t2 = segL[i - 1] ? left / segL[i - 1] : 0;
+    body.push({ x: g[i - 1].x + (g[i].x - g[i - 1].x) * t2, y: g[i - 1].y + (g[i].y - g[i - 1].y) * t2 }); break;
+  }
+  const tip = g[g.length - 1]; const neck = body[body.length - 1];
+  const nrm = (a, b) => { const dx = b.x - a.x; const dy = b.y - a.y; const l = Math.hypot(dx, dy) || 1; return { x: -dy / l, y: dx / l }; };
+  const cumG = new Map(); { let acc = 0; body.forEach((p, i) => { if (i) acc += Math.hypot(p.x - body[i - 1].x, p.y - body[i - 1].y); cumG.set(p, acc); }); }
+  const Lg = cumG.get(body[body.length - 1]) || 1;
+  const side = (arr, sg) => arr.map((p, i) => { const n = nrm(arr[Math.max(0, i - 1)], arr[Math.min(arr.length - 1, i + 1)]); const w = bold ? bw * (0.4 + 0.6 * Math.min(1, (cumG.get(p) ?? Lg) / Lg)) : bw; return { x: p.x + n.x * w * sg, y: p.y + n.y * w * sg }; });
+  const segs = [];
+  if (dash) { // 이동(점선): 1.6m 띠 · 1m 빈칸
+    let run = 0; let on = true; let cur = [body[0]];
+    for (let i = 1; i < body.length; i++) {
+      run += Math.hypot(body[i].x - body[i - 1].x, body[i].y - body[i - 1].y); cur.push(body[i]);
+      if (run >= (on ? (bold ? 1.6 : 1.1) : (bold ? 1.0 : 0.7))) { if (on && cur.length > 1) segs.push(cur); on = !on; run = 0; cur = [body[i]]; }
+    }
+    if (on && cur.length > 1) segs.push(cur);
+  } else segs.push(body);
+  const hn = nrm(neck, tip);
+  const head = [tip, { x: neck.x + hn.x * headW, y: neck.y + hn.y * headW }, { x: neck.x - hn.x * headW, y: neck.y - hn.y * headW }];
+  const shapes = [...segs.filter((sg) => sg.length > 1).map((sg) => [...side(sg, 1), ...side(sg, -1).reverse()]), head].map((sh) => sh.map((p) => CAL.G(p.x, p.y)));
+  if (bold) paintSlab(ctx, shapes, col, Math.max(3, bw * 2 * pxPerM(g[0])), CAL.G(g[0].x, g[0].y), CAL.G(tip.x, tip.y));
+  else paintCrisp(ctx, shapes, col, Math.max(2, bw * 2 * pxPerM(g[g.length - 1])));
+}
+// 바닥에 깔린 입체 판: 그림자 → 옆면(두께) → 윗면 색 + 음영 → 밝은 테두리
+// 바닥에 칠한 납작한 띠: 꼬리는 옅고 머리 쪽으로 진해짐 + 은은한 빛 + 얇은 밝은 테두리 (FIFA 분석 영상 느낌)
+function paintSlab(ctx, shapes, col, base, from = null, to = null) {
+  const fillAll = () => shapes.forEach((sh) => { gpath(ctx, sh); ctx.fill(); });
   const all = shapes.flat();
-  const y0 = Math.min(...all.map((p) => p.y)); const y1 = Math.max(...all.map((p) => p.y));
-  const gr = ctx.createLinearGradient(0, y0, 0, Math.max(y0 + 1, y1));
-  gr.addColorStop(0, 'rgba(255,255,255,0.42)');
-  gr.addColorStop(0.5, 'rgba(255,255,255,0.06)');
-  gr.addColorStop(1, 'rgba(0,0,0,0.2)');
-  ctx.fillStyle = gr;
-  fillAll();
-  // 4) 테두리 (밝은 윗선 · 어두운 아랫선 느낌)
-  ctx.strokeStyle = col === GLASS ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.8)';
-  ctx.lineWidth = Math.max(1, base * 0.12);
-  ctx.lineJoin = 'round';
-  shapes.forEach((sh) => { path(sh); ctx.stroke(); });
-  // 5) 빛 받는 쪽 가장자리 하이라이트 (위쪽 변)
-  ctx.globalAlpha = 0.55;
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = Math.max(1, base * 0.16);
-  segs.forEach((sg) => {
-    const a1 = side(sg, 1); const a2 = side(sg, -1);
-    const top = a1.reduce((v, p) => v + p.y, 0) <= a2.reduce((v, p) => v + p.y, 0) ? a1 : a2;
-    ctx.beginPath(); top.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y + base * 0.08) : ctx.moveTo(p.x, p.y + base * 0.08))); ctx.stroke();
-  });
-  // 6) 가운데 광택 줄
-  ctx.globalAlpha = 0.3;
-  ctx.lineWidth = Math.max(1, base * 0.14);
-  segs.forEach((sg) => { ctx.beginPath(); sg.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y - widthAt(p) * 0.1) : ctx.moveTo(p.x, p.y - widthAt(p) * 0.1))); ctx.stroke(); });
+  const a = from || all[0]; const b = to || all[all.length - 1];
+  const gr = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+  gr.addColorStop(0, rgba(col, 0.25)); gr.addColorStop(0.5, rgba(col, 0.68)); gr.addColorStop(1, rgba(col, 0.97));
+  ctx.save();
+  ctx.shadowColor = rgba(col, 0.55); ctx.shadowBlur = Math.max(4, base * 1.1);
+  ctx.fillStyle = gr; fillAll();
+  ctx.shadowBlur = 0;
+  const eg = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+  eg.addColorStop(0, rgba(tint(col, 0.6), 0.25)); eg.addColorStop(1, rgba(tint(col, 0.6), 0.95));
+  ctx.strokeStyle = eg; ctx.lineWidth = Math.max(1, base * 0.08); ctx.lineJoin = 'round';
+  shapes.forEach((sh) => { gpath(ctx, sh); ctx.stroke(); });
   ctx.restore();
+}
+function paintCrisp(ctx, shapes, col, base) {
+  const fillAll = () => shapes.forEach((sh) => { gpath(ctx, sh); ctx.fill(); });
+  const depth = Math.max(1, base * 0.38);
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.filter = `blur(${Math.max(1, depth).toFixed(1)}px)`;
+  ctx.translate(0, depth * 1.7); fillAll(); ctx.restore();
+  ctx.save(); ctx.fillStyle = shade(col, -0.42);
+  for (let d = depth; d > 0; d -= Math.max(0.6, depth / 3)) { ctx.save(); ctx.translate(0, d); fillAll(); ctx.restore(); }
+  ctx.fillStyle = col; fillAll();
+  ctx.restore();
+}
+// '#rrggbb' 또는 rgba → 투명도 a 인 rgba
+function rgba(col, a) {
+  const m = /^#([0-9a-f]{6})$/i.exec(col || '');
+  if (m) { const n = parseInt(m[1], 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+  const r = /rgba?\(([^)]+)\)/.exec(col || '');
+  if (r) { const [R, G, B, A = 1] = r[1].split(',').map((v) => +v); return `rgba(${R},${G},${B},${(+A) * a})`; }
+  return `rgba(255,255,255,${a})`;
+}
+// 흰색 쪽으로 섞기 (밝은 테두리 · 빛 심지)
+function tint(col, k) {
+  const m = /^#([0-9a-f]{6})$/i.exec(col || '');
+  if (!m) return '#ffffff';
+  const n = parseInt(m[1], 16); const f = (v) => Math.round(v + (255 - v) * k);
+  return `#${[f(n >> 16), f((n >> 8) & 255), f(n & 255)].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
 // 색을 밝게(+) · 어둡게(-) — 반투명(GLASS) 같은 rgba 는 검은 반투명으로
@@ -909,28 +1093,17 @@ function partialLine(pts, prog) {
 
 // ───────── 입체 선: 바닥 그림자 → 옆면(두께, 어두운 색) → 윗면(색) → 윗면 빛 ─────────
 // build(ctx): 선 모양을 그리는 함수 (closed 면 닫힌 도형) · width: 굵기(px) · depth: 바닥에서 뜬 두께(px)
-function solid(ctx, build, { col, width, depth, dash = null, closed = false }) {
-  const side = shade(col, -0.5);
+function solid(ctx, build, { col, width, dash = null, closed = false, alpha = 1 }) {
+  const w = Math.max(1.5, width * 0.62);
   ctx.save();
-  ctx.lineJoin = 'round'; ctx.lineCap = closed ? 'butt' : 'round';
-  if (dash) ctx.setLineDash(dash);
-  // 1) 바닥 그림자
-  ctx.save();
-  ctx.strokeStyle = 'rgba(0,0,0,0.42)'; ctx.lineWidth = width * 1.1;
-  ctx.filter = `blur(${Math.max(1, depth * 0.7).toFixed(1)}px)`;
-  ctx.translate(depth * 0.3, depth * 1.5);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  if (dash) ctx.setLineDash(dash.map((v) => v * 0.8));
+  // 은은한 빛 (같은 색이 살짝 번짐)
+  ctx.shadowColor = rgba(col, 0.7); ctx.shadowBlur = w * 2.4;
+  ctx.globalAlpha = alpha; ctx.strokeStyle = col; ctx.lineWidth = w;
   ctx.beginPath(); build(ctx); if (closed) ctx.closePath(); ctx.stroke();
-  ctx.restore();
-  // 2) 옆면: 아래로 조금씩 내려가며 어두운 색으로 (두께가 보이게)
-  ctx.strokeStyle = side; ctx.lineWidth = width;
-  const step = Math.max(0.7, depth / 5);
-  for (let d = depth; d > 0.01; d -= step) { ctx.save(); ctx.translate(0, d); ctx.beginPath(); build(ctx); if (closed) ctx.closePath(); ctx.stroke(); ctx.restore(); }
-  // 3) 윗면
-  ctx.strokeStyle = col;
-  ctx.beginPath(); build(ctx); if (closed) ctx.closePath(); ctx.stroke();
-  // 4) 윗면 빛 (위쪽 가장자리가 반짝)
-  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = Math.max(1, width * 0.26);
-  ctx.translate(0, -width * 0.2);
+  // 가운데 밝은 심지
+  ctx.shadowBlur = 0; ctx.globalAlpha = alpha * 0.85; ctx.strokeStyle = tint(col, 0.65); ctx.lineWidth = Math.max(0.8, w * 0.32);
   ctx.beginPath(); build(ctx); if (closed) ctx.closePath(); ctx.stroke();
   ctx.restore();
 }
@@ -939,11 +1112,10 @@ const perspK = (y, H, hz) => { const hp = (hz ?? 0.3) * H; return Math.min(1.35,
 // 바닥 면 채우기: 아래로 갈수록 진한 그라데이션 + 빗금
 function slabFill(ctx, build, col, lw, alpha, ys) {
   const g = ctx.createLinearGradient(0, ys[0], 0, ys[1]);
-  g.addColorStop(0, col); g.addColorStop(1, shade(col, -0.25));
+  g.addColorStop(0, rgba(col, 0.14)); g.addColorStop(1, rgba(col, 0.3));
   ctx.save();
   ctx.beginPath(); build(ctx); ctx.closePath();
-  ctx.globalAlpha = 0.24 * alpha; ctx.fillStyle = g; ctx.fill();
-  ctx.globalAlpha = 0.7 * alpha; ctx.fillStyle = hatch(ctx, col, lw * 5); ctx.fill();
+  ctx.globalAlpha = alpha; ctx.fillStyle = g; ctx.fill();
   ctx.restore();
 }
 
@@ -962,7 +1134,7 @@ export function drawItem(ctx, it, P, W, items, resolve) {
     case 'arrow': {
       const [a, b, c] = [P(it.a), P(it.b), P(it.c || { x: (resolve(it.a).x + resolve(it.b).x) / 2, y: (resolve(it.a).y + resolve(it.b).y) / 2 })];
       const pts = quadPts(a, c, b, easeOut(prog), 48);
-      ribbonArrow(ctx, pts, { W, H: ctx.canvas.height, hz: it._hz, ph: it._ph, col, dash: it.style === 'dash', solid: pts.length > 1 });
+      if (CAL) groundArrow(ctx, pts, { col, dash: it.style === 'dash', bold: it.weight === 'bold' }); else ribbonArrow(ctx, pts, { bold: it.weight === 'bold', W, H: ctx.canvas.height, hz: it._hz, ph: it._ph, col, dash: it.style === 'dash', solid: pts.length > 1 });
       if (prog >= 1 && (it.m != null || it.dist)) {
         const m = it.m != null ? it.m : meters(items, resolve(it.a), resolve(it.b));
         if (m != null) label(ctx, `${+(+m).toFixed(1)}m`, (a.x + b.x) / 2, (a.y + b.y) / 2 - lw * 6, W, col === GLASS ? '#ffffff' : col);
@@ -970,18 +1142,113 @@ export function drawItem(ctx, it, P, W, items, resolve) {
       break;
     }
     case 'spot': {
-      // 트래킹 선수 발밑을 따라다니는 원 (나타날 때 커지면서 등장)
+      // 트래킹 선수 발밑: 지나온 길 꼬리 → 옅게 빛나는 원판 + 진한 빛 고리 + 바깥에서 천천히 도는 호 세 조각
       const p = P(it.p);
       const k = easeOut(prog);
-      const rx = (it.size || 0.025) * W * 0.85 * k;
-      if (rx < 1) break;
-      const ry = rx * 0.36;
-      // 바닥에 놓인 두꺼운 고리 (안쪽은 옅게 빛남)
-      const gl = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rx);
-      gl.addColorStop(0, 'rgba(255,255,255,0)'); gl.addColorStop(1, col);
-      ctx.save(); ctx.globalAlpha = 0.3; ctx.translate(p.x, p.y); ctx.scale(1, ry / rx); ctx.translate(-p.x, -p.y);
-      ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(p.x, p.y, rx, 0, Math.PI * 2); ctx.fill(); ctx.restore();
-      solid(ctx, (c) => c.ellipse(p.x, p.y, rx, ry, 0, 0, Math.PI * 2), { col, width: Math.max(2.5, rx * 0.16), depth: Math.max(1.5, rx * 0.09), closed: true });
+      let ringAt; let lwR; let maxW; // ringAt(r배율, 각도) → 화면 점
+      if (CAL) {
+        const C = CAL.S(p); const R = 0.95 * (it.scale || 1);
+        const ppm = pxPerM(C);
+        if (R * ppm < 1) break;
+        ringAt = (r, a) => CAL.G(C.x + Math.cos(a) * R * r, C.y + Math.sin(a) * R * r);
+        lwR = Math.max(2.2, 0.13 * ppm); maxW = R * 1.1;
+      } else {
+        const rx = (it.size || 0.025) * W * 0.85; const ry = rx * 0.36;
+        if (rx < 1) break;
+        ringAt = (r, a) => ({ x: p.x + Math.cos(a) * rx * r, y: p.y + Math.sin(a) * ry * r });
+        lwR = Math.max(2.2, rx * 0.12); maxW = rx * 1.1;
+      }
+      // 1) 이동 꼬리 + 잔상 (선수 옮기기처럼): 굵게 이어진 꼬리가 끝으로 갈수록 가늘고 투명해지고, 움직일 때 뒤에 옅은 링 잔상 3개
+      const inCol0 = it.fill || tint(col, 0.75);
+      if (it._trail && it._trail.length > 2) {
+        const tp = it._trail.map(P);
+        const n = tp.length;
+        // 바닥 좌표(원근 맞춤이면 m, 아니면 화면 px · 세로는 원근만큼 납작하게)
+        const toG = CAL ? (q) => CAL.S(q) : (q) => q;
+        const fromG = CAL ? (X, Y) => CAL.G(X, Y) : (X, Y) => ({ x: X, y: Y });
+        const g = tp.map(toG);
+        const end = g[n - 1];
+        const rG = CAL ? 0.95 * (it.scale || 1) : (it.size || 0.025) * W * 0.85;
+        const flat = CAL ? 1 : 0.36;
+        // 링 바깥부터 시작하도록 끝쪽을 잘라냄
+        const dist = (a, b) => Math.hypot(b.x - a.x, (b.y - a.y) / flat);
+        let cut = n - 1; while (cut > 0 && dist(g[cut], end) < rG * 0.95) cut--;
+        const body = g.slice(0, cut + 1);
+        let total = 0; for (let i2 = 1; i2 < body.length; i2++) total += dist(body[i2 - 1], body[i2]);
+        if (body.length > 1 && total > rG * 0.4) {
+          let acc = 0; const cum = body.map((q, i2) => (i2 ? (acc += dist(body[i2 - 1], q)) : 0));
+          const L2 = []; const R2 = [];
+          body.forEach((q, i2) => {
+            const a = body[Math.max(0, i2 - 1)]; const b = body[Math.min(body.length - 1, i2 + 1)];
+            const dx = b.x - a.x; const dy = (b.y - a.y) / flat; const l = Math.hypot(dx, dy) || 1;
+            const f = cum[i2] / Math.max(1e-6, total); // 0 = 끝, 1 = 선수 쪽
+            const wv = rG * 0.55 * f ** 1.4;
+            L2.push(fromG(q.x - (dy / l) * wv, q.y + (dx / l) * wv * flat)); R2.push(fromG(q.x + (dy / l) * wv, q.y - (dx / l) * wv * flat));
+          });
+          const poly = [...L2, ...R2.reverse()];
+          const p0 = fromG(body[0].x, body[0].y); const p1 = fromG(body[body.length - 1].x, body[body.length - 1].y);
+          const gr = ctx.createLinearGradient(p0.x, p0.y, p1.x, p1.y);
+          gr.addColorStop(0, rgba(col, 0)); gr.addColorStop(0.55, rgba(col, 0.45)); gr.addColorStop(1, rgba(col, 0.92));
+          ctx.save();
+          ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.translate(0, Math.max(1, rG * (CAL ? pxPerM(end) : 1) * 0.04)); gpath(ctx, poly); ctx.fill(); ctx.restore();
+          ctx.save(); ctx.fillStyle = gr; gpath(ctx, poly); ctx.fill();
+          // 가운데 밝은 줄 (두 번째 색)
+          const cg = ctx.createLinearGradient(p0.x, p0.y, p1.x, p1.y);
+          cg.addColorStop(0, rgba(inCol0, 0)); cg.addColorStop(1, rgba(inCol0, 0.7));
+          ctx.strokeStyle = cg; ctx.lineCap = 'round'; ctx.lineWidth = Math.max(1.5, (CAL ? 0.12 * pxPerM(end) : rG * 0.1));
+          gpath(ctx, body.slice(Math.floor(body.length * 0.35)).map((q) => fromG(q.x, q.y)), false); ctx.stroke();
+          ctx.restore();
+        }
+        // 잔상: 움직이는 중이면 0.15초 · 0.3초 · 0.45초 전 자리에 옅은 링
+        const moved = dist(g[Math.max(0, n - 10)], end) > rG * 0.5;
+        if (moved && prog >= 1) {
+          [[3, 0.32], [6, 0.2], [9, 0.11]].forEach(([back, al]) => {
+            const q = g[Math.max(0, n - 1 - back)]; if (!q) return;
+            const pts = Array.from({ length: 41 }, (_, i2) => { const an = (i2 / 40) * Math.PI * 2; return fromG(q.x + Math.cos(an) * rG * 0.9, q.y + Math.sin(an) * rG * 0.9 * flat); });
+            ctx.save(); ctx.globalAlpha = al; ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, lwR * 1.3); gpath(ctx, pts); ctx.stroke(); ctx.restore();
+          });
+        }
+      }
+      // 2) FIFA 스타일 링: 바깥 띠(팀 색) + 안쪽 띠(두 번째 색), 앞뒤 두 군데 끊김, 살짝 두께
+      const inCol = it.fill || tint(col, 0.75);
+      const arcPts = (r, a0, a1, nn = 28) => Array.from({ length: nn + 1 }, (_, i2) => ringAt(r, a0 + ((a1 - a0) * i2) / nn));
+      const band = (r0, r1, a0, a1) => [...arcPts(r1, a0, a1), ...arcPts(r0, a0, a1).reverse()];
+      const gap = 0.26; const g0 = Math.PI / 2 + 0.42; // 끊긴 곳 (앞쪽 조금 오른쪽 · 반대편)
+      const sweep = Math.PI - gap;
+      const halves = [g0 + gap / 2, g0 + Math.PI + gap / 2];
+      // 등장 연출: 0~0.45 빛 줄기, 0.25~1 링이 펼쳐짐
+      const fl = prog < 1 ? Math.max(0, 1 - Math.abs(prog - 0.22) / 0.26) : 0;
+      if (fl > 0) {
+        const c0 = ringAt(0, 0); const e1 = ringAt(1, 0); const rw = Math.hypot(e1.x - c0.x, e1.y - c0.y);
+        const half = rw * (0.6 + 2.6 * Math.min(1, prog / 0.3));
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        const lg = ctx.createLinearGradient(c0.x - half, 0, c0.x + half, 0);
+        lg.addColorStop(0, 'rgba(255,255,255,0)'); lg.addColorStop(0.5, `rgba(255,255,255,${0.95 * fl})`); lg.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = lg; ctx.fillRect(c0.x - half, c0.y - Math.max(1, rw * 0.035), half * 2, Math.max(2, rw * 0.07));
+        const rg = ctx.createRadialGradient(c0.x, c0.y, 0, c0.x, c0.y, rw * 0.5);
+        rg.addColorStop(0, `rgba(255,255,255,${0.9 * fl})`); rg.addColorStop(0.35, `rgba(255,255,240,${0.35 * fl})`); rg.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = rg; ctx.beginPath(); ctx.ellipse(c0.x, c0.y, rw * 0.5, rw * 0.22, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+      const grow = prog < 1 ? easeOut(Math.max(0, (prog - 0.25) / 0.75)) : 1;
+      if (grow <= 0.01) break;
+      const sc = 0.25 + 0.75 * grow; // 작게 시작해 펼쳐짐
+      const outerB = halves.map((a0) => band(0.8 * sc, sc, a0, a0 + sweep));
+      const innerB = halves.map((a0) => band(0.62 * sc, 0.8 * sc, a0, a0 + sweep));
+      ctx.save(); ctx.globalAlpha = Math.min(1, grow * 1.6);
+      const thick = Math.max(1, lwR * 0.38);
+      const paint = (shapes, c3) => {
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.filter = `blur(${Math.max(1, thick * 0.8).toFixed(1)}px)`;
+        ctx.translate(0, thick * 1.6); shapes.forEach((sh) => { gpath(ctx, sh); ctx.fill(); }); ctx.restore();
+        ctx.save(); ctx.fillStyle = shade(c3, -0.45);
+        for (let d = thick; d > 0; d -= Math.max(0.6, thick / 3)) { ctx.save(); ctx.translate(0, d); shapes.forEach((sh) => { gpath(ctx, sh); ctx.fill(); }); ctx.restore(); }
+        ctx.fillStyle = c3; shapes.forEach((sh) => { gpath(ctx, sh); ctx.fill(); });
+        ctx.restore();
+      };
+      paint(outerB, col);
+      paint(innerB, inCol);
+      ctx.restore();
       break;
     }
     case 'poly':
@@ -991,6 +1258,31 @@ export function drawItem(ctx, it, P, W, items, resolve) {
       const fade = it.k === 'poly' ? easeOut(prog) : 1;
       if (it.k === 'link') pts = partialLine(pts, easeOut(prog));
       ctx.globalAlpha = fade;
+      // 원근 맞춤: 동그라미는 잔디 위의 진짜 원으로
+      if (CAL && it.k === 'poly' && it.shape === 'circle' && pts.length === 4) {
+        const cx = (pts[0].x + pts[2].x) / 2; const cy = (pts[1].y + pts[3].y) / 2;
+        const C = CAL.S({ x: cx, y: cy });
+        const R = pts.reduce((v, q) => { const g2 = CAL.S(q); return v + Math.hypot(g2.x - C.x, g2.y - C.y); }, 0) / 4;
+        pts = gcircle(C, R, 64);
+        it = { ...it, shape: 'gpoly' };
+      }
+      // 수비 라인 '벽': 이은 선수들 사이에 세운 반투명 판 (선수 키만큼)
+      if (it.k === 'link' && it.wall && it._phs && it.pts.length > 1) {
+        const full = it.pts.map(P);
+        ctx.save();
+        for (let i = 0; i < full.length - 1; i++) {
+          const a = full[i]; const b = full[i + 1];
+          const ha = (it._phs[i] || it._phs[i + 1] || W / 14) * 0.95; const hb = (it._phs[i + 1] || it._phs[i] || W / 14) * 0.95;
+          const top = Math.min(a.y - ha, b.y - hb);
+          const gr = ctx.createLinearGradient(0, Math.max(a.y, b.y), 0, top);
+          gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.globalAlpha = 0.6 * fade * easeOut(prog); ctx.fillStyle = gr;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(b.x, b.y - hb); ctx.lineTo(a.x, a.y - ha); ctx.closePath(); ctx.fill();
+          ctx.globalAlpha = 0.85 * fade * easeOut(prog); ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.5, lw * 0.7);
+          ctx.beginPath(); ctx.moveTo(a.x, a.y - ha); ctx.lineTo(b.x, b.y - hb); ctx.stroke();
+        }
+        ctx.restore();
+      }
       const build = (c) => {
         if (it.shape === 'circle' && pts.length === 4) {
           const cx = (pts[0].x + pts[2].x) / 2; const cy = (pts[1].y + pts[3].y) / 2;
@@ -1005,8 +1297,29 @@ export function drawItem(ctx, it, P, W, items, resolve) {
         slabFill(ctx, build, col, lw, fade, ys);
         solid(ctx, build, { col, width: wdt, depth: wdt * 0.9, closed: true });
       } else {
-        solid(ctx, build, { col, width: wdt * 1.1, depth: wdt * 0.9 });
-        if (!it.shape) pts.forEach((p) => solid(ctx, (c) => c.ellipse(p.x, p.y, lw * 2.6, lw * 1.2, 0, 0, Math.PI * 2), { col, width: lw * 1.2, depth: lw * 0.8, closed: true }));
+        // 면 채우기: 이은 선수들이 만드는 모양 (라인 · 블록)
+        if (it.area && pts.length >= 3) { ctx.save(); ctx.globalAlpha = 0.9 * easeOut(prog); ctx.fillStyle = rgba(col, 0.2); gpath(ctx, it.pts.map(P)); ctx.fill(); ctx.restore(); }
+        // 잔디에 깔린 팀 색 선 — 기본 실선 (선택: 점선)
+        const dashOn = it.lstyle === 'dash'; // 기본은 실선
+        if (CAL) {
+          const g = it.pts.map(P).map((q) => CAL.S(q));
+          const segs = [];
+          for (let i3 = 0; i3 < g.length - 1; i3++) {
+            const a = g[i3]; const b = g[i3 + 1]; const L = Math.hypot(b.x - a.x, b.y - a.y) * easeOut(prog); if (L < 0.05) continue;
+            const ux = (b.x - a.x) / (L / easeOut(prog) || 1); const uy = (b.y - a.y) / (L / easeOut(prog) || 1); const nx = -uy * 0.15; const ny = ux * 0.15;
+            const step = dashOn ? 1.5 : L; const on = dashOn ? 0.9 : L;
+            for (let d = 0.6; d < L - 0.6; d += step) { const e = Math.min(L - 0.6, d + on); segs.push([[a.x + ux * d + nx, a.y + uy * d + ny], [a.x + ux * e + nx, a.y + uy * e + ny], [a.x + ux * e - nx, a.y + uy * e - ny], [a.x + ux * d - nx, a.y + uy * d - ny]].map(([X, Y]) => CAL.G(X, Y))); }
+          }
+          if (segs.length) paintCrisp(ctx, segs, col, Math.max(2, 0.25 * pxPerM(g[0])));
+        } else {
+          ctx.save(); ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
+          if (dashOn) ctx.setLineDash([wdt * 3.6, wdt * 2.4]);
+          ctx.strokeStyle = shade(col, -0.45); ctx.lineWidth = wdt * 1.8; ctx.translate(0, Math.max(1, wdt * 0.35));
+          ctx.beginPath(); build(ctx); ctx.stroke();
+          ctx.translate(0, -Math.max(1, wdt * 0.35)); ctx.strokeStyle = col;
+          ctx.beginPath(); build(ctx); ctx.stroke();
+          ctx.restore();
+        }
       }
       break;
     }
@@ -1025,20 +1338,21 @@ export function drawItem(ctx, it, P, W, items, resolve) {
       for (let i = 0; i < it.cols; i++) {
         for (let j = 0; j < it.rows; j++) {
           const q = [Q(i / it.cols, j / it.rows), Q((i + 1) / it.cols, j / it.rows), Q((i + 1) / it.cols, (j + 1) / it.rows), Q(i / it.cols, (j + 1) / it.rows)];
-          ctx.globalAlpha = ((i + j) % 2 ? 0.1 : 0.26) * k;
+          ctx.globalAlpha = ((i + j) % 2 ? 0.05 : 0.14) * k;
           ctx.beginPath(); q.forEach((p, n) => (n ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); ctx.fill();
         }
       }
       // 안쪽 선
-      ctx.globalAlpha = 0.75 * k;
-      ctx.lineWidth = lw * 0.7;
+      ctx.globalAlpha = 0.5 * k;
+      ctx.lineWidth = lw * 0.5;
+      ctx.shadowColor = rgba(col, 0.6); ctx.shadowBlur = lw * 2;
       ctx.beginPath();
       for (let i = 1; i < it.cols; i++) { const p1 = Q(i / it.cols, 0); const p2 = Q(i / it.cols, 1); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); }
       for (let j = 1; j < it.rows; j++) { const p1 = Q(0, j / it.rows); const p2 = Q(1, j / it.rows); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); }
       ctx.stroke();
       // 테두리
       ctx.globalAlpha = k;
-      ctx.lineWidth = lw * 1.6;
+      ctx.lineWidth = lw * 1.1;
       ctx.beginPath(); [Q(0, 0), Q(1, 0), Q(1, 1), Q(0, 1)].forEach((p, n) => (n ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); ctx.stroke();
       break;
     }
@@ -1062,23 +1376,53 @@ export function drawItem(ctx, it, P, W, items, resolve) {
       if (len < 2) break;
       const ang = Math.atan2(b.y - a.y, b.x - a.x);
       const half = ((it.spread || 50) * Math.PI) / 360;
-      ctx.save();
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.arc(a.x, a.y, len, ang - half, ang + half); ctx.closePath();
-      const grad = ctx.createRadialGradient(a.x, a.y, 0, a.x, a.y, len);
-      grad.addColorStop(0, col); grad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.globalAlpha = 0.45; ctx.fillStyle = grad; ctx.fill();
-      ctx.globalAlpha = 1;
-      const wv = Math.max(2.5, W / 320) * perspK(a.y, ctx.canvas.height, it._hz);
-      solid(ctx, (c) => { c.moveTo(a.x + Math.cos(ang - half) * len, a.y + Math.sin(ang - half) * len); c.lineTo(a.x, a.y); c.lineTo(a.x + Math.cos(ang + half) * len, a.y + Math.sin(ang + half) * len); }, { col, width: wv, depth: wv * 0.8, dash: [wv * 2.4, wv * 1.6] });
-      ctx.restore();
+      // 선수에서 뻗어 나가는 반투명 쐐기: 가까운 쪽은 진하고 끝으로 갈수록 사라짐 · 테두리 없이 부드럽게
+      let fan; let far;
+      if (CAL) {
+        const A = CAL.S(a); const B = CAL.S(b);
+        const gl = Math.hypot(B.x - A.x, B.y - A.y) * easeOut(prog); const ga = Math.atan2(B.y - A.y, B.x - A.x);
+        fan = [CAL.G(A.x, A.y)];
+        for (let i2 = 0; i2 <= 24; i2++) { const an = ga - half + (i2 / 24) * 2 * half; fan.push(CAL.G(A.x + Math.cos(an) * gl, A.y + Math.sin(an) * gl)); }
+        far = CAL.G(A.x + Math.cos(ga) * gl, A.y + Math.sin(ga) * gl);
+      } else {
+        fan = [a];
+        for (let i2 = 0; i2 <= 24; i2++) { const an = ang - half + (i2 / 24) * 2 * half; fan.push({ x: a.x + Math.cos(an) * len, y: a.y + Math.sin(an) * len }); }
+        far = { x: a.x + Math.cos(ang) * len, y: a.y + Math.sin(ang) * len };
+      }
+      const grad = ctx.createLinearGradient(a.x, a.y, far.x, far.y);
+      grad.addColorStop(0, rgba(col, 0.55)); grad.addColorStop(0.55, rgba(col, 0.22)); grad.addColorStop(1, rgba(col, 0));
+      const Lf = Math.hypot(far.x - a.x, far.y - a.y);
+      ctx.save(); ctx.filter = `blur(${Math.max(1, Lf * 0.025).toFixed(1)}px)`; ctx.fillStyle = grad; gpath(ctx, fan); ctx.fill(); ctx.restore();
       break;
     }
     case 'offside': {
-      drawOffside(ctx, it, P(it.p), W, ctx.canvas.height, col, easeOut(prog));
+      const op = P(it.p);
+      if (CAL) { const g2 = CAL.S(op); const q = CAL.G(g2.x, g2.y + 10); it = { ...it, d: { x: (q.x - op.x) / W, y: (q.y - op.y) / ctx.canvas.height } }; }
+      drawOffside(ctx, it, op, W, ctx.canvas.height, col, easeOut(prog));
       break;
     }
     default:
   }
+  ctx.restore();
+}
+
+export function nameTag(ctx, txt, x, y, W, col, fill = null) {
+  const raw = String(txt).trim(); if (!raw) return;
+  const m = /^(\d{1,3})\s+(.+)$/.exec(raw);
+  const num = m ? m[1] : null; const name = (m ? m[2] : raw).toUpperCase();
+  const bg = fill || (col === '#ffffff' ? '#111111' : '#ffffff');
+  const fg = col === bg ? (col === '#111111' ? '#ffffff' : '#111111') : col;
+  const fs = Math.max(12, W / 60);
+  ctx.save();
+  ctx.font = `800 ${fs}px Pretendard, sans-serif`;
+  const nw = num ? ctx.measureText(num).width + fs * 0.7 : 0;
+  const tw = ctx.measureText(name).width + fs * 0.8;
+  const hgt = fs * 1.4; const x0 = x - (nw + tw) / 2; const y0 = y - hgt;
+  ctx.fillStyle = rgba(bg, 0.82); ctx.fillRect(x0 + nw, y0, tw, hgt);
+  if (num) { ctx.fillStyle = fg; ctx.fillRect(x0, y0, nw, hgt); }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (num) { ctx.fillStyle = bg; ctx.fillText(num, x0 + nw / 2, y0 + hgt / 2 + fs * 0.05); }
+  ctx.fillStyle = fg; ctx.fillText(name, x0 + nw + tw / 2, y0 + hgt / 2 + fs * 0.05);
   ctx.restore();
 }
 

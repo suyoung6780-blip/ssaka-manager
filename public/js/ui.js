@@ -118,20 +118,28 @@ export const options = (list, selected) => list
   .join('');
 
 // 이미지를 줄여 dataURL 로 변환 (Firestore 문서에 바로 저장). 프로필 사진은 흑백.
-export function resizeImage(file, max = 320, gray = true) {
+// 휴대폰 사진(수천만 화소)은 <img>로 풀면 느려서, 가능하면 createImageBitmap 으로 (화면을 멈추지 않고 풀기 · 방향 자동)
+export async function resizeImage(file, max = 320, gray = true) {
+  const draw = (src, w, h) => {
+    const r = Math.min(1, max / Math.max(w, h));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * r));
+    c.height = Math.max(1, Math.round(h * r));
+    const g = c.getContext('2d');
+    if (gray) g.filter = 'grayscale(1)';
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(src, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.82);
+  };
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      try { return draw(bmp, bmp.width, bmp.height); } finally { bmp.close?.(); }
+    } catch { /* 아래 방법으로 */ }
+  }
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => {
-      const r = Math.min(1, max / Math.max(img.width, img.height));
-      const c = document.createElement('canvas');
-      c.width = Math.round(img.width * r);
-      c.height = Math.round(img.height * r);
-      const g = c.getContext('2d');
-      if (gray) g.filter = 'grayscale(1)';
-      g.drawImage(img, 0, 0, c.width, c.height);
-      URL.revokeObjectURL(img.src);
-      resolve(c.toDataURL('image/jpeg', 0.82));
-    };
+    img.onload = () => { URL.revokeObjectURL(img.src); resolve(draw(img, img.width, img.height)); };
     img.onerror = reject;
     img.src = URL.createObjectURL(file);
   });
