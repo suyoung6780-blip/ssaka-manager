@@ -14,6 +14,9 @@ import { ai, loadAI, detectAround, scanFrame, pickNear } from '../detector.js';
 import { STORAGE_ENABLED } from '../config.js';
 import { matchStudio, sampleMatch, computeReport, TARGETS, linkOf, LINK_HELP, VEO_HELP } from './matchAnalysis.js';
 
+// 손가락으로 쓰는 화면(휴대폰 · 태블릿)
+const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
 // 무료(파일 저장소 없음): 영상은 코치 컴퓨터에서 바로 열어 분석 — 이 창을 닫기 전까지만 기억
 const localFiles = new Map(); // 분석 id → File
 
@@ -229,8 +232,7 @@ const fmtClock = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/$
 // ───────── 스튜디오 ─────────
 const TOOLS = [
   ['track', '선수 표시', '◎', 1],
-  ['arrow', '패스', '↗', 1],
-  ['dash', '움직임', '⇢', 1],
+  ['arrow', '화살표', '↗', 1], // 실선(패스) · 점선(움직임)은 고른 뒤 설정에서
   ['link', '선수 연결', '⟋', 1],
   ['shape', '영역', '▦', 1],
   ['text', '글자', 'T', 1],
@@ -304,6 +306,7 @@ export async function studio(el, { id, mode }) {
       <a href="#/analysis" class="icon-btn" aria-label="목록">‹</a>
       <div class="st-title"><strong>${esc(post.title)}</strong><small>${esc([post.opponent && `vs ${post.opponent}`, post.date].filter(Boolean).join(' · '))}</small></div>
       <div class="st-actions">
+        <button class="btn ghost sm st-ph-only" data-ph-tl>타임라인</button>${edit ? '<button class="btn ghost sm st-ph-only" data-ph-side>설정</button>' : ''}
         ${edit ? `<span class="st-mode">수정 중</span><button class="btn ghost sm" data-export>영상으로 내보내기</button><button class="btn ghost sm" data-del>삭제</button>
           ${post.tele ? '<button class="btn ghost sm" data-cancel>수정 취소</button>' : ''}<button class="btn sm" data-save>저장</button>`
           : `<button class="btn ghost sm" data-export>영상으로 내보내기</button>${canEdit && post.video.local ? `<button class="btn ghost sm" data-share>${post.shareUrl ? '공유 링크 바꾸기' : '선수에게 공유'}</button>` : ''}${canEdit ? '<button class="btn sm" data-edit>✎ 수정</button>' : ''}`}
@@ -426,6 +429,9 @@ export async function studio(el, { id, mode }) {
   const isLive = (it) => (it.k === 'arrow' && it.live) || (!it.still && (it.k === 'spot' || it.k === 'link' || ((it.k === 'light' || it.k === 'offside') && !!it.p?.tr)));
   let followPref = true;
   let arrowLivePref = true;
+  let arrowBold = (() => { try { return localStorage.getItem('ssaka.st.abold') !== '0'; } catch { return true; } })(); // 새 화살표 굵게 (기본)
+  let arrowDash = (() => { try { return localStorage.getItem('ssaka.st.adash') === '1'; } catch { return false; } })(); // 새 화살표: 점선(움직임)인지
+  let arrowSz = (() => { try { const v = +localStorage.getItem('ssaka.st.asz'); return v >= 0.4 && v <= 2 ? v : 1; } catch { return 1; } })(); // 새 화살표 크기 (마지막에 고른 크기)
   let advOpen = false; // 오른쪽 '자세히 설정' 열어 둠 // 화살표: 멈추지 않고 재생 중에 그어지기 (마지막에 고른 값)
   let visionPref = 50; // 시야 넓이 기본값 (마지막에 고른 값) // 트래킹 · 스포트라이트를 새로 만들 때 '따라가기' 기본값 (마지막에 고른 값)
   const visible = (it) => (isLive(it)
@@ -435,7 +441,8 @@ export async function studio(el, { id, mode }) {
     const r = canvas.getBoundingClientRect();
     return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) };
   };
-  const pxDist = (a, b) => Math.hypot((a.x - b.x) * canvas.clientWidth, (a.y - b.y) * canvas.clientHeight);
+  // 손가락 화면(휴대폰 · 태블릿)은 누르는 범위를 1.6배로 (모든 '가까운 점 잡기'에 함께 적용)
+  const pxDist = (a, b) => Math.hypot((a.x - b.x) * canvas.clientWidth, (a.y - b.y) * canvas.clientHeight) / (COARSE ? 1.6 : 1);
   const snap = (n) => {
     const inBox = boxAt(n);
     if (inBox) return { tr: inBox.tr.id };
@@ -448,6 +455,24 @@ export async function studio(el, { id, mode }) {
     const cs = tele.set.cals || [];
     const near = cs.filter((c) => !c.fixed && Math.abs(t() - c.t) < 0.35).sort((a, b) => Math.abs(t() - a.t) - Math.abs(t() - b.t))[0];
     return near || cs.find((c) => c.fixed) || null;
+  }
+  // 화면에 쓰는 맞춤: 맞춘 장면이면 그대로, 맞춘 두 장면 사이면 네 점을 시간에 따라 이어서 (카메라가 움직여도 따라감)
+  // 맞춘 장면 앞뒤 1초까지는 그 장면 그대로 · 두 장면이 20초 넘게 떨어져 있으면 잇지 않음
+  const CAL_HOLD = 1; const CAL_GAP = 20;
+  function calAt(tt = t()) {
+    const cs = tele.set.cals || [];
+    const fixed = cs.find((c) => c.fixed);
+    const keys = cs.filter((c) => !c.fixed).sort((a, b) => a.t - b.t);
+    const exact = keys.filter((c) => Math.abs(tt - c.t) < 0.35).sort((a, b) => Math.abs(tt - a.t) - Math.abs(tt - b.t))[0];
+    if (exact) return exact;
+    let prev = null; let next = null;
+    for (const c of keys) { if (c.t <= tt) prev = c; else { next = c; break; } }
+    if (prev && next && next.t - prev.t <= CAL_GAP && prev.tpl === next.tpl && (prev.tpl !== 'rect' || (prev.w === next.w && prev.h === next.h))) {
+      const k = (tt - prev.t) / (next.t - prev.t);
+      return { ...prev, id: null, auto: true, t: tt, q: prev.q.map((a, i) => ({ x: a.x + (next.q[i].x - a.x) * k, y: a.y + (next.q[i].y - a.y) * k })) };
+    }
+    const hold = [prev, next].filter((c) => c && Math.abs(tt - c.t) <= CAL_HOLD).sort((a, b) => Math.abs(tt - a.t) - Math.abs(tt - b.t))[0];
+    return hold || fixed || null;
   }
   // 이 선수(점)의 화면 키(px) — 수비 라인 벽 높이
   const trailOf = (it) => {
@@ -464,6 +489,122 @@ export async function studio(el, { id, mode }) {
   const liveArrow = (it) => (it.k === 'arrow' && it.live ? { a: atTime(it.a, it.t0), b: atTime(it.b, it.t0 + animSec(it)) } : {});
   const phOf = (q) => { const tr = q?.tr && tele.trackers.find((x) => x.id === q.tr); const hh = tr && ((steadyPos(tr, t()) || trackerPos(tr, t()))?.h || tr.h); return hh ? hh * H() : null; };
 
+  // ───────── 휴대폰 · 태블릿 ─────────
+  // 가로로 들면: 영상이 화면 가득 · 도구는 왼쪽 세로 줄 · 타임라인 · 설정은 누를 때만 (st-phone)
+  const studio = el.querySelector('.studio');
+  const landQ = matchMedia('(orientation: landscape)');
+  const PH_OK = 'ssaka.st.portraitOk';
+  const portraitHint = COARSE ? Object.assign(document.createElement('div'), { className: 'st-rotate', innerHTML: '<span><b>⟲ 가로로 돌리면</b> 영상이 화면 가득 커지고 도구가 옆에 붙어요</span><button type="button" class="btn ghost sm" data-strot-no>이대로 보기</button>' }) : null;
+  if (portraitHint) {
+    el.querySelector('.st-stage').prepend(portraitHint);
+    portraitHint.querySelector('[data-strot-no]').onclick = () => { try { localStorage.setItem(PH_OK, '1'); } catch { /* */ } portraitHint.hidden = true; };
+  }
+  function syncPhone() {
+    if (!studio.isConnected) { landQ.removeEventListener('change', syncPhone); return; }
+    const on = COARSE && landQ.matches;
+    studio.classList.toggle('st-phone', on);
+    if (!on) studio.classList.remove('st-tl-open', 'st-side-open');
+    syncPhBtns();
+    document.documentElement.classList.toggle('pad-locked', on);
+    if (portraitHint) { let ok = false; try { ok = localStorage.getItem(PH_OK) === '1'; } catch { /* */ } portraitHint.hidden = on || ok; }
+    requestAnimationFrame(() => fit());
+  }
+  landQ.addEventListener('change', syncPhone);
+  state.cleanup.push(() => { landQ.removeEventListener('change', syncPhone); document.documentElement.classList.remove('pad-locked'); loupeEl?.remove(); });
+  el.querySelector('[data-ph-tl]').onclick = () => { studio.classList.toggle('st-tl-open'); studio.classList.remove('st-side-open'); syncPhBtns(); requestAnimationFrame(() => drawSide()); };
+  el.querySelector('[data-ph-side]')?.addEventListener('click', () => { studio.classList.toggle('st-side-open'); studio.classList.remove('st-tl-open'); syncPhBtns(); });
+  const syncPhBtns = () => { el.querySelector('[data-ph-tl]').classList.toggle('on', studio.classList.contains('st-tl-open')); el.querySelector('[data-ph-side]')?.classList.toggle('on', studio.classList.contains('st-side-open')); };
+  const openSide = () => { if (studio.classList.contains('st-phone')) { studio.classList.add('st-side-open'); studio.classList.remove('st-tl-open'); syncPhBtns(); } };
+
+  // 두 손가락 확대 · 이동 (영상 + 그림을 같이 키움 — 좌표는 화면 위치로 계산해서 그대로 맞음)
+  let zoom = { k: 1, x: 0, y: 0 };
+  const zoomChip = Object.assign(document.createElement('button'), { type: 'button', className: 'st-zoom', hidden: true });
+  el.querySelector('.st-canvas-wrap').appendChild(zoomChip);
+  zoomChip.onclick = () => resetZoom();
+  function applyZoom() {
+    const tf = zoom.k > 1.001 ? `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.k})` : '';
+    video.style.transform = canvas.style.transform = tf;
+    video.style.transformOrigin = canvas.style.transformOrigin = '0 0';
+    zoomChip.hidden = zoom.k <= 1.001;
+    if (!zoomChip.hidden) zoomChip.innerHTML = `<b>${Math.round(zoom.k * 100)}%</b> 전체 보기`;
+  }
+  function resetZoom() { zoom = { k: 1, x: 0, y: 0 }; applyZoom(); }
+  const fingers = new Map();
+  let pz = null;
+  let fingerMark = 0;
+  const restoreTo = (n) => { // 첫 손가락으로 시작한 그림 · 이동은 취소
+    while (history.length > n) { const h = JSON.parse(history.pop()); tele.items = h.items; tele.trackers = h.trackers; tele.set.cals = h.cals || []; }
+    draft = null; drag = null; sel = null; drawSide(); render();
+  };
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (fingers.size === 1) fingerMark = history.length;
+    if (fingers.size === 2) {
+      e.stopImmediatePropagation(); e.preventDefault();
+      hideLoupe();
+      if (history.length > fingerMark || draft || drag) restoreTo(fingerMark);
+      const [a, b] = [...fingers.values()];
+      pz = { d0: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), k0: zoom.k, x0: zoom.x, y0: zoom.y, m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+    } else if (fingers.size > 2) e.stopImmediatePropagation();
+  }, true);
+  canvas.addEventListener('pointermove', (e) => {
+    if (!fingers.has(e.pointerId)) return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!pz) return;
+    e.stopImmediatePropagation();
+    if (fingers.size < 2) return;
+    const [a, b] = [...fingers.values()];
+    const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const W0 = canvas.clientWidth; const H0 = canvas.clientHeight;
+    const k = Math.min(4, Math.max(1, (pz.k0 * Math.hypot(a.x - b.x, a.y - b.y)) / pz.d0));
+    // 손가락 가운데 아래의 영상 지점이 그대로 손가락 가운데에 오게
+    const lx = (pz.m0.x - (canvas.getBoundingClientRect().left - zoom.x) - pz.x0) / pz.k0;
+    const ly = (pz.m0.y - (canvas.getBoundingClientRect().top - zoom.y) - pz.y0) / pz.k0;
+    const ox = canvas.getBoundingClientRect().left - zoom.x; const oy = canvas.getBoundingClientRect().top - zoom.y;
+    let x = m.x - ox - lx * k; let y = m.y - oy - ly * k;
+    x = Math.min(0, Math.max(W0 * (1 - k), x)); y = Math.min(0, Math.max(H0 * (1 - k), y));
+    zoom = { k, x, y };
+    if (k < 1.03) zoom = { k: 1, x: 0, y: 0 };
+    applyZoom();
+  }, true);
+  const liftFinger = (e) => {
+    if (!fingers.has(e.pointerId)) return;
+    fingers.delete(e.pointerId);
+    if (pz) { e.stopImmediatePropagation(); if (fingers.size < 2) pz = null; }
+  };
+  canvas.addEventListener('pointerup', liftFinger, true);
+  canvas.addEventListener('pointercancel', liftFinger, true);
+
+  // 돋보기: 손가락으로 그리거나 끄는 동안 손가락 위에 크게 (영상 + 그림)
+  let loupeEl = null;
+  function showLoupe(e) {
+    if (!video.videoWidth) return;
+    if (!loupeEl) {
+      loupeEl = document.createElement('div'); loupeEl.className = 'pad-loupe';
+      loupeEl.innerHTML = '<canvas width="224" height="224" style="width:100%;height:100%;display:block"></canvas><i></i>';
+      document.body.appendChild(loupeEl);
+    }
+    const n = toNorm(e); const r = canvas.getBoundingClientRect();
+    const S = 112; const Z = 2.2; const span = S / Z; // 화면에서 보는 영역(px)
+    const lc = loupeEl.firstChild.getContext('2d');
+    lc.fillStyle = '#000'; lc.fillRect(0, 0, 224, 224);
+    const vw = video.videoWidth; const vh = video.videoHeight;
+    const sw = (span / r.width) * vw; const sh = (span / r.height) * vh;
+    try { lc.drawImage(video, n.x * vw - sw / 2, n.y * vh - sh / 2, sw, sh, 0, 0, 224, 224); } catch { /* 픽셀 못 읽는 영상 */ }
+    const cw = (span / r.width) * canvas.width; const ch = (span / r.height) * canvas.height;
+    lc.drawImage(canvas, n.x * canvas.width - cw / 2, n.y * canvas.height - ch / 2, cw, ch, 0, 0, 224, 224);
+    let top = e.clientY - S - 54; if (top < 6) top = e.clientY + 54;
+    loupeEl.style.left = `${Math.min(innerWidth - S - 6, Math.max(6, e.clientX - S / 2))}px`;
+    loupeEl.style.top = `${top}px`;
+    loupeEl.hidden = false;
+  }
+  function hideLoupe() { if (loupeEl) loupeEl.hidden = true; }
+  canvas.addEventListener('pointermove', (e) => { if (e.pointerType === 'touch' && !pz && (drag || draft)) showLoupe(e); });
+  canvas.addEventListener('pointerup', hideLoupe);
+  canvas.addEventListener('pointercancel', hideLoupe);
+  syncPhone();
+
   // ── 크기 ──
   function fit() {
     if (!video.videoWidth || recording?.hq) return; // 내보내는 중엔 원본 크기 유지
@@ -477,6 +618,8 @@ export async function studio(el, { id, mode }) {
       maxH = window.innerHeight - top - below;
     }
     maxH = Math.max(220, maxH);
+    const phoneFit = studio.classList.contains('st-phone');
+    if (phoneFit) maxH = Math.max(120, wrap.clientHeight);
     let w = maxW;
     let h = (w * video.videoHeight) / video.videoWidth;
     if (h > maxH) { h = maxH; w = (h * video.videoWidth) / video.videoHeight; }
@@ -484,6 +627,9 @@ export async function studio(el, { id, mode }) {
     video.style.width = canvas.style.width = `${w}px`;
     video.style.height = canvas.style.height = `${h}px`;
     canvas.style.left = `${(maxW - w) / 2}px`;
+    const topOff = phoneFit ? Math.max(0, (wrap.clientHeight - h) / 2) : 0;
+    canvas.style.top = `${topOff}px`; video.style.marginTop = `${topOff}px`;
+    resetZoom();
     canvas.width = ground.width = Math.round(w * dpr);
     canvas.height = ground.height = Math.round(h * dpr);
     render();
@@ -783,7 +929,7 @@ export async function studio(el, { id, mode }) {
     const w = W();
     const h = H();
     ctx.clearRect(0, 0, w, h); // 영상은 아래 <video> 가 원본 화질로 재생
-    const cNow = calNow();
+    const cNow = tool === 'pitch' && edit ? (calNow() || calAt()) : calAt();
     setCal(cNow ? calFrom(cNow, w, h) : null);
     // 멈춤이 끝나기 0.4초 전부터 선수 이동은 서서히 사라짐 (영상으로 돌아갈 때 툭 끊기지 않게)
     const fadeOut = freeze && freeze.until ? Math.min(1, Math.max(0, (freeze.until - clock()) / 400)) : 1;
@@ -827,7 +973,7 @@ export async function studio(el, { id, mode }) {
     // 편집 표시
     if (edit && !recording) {
       if (cNow && tool === 'pitch') drawCalGuide(ctx, cNow, w, h, true);
-      else if (cNow) label(ctx, cNow.fixed ? '경기장 맞춤 · 전체' : `경기장 맞춤 · ${fmtT1(cNow.t)}`, w * 0.09, h - w / 40, w, '#00d1ff');
+      else if (cNow) label(ctx, cNow.fixed ? '경기장 맞춤 · 전체' : cNow.auto ? '경기장 맞춤 · 사이 자동' : `경기장 맞춤 · ${fmtT1(cNow.t)}`, w * 0.09, h - w / 40, w, '#00d1ff');
       if (man && boxesShown()) drawKeys(man.tr, w, h);
       if (gman && boxesShown()) drawKeys(gman.tr, w, h);
       if (boxesShown()) shownTrackers().forEach((tr) => {
@@ -1085,7 +1231,8 @@ export async function studio(el, { id, mode }) {
     const d = video.duration || 0;
     el.querySelector('[data-marks]').innerHTML = d ? tele.items.map((it) => `<i style="left:${(it.t0 / d) * 100}%;width:${(((it.t1 ?? d) - it.t0) / d) * 100}%;background:${it.color || PALETTE[0]}"></i>`).join('')
       + (man ? man.tr.path.map((q) => `<b style="left:${(q[0] / d) * 100}%"></b>`).join('') : '')
-      + tele.trackers.flatMap((tr) => gapsOf(tr).map((g) => `<u class="${g.k}" style="left:${(g.a / d) * 100}%;width:${((g.b - g.a) / d) * 100}%"></u>`)).join('') : '';
+      + tele.trackers.flatMap((tr) => gapsOf(tr).map((g) => `<u class="${g.k}" style="left:${(g.a / d) * 100}%;width:${((g.b - g.a) / d) * 100}%"></u>`)).join('')
+      + (tele.set.cals || []).filter((c) => !c.fixed).map((c) => `<em class="cal" style="left:${(c.t / d) * 100}%" title="경기장 맞춤 ${fmtT1(c.t)}"></em>`).join('') : '';
   }
 
   const seek = el.querySelector('[data-seek]');
@@ -1103,7 +1250,7 @@ export async function studio(el, { id, mode }) {
   video.addEventListener('play', () => markHere());
 
   // ── 그림 목록 · 속성 ──
-  const NAMES = { vision: '시야', angle: '각도', zoom: '돋보기', move: '선수 옮기기', shape: '영역', arrow: '패스', spot: '선수 표시', poly: '영역', link: '선수 연결', grid: '그리드', measure: '거리', text: '글자', light: '스포트라이트', offside: '오프사이드 라인' };
+  const NAMES = { vision: '시야', angle: '각도', zoom: '돋보기', move: '선수 옮기기', shape: '영역', arrow: '화살표', spot: '선수 표시', poly: '영역', link: '선수 연결', grid: '그리드', measure: '거리', text: '글자', light: '스포트라이트', offside: '오프사이드 라인' };
   const ICONS = { ...Object.fromEntries(TOOLS.map(([k, , ic]) => [k, ic])), spot: '◎', poly: '⬠' };
   // 같은 순간(0.06초 안)에 나타나는 그림끼리 한 장면으로
   function scenes() {
@@ -1290,6 +1437,13 @@ export async function studio(el, { id, mode }) {
   function drawProps() {
     const box = el.querySelector('[data-props]');
     const cNow = tool === 'pitch' ? calNow() : null;
+    if (tool === 'pitch' && edit && !cNow) {
+      // 맞춘 장면이 아닌 곳으로 옮겼을 때: 여기서 한 번 더 맞추기
+      box.innerHTML = `<h4>경기장 맞추기</h4><p class="muted small">${calAt() ? '지금은 앞뒤에 맞춘 장면을 <b>자동으로 이어서</b> 보여주는 중이에요. 어긋나 보이면 여기서 한 번 더 맞추세요.' : '이 장면은 아직 맞추지 않았어요.'}</p>
+        <div class="row st-btnrow"><button type="button" class="btn sm" data-cnew>이 장면에서 맞추기</button></div>`;
+      box.querySelector('[data-cnew]').onclick = () => setTool('pitch');
+      return;
+    }
     if (cNow) {
       const c = cNow;
       box.innerHTML = `<h4>경기장 맞추기</h4>
@@ -1300,7 +1454,8 @@ export async function studio(el, { id, mode }) {
         <label class="mini-switch"><input type="checkbox" data-cfix ${c.fixed ? 'checked' : ''}> 모든 장면에 적용 (고정 카메라)</label>
 
         ${tele.set.cals.length > 1 ? `<div class="st-num"><span>맞춘 장면 ${tele.set.cals.length}개</span></div><div class="row st-btnrow" style="flex-wrap:wrap">${[...tele.set.cals].sort((a, b) => a.t - b.t).map((x) => `<button type="button" class="chip ${x === c ? 'on' : ''}" data-cgo="${x.t}">${fmtT1(x.t)}</button>`).join('')}</div>` : ''}
-        <div class="row st-btnrow"><button type="button" class="btn ghost sm" data-cdel>맞추기 지우기</button></div>`;
+        <p class="muted small" style="margin:6px 0 0">카메라가 움직여 경기장이 어긋나면, 그 장면에서 <b>한 번 더 맞추고 저장</b>하세요. 맞춘 장면 사이는 <b>시간에 따라 자동으로 이어져요</b>.</p>
+        <div class="row st-btnrow"><button type="button" class="btn sm" data-csave>✓ 저장</button><button type="button" class="btn ghost sm" data-cdel>맞추기 지우기</button></div>`;
       const ch = (fn) => () => { snapshot(); fn(); drawSide(); render(); };
       box.querySelectorAll('[data-ctpl]').forEach((b) => (b.onclick = ch(() => { c.tpl = b.dataset.ctpl; })));
       box.querySelector('[data-ch]')?.addEventListener('change', ch(() => { c.h = Math.max(1, +box.querySelector('[data-ch]').value || 20); }));
@@ -1309,6 +1464,12 @@ export async function studio(el, { id, mode }) {
       box.querySelector('[data-ct]').onclick = ch(() => { c.t = +t().toFixed(2); });
       box.querySelector('[data-cfix]').onchange = ch(() => { c.fixed = !c.fixed; if (c.fixed) tele.set.cals.forEach((x) => { if (x !== c) delete x.fixed; }); });
       box.querySelector('[data-cdel]').onclick = ch(() => { tele.set.cals = tele.set.cals.filter((x) => x !== c); });
+      box.querySelector('[data-csave]').onclick = () => {
+        dirty = true; queueDraft();
+        const n = (tele.set.cals || []).filter((x) => !x.fixed).length;
+        setTool('select'); drawMarks();
+        toast(c.fixed ? '경기장 맞춤을 저장했어요 (모든 장면)' : `${fmtT1(c.t)} 경기장 맞춤을 저장했어요${n > 1 ? ` — 맞춘 장면 ${n}개 사이는 자동으로 이어져요` : ' — 카메라가 움직이면 그 장면에서 한 번 더 맞추세요'}`);
+      };
       box.querySelectorAll('[data-cgo]').forEach((b) => (b.onclick = () => { goScene(+b.dataset.cgo); setTimeout(() => { drawSide(); render(); }, 150); }));
       return;
     }
@@ -1338,7 +1499,9 @@ export async function studio(el, { id, mode }) {
       spot: () => `<label class="st-range">이름 <input data-pname value="${esc(it.name || '')}" maxlength="14" placeholder="예) 7 손흥민"></label>
         <div class="st-crow">${teamCols('tout', it.color, 'toutc', '#ffd400', '바깥')}${teamCols('tin', it.fill, 'tinc', '#ffffff', '안쪽')}</div>
         ${trOf(it.p) ? `<ul class="st-items st-trs">${trRow(trOf(it.p), false)}</ul>${aiLine()}` : ''}`,
-      arrow: () => `<div class="seg sm st-wide"><button type="button" class="${it.live ? 'on' : ''}" data-amode="live">▶ 재생하며</button><button type="button" class="${it.live ? '' : 'on'}" data-amode="hold">⏸ 멈추고</button></div>`,
+      arrow: () => `<div class="seg sm st-wide"><button type="button" class="${it.style === 'dash' ? '' : 'on'}" data-astyle="solid">━ 실선 · 패스</button><button type="button" class="${it.style === 'dash' ? 'on' : ''}" data-astyle="dash">┅ 점선 · 움직임</button></div>
+        <div class="seg sm st-wide"><button type="button" class="${it.live ? 'on' : ''}" data-amode="live">▶ 재생하며</button><button type="button" class="${it.live ? '' : 'on'}" data-amode="hold">⏸ 멈추고</button></div>
+        <label class="st-range">화살표 크기 <b data-aszv>${Math.round((it.asz || 1) * 100)}%</b><input type="range" min="40" max="200" step="10" value="${Math.round((it.asz || 1) * 100)}" data-asz></label>`,
       link: () => {
         const trs = it.pts.map(trOf).filter(Boolean);
         return `<div class="st-num"><span>선</span><div class="seg sm"><button type="button" class="${it.lstyle !== 'dash' ? 'on' : ''}" data-lst="solid">실선</button><button type="button" class="${it.lstyle === 'dash' ? 'on' : ''}" data-lst="dash">점선</button></div></div>
@@ -1361,7 +1524,7 @@ export async function studio(el, { id, mode }) {
       it.k === 'spot' || (it.k === 'light' && it.p?.tr) ? sw('pfollow', !it.still, '재생되면 선수 따라가기') : '',
       isLive(it) ? `<div class="st-num"><span>보여주는 시간</span><input type="number" min="0.5" max="600" step="0.5" value="${it.t1 == null ? '' : +(it.t1 - it.t0).toFixed(1)}" placeholder="끝까지" data-pdur ${it.t1 == null ? 'disabled' : ''}><i>초</i><label class="mini-switch"><input type="checkbox" data-pend ${it.t1 == null ? 'checked' : ''}> 끝까지</label></div>` : '',
       it.k === 'arrow' || it.k === 'spot' ? `<div class="st-num"><span>${it.k === 'spot' ? '나타나는 시간' : '그어지는 시간'}</span><input type="number" min="0.2" max="6" step="0.1" value="${animSec(it)}" data-panim><i>초</i></div>` : '',
-      it.k === 'arrow' ? sw('pbold', it.weight === 'bold', '굵게') + sw('pdash', it.style === 'dash', '점선') : '',
+      it.k === 'arrow' ? sw('pbold', it.weight === 'bold', '굵게') : '',
       it.k === 'arrow' || it.k === 'measure' ? `<div class="st-num"><span>거리 표시</span><input type="number" min="0" max="200" step="0.1" value="${it.m ?? ''}" placeholder="${it.k === 'arrow' ? '없음' : '?'}" data-pm><i>m</i></div>` : '',
       it.k === 'spot' ? `${sw('ptrail', it.trail !== false, '이동 꼬리')}${sw('pmarker', it.marker !== false, '머리 위 ▼')}<label class="st-range">링 크기 <input type="range" min="50" max="220" value="${Math.round((it.scale || 1) * 100)}" data-pscale></label>` : '',
       it.k === 'link' ? `${sw('parea', it.area, '면 채우기')}${sw('pwall', it.wall, '수비 라인 벽')}` : '',
@@ -1416,10 +1579,21 @@ export async function studio(el, { id, mode }) {
     box.querySelector('[data-oside]')?.addEventListener('click', ch(() => { it.side = it.side === -1 ? 1 : -1; }));
     box.querySelector('[data-overt]')?.addEventListener('click', ch(() => { it.d = { x: 0, y: 1 }; }));
     box.querySelector('[data-odim]')?.addEventListener('input', (e) => { it.dim = e.target.value / 100; dirty = true; render(); });
-    box.querySelector('[data-pdash]')?.addEventListener('change', ch(() => { it.style = it.style === 'dash' ? 'solid' : 'dash'; }));
+    // 실선(패스) · 점선(움직임): 다음 화살표도 같은 모양으로
+    box.querySelectorAll('[data-astyle]').forEach((b) => (b.onclick = () => {
+      snapshot(); it.style = b.dataset.astyle; arrowDash = it.style === 'dash';
+      try { localStorage.setItem('ssaka.st.adash', arrowDash ? '1' : '0'); } catch { /* */ }
+      drawSide(); render();
+    }));
     box.querySelector('[data-pm]')?.addEventListener('change', ch(() => { const v = box.querySelector('[data-pm]').value; if (v === '') delete it.m; else it.m = +(+v).toFixed(1); }));
     box.querySelector('[data-psize]')?.addEventListener('input', (e) => { it.size = e.target.value / 1000; dirty = true; render(); });
     box.querySelector('[data-pscale]')?.addEventListener('input', (e) => { it.scale = e.target.value / 100; dirty = true; render(); });
+    // 화살표 크기: 끄는 동안 바로 보이고, 놓으면 되돌리기에 남김 · 다음 화살표도 이 크기로
+    const aszIn = box.querySelector('[data-asz]');
+    if (aszIn) {
+      aszIn.addEventListener('pointerdown', () => snapshot(), { once: true });
+      aszIn.addEventListener('input', (e) => { const v = e.target.value / 100; if (v === 1) delete it.asz; else it.asz = v; arrowSz = v; try { localStorage.setItem('ssaka.st.asz', String(v)); } catch { /* */ } box.querySelector('[data-aszv]').textContent = `${e.target.value}%`; dirty = true; render(); });
+    }
     box.querySelector('[data-pmarker]')?.addEventListener('change', ch(() => { it.marker = it.marker === false; }));
     box.querySelector('[data-pname]')?.addEventListener('change', ch(() => { it.name = box.querySelector('[data-pname]').value.trim(); }));
     box.querySelectorAll('[data-amode]').forEach((b) => (b.onclick = ch(() => {
@@ -1430,7 +1604,7 @@ export async function studio(el, { id, mode }) {
       it.live = !it.live; arrowLivePref = it.live;
       if (it.live) { it.hold = 0; it.t1 = +(it.t0 + animSec(it) + 1.5).toFixed(2); } else { it.hold = 4; it.t1 = +(it.t0 + (+tele.set.dur || 5)).toFixed(2); }
     }));
-    box.querySelector('[data-pbold]')?.addEventListener('change', ch(() => { it.weight = it.weight === 'bold' ? 'thin' : 'bold'; }));
+    box.querySelector('[data-pbold]')?.addEventListener('change', ch(() => { it.weight = it.weight === 'bold' ? 'thin' : 'bold'; arrowBold = it.weight === 'bold'; try { localStorage.setItem('ssaka.st.abold', arrowBold ? '1' : '0'); } catch { /* */ } }));
     box.querySelectorAll('[data-tout]').forEach((b) => (b.onclick = ch(() => { it.color = b.dataset.tout; })));
     box.querySelectorAll('[data-tin]').forEach((b) => (b.onclick = ch(() => { it.fill = b.dataset.tin; })));
     box.querySelector('[data-toutc]')?.addEventListener('change', ch(() => { it.color = box.querySelector('[data-toutc]').value; }));
@@ -1445,6 +1619,7 @@ export async function studio(el, { id, mode }) {
     box.querySelector('[data-parea]')?.addEventListener('change', ch(() => { it.area = !it.area; }));
     box.querySelector('[data-pwall]')?.addEventListener('change', ch(() => { it.wall = !it.wall; }));
     box.querySelector('[data-ptext]')?.addEventListener('change', ch(() => { it.t = box.querySelector('[data-ptext]').value || it.t; }));
+    box.querySelector('[data-ptext]')?.addEventListener('input', () => { const v = box.querySelector('[data-ptext]').value; if (v) { it.t = v.slice(0, 30); render(); } });
     box.querySelector('[data-trim]')?.addEventListener('click', () => trimModal(it));
     // 돋보기: 고른 모양 · 배율 · 크기는 다음 돋보기에도 그대로
     box.querySelectorAll('[data-zshape]').forEach((b) => (b.onclick = ch(() => { it.shape = b.dataset.zshape; zoomPref.shape = it.shape; })));
@@ -1488,11 +1663,11 @@ export async function studio(el, { id, mode }) {
     el.querySelector('[data-shapes]').hidden = k !== 'shape';
     if (k === 'pitch' && edit && !calNow()) {
       snapshot();
-      const prev = [...(tele.set.cals || [])].sort((a, b) => Math.abs(t() - a.t) - Math.abs(t() - b.t))[0];
+      const prev = calAt() || [...(tele.set.cals || [])].sort((a, b) => Math.abs(t() - a.t) - Math.abs(t() - b.t))[0];
       (tele.set.cals ||= []).push(prev
         ? { id: uid(), t: +t().toFixed(2), tpl: prev.tpl, w: prev.w, h: prev.h, q: prev.q.map((q) => ({ ...q })) }
         : { id: uid(), t: +t().toFixed(2), tpl: 'box', q: [{ x: 0.3, y: 0.4 }, { x: 0.58, y: 0.4 }, { x: 0.7, y: 0.8 }, { x: 0.18, y: 0.8 }] });
-      if (prev) toast(`${fmtT1(prev.t)} 장면에서 맞춘 모양을 가져왔어요 — 카메라가 움직였으면 점을 조금만 옮겨 주세요`);
+      if (prev) toast(prev.auto ? '앞뒤에 맞춘 장면을 이어서 가져왔어요 — 어긋난 점만 옮기고 [저장]' : `${fmtT1(prev.t)} 장면에서 맞춘 모양을 가져왔어요 — 카메라가 움직였으면 점을 조금만 옮기고 [저장]`);
     }
     drawSide();
     render();
@@ -2023,8 +2198,17 @@ export async function studio(el, { id, mode }) {
   });
   // opt.from: 이 시점부터 계산 · opt.quiet: 재생 전 자동 계산(알림 줄임) · opt.cap: 최대 계산 길이(초)
   // 돌려주는 값: true = 끝까지 함(또는 AI 없이 재생해도 됨), false = 멈춤 · 놓침
+  // 휴대폰에서 무거운 작업을 시작할 때 한 번 알려줌 (계속할 수 있음)
+  async function heavyOk(what) {
+    if (!COARSE) return true;
+    try { if (sessionStorage.getItem('ssaka.st.heavyOk') === '1') return true; } catch { /* */ }
+    const ok = await confirmBox(`${what}은(는) 컴퓨터 · 태블릿이 더 빨라요. 휴대폰에서는 시간이 오래 걸리고 배터리를 많이 써요.\n\n휴대폰에서 계속할까요?`);
+    if (ok) try { sessionStorage.setItem('ssaka.st.heavyOk', '1'); } catch { /* */ }
+    return ok;
+  }
   async function preciseTrack(tr, opt = {}) {
     if (!tr) return false;
+    if (!opt.quiet && !(await heavyOk('AI 정밀 추적'))) return false;
     if (!fa.ok) { if (!opt.quiet) toast('이 영상은 AI로 분석할 수 없어요'); return !!opt.quiet; }
     video.pause(); freeze = null; cands = null;
     if (man) endManual();
@@ -2408,13 +2592,15 @@ export async function studio(el, { id, mode }) {
         return;
       }
       if (tool === 'text') {
-        const s = prompt('영상에 쓸 글자');
-        if (s) commit(newItem('text', { p: { x: n.x, y: n.y }, t: s.slice(0, 30) }));
+        // 그 자리에 '글자'를 놓고 설정의 글자 칸으로 바로 (쓰는 대로 영상에 보임)
+        commit(newItem('text', { p: { x: n.x, y: n.y }, t: '글자' }));
+        openSide();
+        setTimeout(() => { const inp = el.querySelector('[data-ptext]'); if (inp) { inp.focus(); inp.select(); } }, 0);
         return;
       }
       if (tool === 'arrow' || tool === 'dash' || tool === 'measure') {
         const k = tool === 'measure' ? 'measure' : 'arrow';
-        draft = newItem(k, { a: snap(n), b: { x: n.x, y: n.y }, ...(k === 'arrow' ? { style: tool === 'dash' ? 'dash' : 'solid', ...(arrowLivePref ? { live: true, hold: 0, t1: +(t() + 1.6 + 1.5).toFixed(2) } : {}) } : {}) });
+        draft = newItem(k, { a: snap(n), b: { x: n.x, y: n.y }, ...(k === 'arrow' ? { style: tool === 'dash' || (tool === 'arrow' && arrowDash) ? 'dash' : 'solid', ...(arrowSz !== 1 ? { asz: arrowSz } : {}), weight: arrowBold ? 'bold' : 'thin', ...(arrowLivePref ? { live: true, hold: 0, t1: +(t() + 1.6 + 1.5).toFixed(2) } : {}) } : {}) });
         drag = { creating: true };
         render();
         return;
@@ -3130,6 +3316,7 @@ export async function studio(el, { id, mode }) {
   el.querySelector('[data-export]').onclick = async () => {
     if (busy || recording) return;
     if (!canHQ() || !video.requestVideoFrameCallback) { toast('이 브라우저에서는 영상 만들기를 할 수 없어요 — 크롬이나 엣지에서 해 주세요'); return; }
+    if (!(await heavyOk('영상으로 내보내기'))) return;
     exportModal(); // 만들기 전에 AI 계산을 돌리지 않음 (느려지는 원인) — 화면에서 본 트래킹 그대로
   };
 

@@ -714,7 +714,11 @@ export function steadyPos(tr, t) {
   if (t > tEnd - 0.45) return steadyRaw(tr, t);
   // 같은 기록이면 계산해 둔 점을 다시 씀
   const key = `${tr.path.length}:${tEnd}`;
-  if (tr._sk !== key) { tr._sk = key; tr._sc = new Map(); }
+  // 계산 캐시는 저장 · 되돌리기(JSON)에 들어가지 않게 숨긴 속성으로 — 되돌리면 {}로 바뀌어 오류 나던 것
+  if (tr._sk !== key || !(tr._sc instanceof Map)) {
+    Object.defineProperty(tr, '_sk', { value: key, writable: true, configurable: true, enumerable: false });
+    Object.defineProperty(tr, '_sc', { value: new Map(), writable: true, configurable: true, enumerable: false });
+  }
   const STEP = 0.2;
   const at = (k) => { let v = tr._sc.get(k); if (!v) { v = steadyRaw(tr, k * STEP); if (v) tr._sc.set(k, v); } return v; };
   const k1 = Math.floor(t / STEP); const u = t / STEP - k1;
@@ -910,7 +914,7 @@ const easeOut = (x) => 1 - (1 - Math.min(1, Math.max(0, x))) ** 3;
 
 // 바닥에 깔린 두꺼운 리본 화살표: 원근(멀수록 가늘게) + 그림자 + 밝은 테두리. dash 면 띠를 끊어서 '이동' 표시
 // ph: 화살표 시작점에 서 있는 선수의 화면 키(px) — 있으면 선수 크기에 맞춰 굵기를 정함 (멀리 작게 · 가까이 크게)
-function ribbonArrow(ctx, pts, { W, H, hz, col, dash, ph, bold }) {
+function ribbonArrow(ctx, pts, { W, H, hz, col, dash, ph, bold, sz = 1 }) {
   if (pts.length < 2) return;
   const hzPx = (hz ?? 0.3) * H;
   const p0 = pts[0];
@@ -926,9 +930,11 @@ function ribbonArrow(ctx, pts, { W, H, hz, col, dash, ph, bold }) {
     base = Math.max(9, W / 62);
     widthAt = (p) => base * Math.min(1.3, Math.max(0.5, 0.25 + (p.y - hzPx) / Math.max(1, H - hzPx)));
   }
+  // 크기 조절 (화살표 크기 40% ~ 200%)
+  if (sz !== 1) { const w0 = widthAt; widthAt = (p) => w0(p) * sz; base *= sz; }
   // 짧은 화살표: 머리가 몸통보다 커지지 않게 굵기 · 머리를 길이에 맞춰 줄임
   const tip = pts[pts.length - 1];
-  if (!bold) base = Math.max(4, base * 0.55); // 패스 선 (widthAt 은 base 를 씀)
+  if (!bold) base = Math.max(4 * Math.min(1, sz), base * 0.55); // 패스 선 (widthAt 은 base 를 씀)
   const want = widthAt(tip) * (bold ? 2.8 : 5);
   const shrink = Math.min(1, (L * 0.45) / Math.max(1, want));
   if (shrink < 1) { const wa = widthAt; const k = Math.max(0.35, shrink); widthAt = (p) => wa(p) * k; base *= k; }
@@ -974,13 +980,13 @@ function ribbonArrow(ctx, pts, { W, H, hz, col, dash, ph, bold }) {
 
 // ───────── 원근을 맞춘 장면: 바닥(m)에서 만든 화살표 → 화면 ─────────
 // 몸통 폭 1.1m · 머리 길이 2m · 폭 2.3m 로 잔디에 칠한 것처럼 (멀리 가면 자연스럽게 가늘고 납작해짐)
-function groundArrow(ctx, ptsPx, { col, dash, bold }) {
+function groundArrow(ctx, ptsPx, { col, dash, bold, sz = 1 }) {
   const g = ptsPx.map((p) => CAL.S(p));
   const segL = []; let L = 0;
   for (let i = 1; i < g.length; i++) { const d = Math.hypot(g[i].x - g[i - 1].x, g[i].y - g[i - 1].y); segL.push(d); L += d; }
   if (L < 0.3) return;
   const k = Math.min(1, (L * 0.4) / (bold ? 2.0 : 1.5));
-  const bw = bold ? 1.1 * Math.max(0.5, k) / 2 : 0.3; const headL = (bold ? 2.0 : 1.9) * k; const headW = bold ? 1.15 * Math.max(0.55, k) : 0.95 * Math.max(0.7, k);
+  const bw = (bold ? 1.1 * Math.max(0.5, k) / 2 : 0.3) * sz; const headL = Math.min(L * 0.45, (bold ? 2.0 : 1.9) * k * sz); const headW = (bold ? 1.15 * Math.max(0.55, k) : 0.95 * Math.max(0.7, k)) * sz;
   // 몸통 끝(머리 시작) 찾기
   let left = L - headL; const body = [g[0]];
   for (let i = 1; i < g.length; i++) {
@@ -1134,7 +1140,7 @@ export function drawItem(ctx, it, P, W, items, resolve) {
     case 'arrow': {
       const [a, b, c] = [P(it.a), P(it.b), P(it.c || { x: (resolve(it.a).x + resolve(it.b).x) / 2, y: (resolve(it.a).y + resolve(it.b).y) / 2 })];
       const pts = quadPts(a, c, b, easeOut(prog), 48);
-      if (CAL) groundArrow(ctx, pts, { col, dash: it.style === 'dash', bold: it.weight === 'bold' }); else ribbonArrow(ctx, pts, { bold: it.weight === 'bold', W, H: ctx.canvas.height, hz: it._hz, ph: it._ph, col, dash: it.style === 'dash', solid: pts.length > 1 });
+      if (CAL) groundArrow(ctx, pts, { col, dash: it.style === 'dash', bold: it.weight === 'bold', sz: it.asz || 1 }); else ribbonArrow(ctx, pts, { bold: it.weight === 'bold', W, H: ctx.canvas.height, hz: it._hz, ph: it._ph, col, dash: it.style === 'dash', solid: pts.length > 1, sz: it.asz || 1 });
       if (prog >= 1 && (it.m != null || it.dist)) {
         const m = it.m != null ? it.m : meters(items, resolve(it.a), resolve(it.b));
         if (m != null) label(ctx, `${+(+m).toFixed(1)}m`, (a.x + b.x) / 2, (a.y + b.y) / 2 - lw * 6, W, col === GLASS ? '#ffffff' : col);
@@ -1357,11 +1363,52 @@ export function drawItem(ctx, it, P, W, items, resolve) {
       break;
     }
     case 'measure': {
+      // 거리: 잔디에 칠한 줄자 띠(원근) + 양 끝에 세운 깃대 + 바닥 고리 — 위에 거리 글자 (drawMeasureLabel)
       const a = P(it.a);
       const b = P(it.b);
-      const wm = Math.max(2.5, W / 340) * perspK((a.y + b.y) / 2, ctx.canvas.height, it._hz);
-      solid(ctx, (c) => { c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); }, { col, width: wm, depth: wm * 0.8, dash: [wm * 2.2, wm * 1.6] });
-      [a, b].forEach((p) => solid(ctx, (c) => c.ellipse(p.x, p.y, lw * 2.4, lw * 1.1, 0, 0, Math.PI * 2), { col, width: lw * 1.3, depth: lw * 0.8, closed: true }));
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 3) break;
+      const k = easeOut(prog);
+      const H0 = ctx.canvas.height;
+      // 바닥 좌표: 경기장 맞춤이면 m, 아니면 화면 px (세로는 원근만큼 납작)
+      const flat = 0.42;
+      const toG = CAL ? (q) => CAL.S(q) : (q) => ({ x: q.x, y: q.y / flat });
+      const fromG = CAL ? (X, Y) => CAL.G(X, Y) : (X, Y) => ({ x: X, y: Y * flat });
+      const A = toG(a); const B0 = toG(b);
+      const B = { x: A.x + (B0.x - A.x) * k, y: A.y + (B0.y - A.y) * k };
+      const L = Math.hypot(B.x - A.x, B.y - A.y);
+      if (L < 1e-3) break;
+      const ux = (B.x - A.x) / L; const uy = (B.y - A.y) / L;
+      const hw = CAL ? 0.32 : Math.max(3, W / 300) * perspK((a.y + b.y) / 2, H0, it._hz); // 띠 반폭 (m 또는 px)
+      const quad = (s0, s1, w0) => [[s0, -w0], [s1, -w0], [s1, w0], [s0, w0]].map(([sv, wv]) => fromG(A.x + ux * sv - uy * wv, A.y + uy * sv + ux * wv));
+      const poly = (pts) => { ctx.beginPath(); pts.forEach((p, i2) => (i2 ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); };
+      ctx.save();
+      // 바탕 띠 (어둡게) + 얇은 테두리
+      ctx.globalAlpha = 0.55; ctx.fillStyle = 'rgba(0,0,0,.55)'; poly(quad(0, L, hw * 1.35)); ctx.fill();
+      ctx.globalAlpha = 1; ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, W / 900); poly(quad(0, L, hw * 1.35)); ctx.stroke();
+      // 줄자 눈금 칸 (번갈아 칠함)
+      const n = Math.max(4, Math.min(24, Math.round(CAL ? L : L / (hw * 5))));
+      const seg = L / n;
+      ctx.fillStyle = col;
+      for (let i2 = 0; i2 < n; i2 += 2) { poly(quad(i2 * seg, Math.min(L, (i2 + 1) * seg), hw)); ctx.fill(); }
+      // 양 끝: 바닥 고리 + 세운 깃대 (선수 키 정도 · 멀수록 작게)
+      const post = (G, show) => {
+        if (!show) return;
+        const ring = []; const rr = hw * 2.4;
+        for (let j = 0; j <= 28; j++) { const an = (j / 28) * Math.PI * 2; ring.push(fromG(G.x + Math.cos(an) * rr, G.y + Math.sin(an) * rr)); }
+        ctx.lineWidth = Math.max(1.6, W / 520); ctx.strokeStyle = col; poly(ring); ctx.stroke();
+        ctx.globalAlpha = 0.25; ctx.fillStyle = col; poly(ring); ctx.fill(); ctx.globalAlpha = 1;
+        const base = fromG(G.x, G.y);
+        const hpx = CAL ? 1.5 * pxPerM(G) : Math.max(14, W / 28) * perspK(base.y, H0, it._hz);
+        const grd = ctx.createLinearGradient(0, base.y, 0, base.y - hpx);
+        grd.addColorStop(0, col); grd.addColorStop(1, '#ffffff');
+        ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = Math.max(3, W / 300); ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(base.x + 1, base.y); ctx.lineTo(base.x + 1, base.y - hpx); ctx.stroke();
+        ctx.strokeStyle = grd; ctx.lineWidth = Math.max(2, W / 420);
+        ctx.beginPath(); ctx.moveTo(base.x, base.y); ctx.lineTo(base.x, base.y - hpx); ctx.stroke();
+        ctx.fillStyle = col; ctx.beginPath(); ctx.arc(base.x, base.y - hpx, Math.max(2.5, W / 300), 0, Math.PI * 2); ctx.fill();
+      };
+      post(A, true); post(B, k >= 1);
+      ctx.restore();
       break;
     }
     case 'text': {
@@ -1459,7 +1506,9 @@ export function drawMeasureLabel(ctx, it, P, W, items, resolve) {
   const a = P(it.a);
   const b = P(it.b);
   const m = it.m != null ? +it.m : meters(items, resolve(it.a), resolve(it.b));
-  label(ctx, m != null ? `${+m.toFixed(1)}m` : '? m', (a.x + b.x) / 2, (a.y + b.y) / 2 - W / 90, W, it.color || PALETTE[0]);
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const lift = CAL ? 1.1 * pxPerM(CAL.S(mid)) : W / 45 * perspK(mid.y, ctx.canvas.height, it._hz); // 바닥에서 조금 띄워서
+  label(ctx, m != null ? `${+m.toFixed(1)}m` : '? m', mid.x, mid.y - lift, W, it.color || PALETTE[0]);
 }
 
 // 선수 사진 오려내기: 영상에서 선수 네모 영역을 읽어 잔디 픽셀은 투명하게 (선수 이동 기능용)

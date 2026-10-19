@@ -2613,3 +2613,316 @@ input[type=date]::-webkit-date-and-time-value, input[type=time]::-webkit-date-an
 .goal-summary > * > strong { white-space: nowrap; font-size: clamp(20px, 24cqi, 36px); }
 .goal-summary .gs-main > strong { font-size: clamp(30px, 24cqi, 48px); }
 .goal-summary strong i { font-size: 0.5em; }
+
+/* ═══ 휴대폰 작전판 (2026-10-20): 가로 전체화면 · 확대 · 돋보기 · 글 ═══ */
+.pad { position: relative; }
+html.pad-locked, html.pad-locked body { overflow: hidden; overscroll-behavior: none; }
+.modal-wrap.pad-host-full { -webkit-backdrop-filter: none; backdrop-filter: none; overflow: hidden; }
+/* 세로일 때 안내 */
+.pad-rotate { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line2); border-radius: 10px; background: #121614; font-size: 13px; color: var(--sub); }
+.pad-rotate b { color: var(--brand, #39e75f); }
+.pad-rotate span { flex: 1 1 100%; }
+.pad-rotate .btn { flex: 1 1 0; min-height: 40px; }
+.pad-rotate[hidden], .pad-rotate.gone { display: none; }
+/* 확대했을 때 [전체 보기] */
+.pad-zoom { position: absolute; z-index: 4; left: 10px; top: 10px; display: inline-flex; gap: 6px; align-items: center; padding: 7px 12px; min-height: 36px; border-radius: 999px; border: 1px solid var(--line2); background: rgba(12,15,13,.92); color: var(--text); font: inherit; font-size: 12px; font-weight: 700; }
+.pad-zoom b { color: var(--brand, #39e75f); }
+.pad-zoom[hidden] { display: none; }
+/* 돋보기 */
+.pad-loupe { position: fixed; z-index: 400; width: 112px; height: 112px; border-radius: 50%; border: 3px solid #fff; overflow: hidden; box-shadow: 0 10px 26px rgba(0,0,0,.6); pointer-events: none; }
+.pad-loupe[hidden] { display: none; }
+.pad-loupe svg { width: 100%; height: 100%; display: block; }
+.pad-loupe i { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 1.5px solid rgba(255,255,255,.85); border-radius: 50%; }
+/* 글 쓰는 동안 위에 띄우는 작은 그림 */
+.pad-mini { position: fixed; z-index: 120; top: calc(64px + env(safe-area-inset-top)); right: 10px; width: 44vw; max-width: 220px; padding: 0; border: 2px solid var(--line2); border-radius: 10px; overflow: hidden; background: #0b0d0c; box-shadow: 0 10px 24px rgba(0,0,0,.6); }
+.pad-mini svg { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; }
+.pad-mini span { position: absolute; right: 6px; bottom: 6px; padding: 4px 8px; border-radius: 999px; background: #eef1ef; color: #0b0d0c; font-size: 11px; font-weight: 800; }
+
+/* 휴대폰 전체화면 */
+.pad.pad-full.pad-phone { --rail: calc(64px + env(safe-area-inset-left)); position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 300; margin: 0; padding: 0; display: block; overflow: hidden; background: #0b0d0c; }
+.pad-phone .pad-hint, .pad-phone .pad-tools .pad-tsep, .pad-phone .pad-rotate { display: none !important; }
+.pad-phone .pad-svg { position: absolute; top: 0; left: var(--rail); width: calc(100% - var(--rail)); height: 100%; max-height: none; border-radius: 0; }
+.pad-phone.pad-notes-on .pad-svg { width: calc(100% - var(--rail) - min(44%, 340px)); }
+.pad-topbar .pfull { margin-left: 0; }
+/* 왼쪽 도구 줄 */
+.pad-phone .pad-tools { position: absolute; left: 0; top: 0; bottom: 0; width: var(--rail); margin: 0; z-index: 5; display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; justify-content: space-evenly; gap: 2px;
+  padding: calc(4px + env(safe-area-inset-top)) 5px calc(4px + env(safe-area-inset-bottom)) calc(5px + env(safe-area-inset-left)); background: #0e1110; border-right: 1px solid var(--line); }
+.pad-phone .pad-tools > .ptool, .pad-phone .pad-tools .pgroup > .ptool { width: 100%; min-width: 0; min-height: 34px; height: auto; flex: 1 1 0; max-height: 52px; padding: 2px 2px; gap: 1px; border-radius: 9px; }
+.pad-phone .pad-tools .pgroup { display: flex; flex: 1 1 0; max-height: 52px; min-height: 34px; position: relative; }
+.pad-phone .pad-tools .plab { font-size: 9.5px; }
+.pad-phone .pad-tools .ptool b { font-size: 15px; }
+.pad-phone .pgmenu { top: 0; left: calc(100% + 6px); max-height: calc(100dvh - 16px); overflow-y: auto; grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+.pad-phone .pgmenu button { min-height: 40px; font-size: 13px; }
+/* 위쪽 줄: 장면 · 재생 · 되돌리기 · 모두 지우기 · 경기장 · 글 · 완료 */
+.pad-topbar { position: absolute; z-index: 6; top: calc(6px + env(safe-area-inset-top)); right: calc(6px + env(safe-area-inset-right)); left: calc(var(--rail) + 6px); display: flex; justify-content: flex-end; align-items: center; gap: 5px; pointer-events: none; flex-wrap: nowrap; }
+.pad-topbar > * { pointer-events: auto; }
+.pad-phone.pad-notes-on .pad-topbar { right: calc(min(44%, 340px) + 6px); }
+.pad-topbar .ptool { flex-direction: row !important; height: 38px; min-width: 38px; padding: 0 10px !important; border-radius: 999px; background: rgba(12,15,13,.92); gap: 4px; }
+.pad-topbar .ptool .plab { font-size: 11.5px; color: var(--text); }
+.pad-topbar .ptool b { font-size: 14px; }
+.pad-topbar [data-act="full"] { background: #eef1ef; border-color: #eef1ef; }
+.pad-topbar [data-act="full"] b { display: none; }
+.pad-topbar [data-act="full"] .plab { color: #0b0d0c; font-weight: 900; }
+.pad-topbar [data-act="clear"] .plab, .pad-topbar [data-fieldtg] .plab { display: none; }
+.pad-topbar .pad-motion { margin: 0 auto 0 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; padding: 3px 6px; border-radius: 999px; background: rgba(12,15,13,.92); border: 1px solid var(--line2); font-size: 12px; min-width: 0; }
+.pad-topbar .pad-motion::-webkit-scrollbar { display: none; }
+.pad-topbar .pad-motion small { display: none; }
+.pad-topbar .pad-motion .pm-scenes { flex-wrap: nowrap; }
+.pad-topbar .pad-motion > *, .pad-topbar .pad-motion .pm-scenes > * { flex: none; }
+/* 경기장 설정 */
+.pad-phone .pad-field:not([hidden]) { position: absolute; z-index: 7; top: calc(52px + env(safe-area-inset-top)); right: 8px; left: calc(var(--rail) + 8px); max-height: calc(100% - 64px); overflow: auto; padding: 10px; margin: 0; border: 1px solid var(--line2); border-radius: 12px; background: #121614; box-shadow: 0 12px 30px rgba(0,0,0,.6); }
+.pad-phone .pad-zoom { left: calc(var(--rail) + 8px); top: calc(52px + env(safe-area-inset-top)); }
+/* 아래 설정 줄 (고른 것 색 · 번호 · 크기 · 삭제): 늘 같은 자리 한 줄 — 경기장은 그 위까지만이라 고른 선수를 가리지 않음 */
+.pad.pad-full.pad-phone { --sheet: calc(54px + env(safe-area-inset-bottom)); }
+.pad-phone .pad-svg { height: calc(100% - var(--sheet)); }
+.pad-sheet { position: absolute; z-index: 6; left: var(--rail); right: 0; bottom: 0; height: var(--sheet); display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; overscroll-behavior: contain; scrollbar-width: none;
+  padding: 0 calc(10px + env(safe-area-inset-right)) env(safe-area-inset-bottom) 10px; background: #101312; border-top: 1px solid var(--line2); }
+.pad-sheet::-webkit-scrollbar { display: none; }
+.pad-sheet.empty::after { content: '선수 · 그림을 누르면 여기서 색 · 번호 · 크기 · 두 손가락 확대'; color: var(--mute); font-size: 12px; white-space: nowrap; }
+.pad-sheet .pad-acts, .pad-sheet .pad-acts > span, .pad-sheet .pad-teams, .pad-sheet .pad-colors, .pad-sheet .pad-grp, .pad-sheet .pad-tsel { display: flex; flex-wrap: nowrap; align-items: center; gap: 5px; margin: 0; min-height: 0; flex: none; }
+.pad-sheet .pad-acts[hidden], .pad-sheet .pad-acts > [hidden], .pad-sheet [hidden] { display: none !important; }
+.pad-sheet .pad-acts { gap: 8px; }
+.pad-sheet .pad-teams, .pad-sheet .pad-colors { border-right: 1px solid var(--line); padding-right: 8px; }
+.pad-sheet .chip, .pad-sheet .pteam { min-height: 38px; white-space: nowrap; flex: none; }
+.pad-sheet .pcol { width: 30px; height: 30px; flex: none; }
+.pad-sheet input { font-size: 16px; height: 38px; } /* 아이폰: 16px보다 작으면 누를 때 화면이 확대됨 */
+.pad-sheet small { white-space: nowrap; }
+.pad-phone.pad-notes-on .pad-sheet { right: min(44%, 340px); }
+/* 글자 · 번호를 쓰는 동안: 설정 줄이 화면 맨 위로 (키보드에 안 가려지게) · 경기장은 키보드 위 남은 곳에 맞춰 작게 */
+.pad-phone.pad-typing .pad-sheet { top: 0; bottom: auto; height: calc(54px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); padding-bottom: 0; border-top: 0; border-bottom: 1px solid var(--line2); }
+.pad-phone.pad-typing .pad-svg { top: calc(54px + env(safe-area-inset-top)); height: calc(var(--vvh, 100%) - 54px - env(safe-area-inset-top)); }
+.pad-phone.pad-typing .pad-topbar, .pad-phone.pad-typing .pad-zoom { display: none; }
+.pad-phone.pad-typing .pad-sel > :not([data-ptxt]):not([data-pnum]):not([data-colors]) { display: none !important; }
+.pad-phone.pad-typing .pad-sheet .pad-acts:not(.pad-sel) { display: none !important; }
+.pad-phone.pad-typing [data-ptxt] input, .pad-phone.pad-typing [data-pnum] input { width: 46vw; }
+/* 오른쪽 글 칸 */
+.pad-notes { position: absolute; z-index: 6; top: 0; right: 0; bottom: 0; width: min(44%, 340px); overflow-y: auto; padding: calc(10px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) 12px; background: #101312; border-left: 1px solid var(--line2); }
+.pad-notes .pn-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; position: sticky; top: -10px; background: #101312; padding: 4px 0; z-index: 1; }
+.pad-notes .pn-head small { flex: 1; font-size: 11px; }
+.pad-notes label { display: block; margin: 0 0 10px; font-size: 12.5px; }
+.pad-notes textarea, .pad-notes input { font-size: 16px; width: 100%; }
+.pad-tools [data-notes][hidden] { display: none; }
+.pad-topbar [hidden] { display: none !important; }
+.pad-topbar .ptool, .pad-topbar .ptool .plab { flex: none; white-space: nowrap; }
+.pad-phone.pad-notes-on .pad-topbar [data-act="undo"] .plab, .pad-phone.pad-notes-on .pad-topbar [data-notes] .plab { display: none; }
+@media (max-width: 700px) { .pad-topbar [data-act="undo"] .plab { display: none; } }
+/* 휴대폰 전체화면 — 세로로 들고 있을 때: 위쪽 버튼은 따로 한 줄, 글 칸은 아래 절반 */
+@media (orientation: portrait) {
+  .pad.pad-full.pad-phone { --top: calc(52px + env(safe-area-inset-top)); }
+  .pad-phone .pad-topbar { top: 0; left: var(--rail); right: 0; height: var(--top); padding: env(safe-area-inset-top) 8px 0; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; background: #0e1110; border-bottom: 1px solid var(--line); }
+  .pad-phone .pad-topbar::-webkit-scrollbar { display: none; }
+  .pad-phone .pad-topbar .pad-motion { margin-right: 0; }
+  .pad-phone .pad-svg { top: var(--top); height: calc(100% - var(--top) - var(--sheet)); width: calc(100% - var(--rail)); }
+  .pad-phone .pad-zoom { top: calc(var(--top) + 8px); }
+  .pad-phone .pad-field:not([hidden]) { top: calc(var(--top) + 8px); }
+  .pad-phone.pad-notes-on .pad-svg { width: calc(100% - var(--rail)); height: calc(52% - var(--top) - var(--sheet) / 2); }
+  .pad-phone.pad-notes-on .pad-notes { top: auto; left: var(--rail); right: 0; bottom: var(--sheet); width: auto; height: 48%; border-left: 0; border-top: 1px solid var(--line2); padding: 8px 12px 12px; }
+  .pad-phone.pad-notes-on .pad-topbar, .pad-phone.pad-notes-on .pad-sheet { right: 0; }
+  .pad-phone.pad-typing .pad-svg { top: calc(54px + env(safe-area-inset-top)); }
+}
+
+.pad-sheet .pad-acts { border: 0; padding: 0; background: none; }
+
+/* ═══ 휴대폰 부분분석 (2026-10-20): 가로로 들면 영상이 화면 가득 ═══ */
+.st-ph-only { display: none; }
+.st-rotate { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px; padding: 10px 12px; border: 1px solid var(--line2); border-radius: 10px; background: #121614; font-size: 13px; color: var(--sub); }
+.st-rotate b { color: var(--brand, #39e75f); }
+.st-rotate span { flex: 1 1 200px; }
+.st-rotate[hidden] { display: none; }
+.st-zoom { position: absolute; z-index: 5; left: 8px; top: 8px; display: inline-flex; gap: 6px; align-items: center; min-height: 36px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line2); background: rgba(12,15,13,.92); color: var(--text); font: inherit; font-size: 12px; font-weight: 700; }
+.st-zoom b { color: var(--brand, #39e75f); }
+.st-zoom[hidden] { display: none; }
+.st-canvas-wrap { overflow: hidden; }
+
+.studio.st-phone { --rail: calc(68px + env(safe-area-inset-left)); --hd: calc(46px + env(safe-area-inset-top)); position: fixed; inset: 0; z-index: 250; margin: 0; background: #0b0d0c; height: 100vh; height: 100dvh; overflow: hidden; }
+.st-phone .studio-top { position: absolute; top: 0; left: 0; right: 0; height: var(--hd); margin: 0; padding: env(safe-area-inset-top) calc(8px + env(safe-area-inset-right)) 0 calc(6px + env(safe-area-inset-left)); display: flex; align-items: center; gap: 8px; background: #0e1110; border-bottom: 1px solid var(--line); flex-wrap: nowrap; }
+.st-phone .studio-top .st-title { min-width: 0; flex: 1 1 auto; }
+.st-phone .studio-top .st-title strong { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-phone .studio-top .st-title small { display: none; }
+.st-phone .studio-top .st-actions { display: flex; flex-wrap: nowrap; gap: 5px; overflow-x: auto; scrollbar-width: none; flex: 0 1 auto; margin: 0; }
+.st-phone .studio-top .st-actions::-webkit-scrollbar { display: none; }
+.st-phone .studio-top .st-actions .btn { flex: none; white-space: nowrap; min-height: 34px; padding: 6px 11px; font-size: 12.5px; }
+.st-phone .studio-top .st-actions .btn.on { background: var(--text); color: #0b0d0c; border-color: var(--text); }
+.st-phone .st-mode { display: none; }
+.st-phone .st-ph-only { display: inline-flex; }
+.st-phone .studio-main { position: absolute; top: var(--hd); left: 0; right: 0; bottom: 0; display: block; margin: 0; }
+/* 왼쪽 도구 줄 */
+.st-phone .st-tools { position: absolute; left: 0; top: 0; bottom: 0; width: var(--rail); margin: 0; border-radius: 0; border: 0; border-right: 1px solid var(--line); padding: 4px 5px calc(4px + env(safe-area-inset-bottom)) calc(5px + env(safe-area-inset-left)); display: flex; flex-direction: column; gap: 3px; overflow-y: auto; scrollbar-width: none; background: #0e1110; }
+.st-phone .st-tools::-webkit-scrollbar { display: none; }
+.st-phone .st-tool { min-height: 44px; flex: none; padding: 3px 2px; }
+.st-phone .st-tool span { font-size: 9.5px; }
+.st-phone .st-moretools { display: flex; flex-direction: column; gap: 3px; }
+.st-phone .st-moretools[hidden] { display: none; }
+/* 영상 + 재생바 */
+.st-phone .st-stage { position: absolute; left: var(--rail); right: 0; top: 0; bottom: 0; display: flex; flex-direction: column; min-width: 0; }
+.st-phone .st-canvas-wrap { flex: 1 1 auto; min-height: 0; border-radius: 0; }
+.st-phone .st-transport { flex: none; margin: 0; padding: 4px calc(8px + env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) 8px; gap: 2px; flex-wrap: nowrap; border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0; }
+.st-phone .st-transport .icon-btn { min-width: 34px; min-height: 34px; }
+.st-phone .st-transport .st-time { font-size: 11px; white-space: nowrap; }
+.st-phone .st-transport .st-timeline { flex: 1 1 auto; min-width: 80px; }
+.st-phone .st-transport select { font-size: 16px; padding: 2px 4px; height: 32px; }
+.st-phone .st-rotate { display: none; }
+.st-phone .st-aipanel:not([hidden]) { position: absolute; z-index: 8; left: 8px; right: 8px; top: 8px; max-height: 60%; overflow: auto; margin: 0; box-shadow: 0 10px 26px rgba(0,0,0,.6); }
+/* 타임라인: 누를 때만 아래에서 */
+.st-phone .tl { display: none; }
+.st-phone.st-tl-open .tl { display: block; position: absolute; z-index: 7; left: 0; right: 0; bottom: calc(46px + env(safe-area-inset-bottom)); height: 46%; overflow: auto; margin: 0; border-radius: 12px 12px 0 0; background: #101312; box-shadow: 0 -10px 24px rgba(0,0,0,.5); }
+/* 설정 · 추적 선수: 누를 때만 오른쪽에서 */
+.st-phone .st-side { display: none; }
+.st-phone.st-side-open .st-side { display: flex; position: absolute; z-index: 9; top: 0; right: 0; bottom: 0; width: min(46%, 380px); max-height: none; overflow-y: auto; margin: 0; padding: 8px calc(10px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) 10px; background: #101312; border-left: 1px solid var(--line2); box-shadow: -10px 0 24px rgba(0,0,0,.5); }
+.st-phone .st-side input, .st-phone .st-side select, .st-phone .st-side textarea { font-size: 16px; }
+/* AI 상태 줄의 'loading'이 화면 로딩 표시(.loading) 모양을 물려받지 않게 */
+.ai-line.loading { letter-spacing: 0; text-align: left; padding: 0; min-height: 0; font-size: 11px; font-weight: 400; animation: none; display: block; }
+/* 설정 · 타임라인을 열면 영상이 그 옆(위)으로 작아짐 — 가려서 안 보이는 곳이 없게 */
+.st-phone.st-side-open .st-stage { right: min(46%, 380px); }
+.st-phone .st-canvas-wrap { order: 0; }
+.st-phone .tl { order: 1; }
+.st-phone .st-transport { order: 2; }
+.st-phone .st-aipanel { order: 3; }
+.st-phone.st-tl-open .tl { position: static; flex: 0 0 44%; height: auto; min-height: 0; border-radius: 0; box-shadow: none; border-top: 1px solid var(--line2); }
+.st-phone .studio-main.view-only .st-stage { left: 0; }
+
+/* ═══ 휴대폰 경기분석 (2026-10-20): 가로로 들고 기록 — 왼쪽 영상 · 오른쪽 큰 버튼판 ═══ */
+.ma-rotate { margin-bottom: 10px; }
+.studio.ma.ma-phone { --hd: calc(46px + env(safe-area-inset-top)); position: fixed; inset: 0; z-index: 250; margin: 0; padding: 0; background: #0b0d0c; height: 100vh; height: 100dvh; overflow: hidden; }
+.ma-phone .studio-top { position: absolute; top: 0; left: 0; right: 0; height: var(--hd); margin: 0; padding: env(safe-area-inset-top) calc(8px + env(safe-area-inset-right)) 0 calc(6px + env(safe-area-inset-left)); display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; background: #0e1110; border-bottom: 1px solid var(--line); }
+.ma-phone .studio-top .st-title { min-width: 0; flex: 1 1 auto; }
+.ma-phone .studio-top .st-title strong { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ma-phone .studio-top .st-title small, .ma-phone [data-full] { display: none; }
+.ma-phone .studio-top .st-actions { display: flex; flex-wrap: nowrap; gap: 5px; margin: 0; }
+.ma-phone .studio-top .st-actions .btn { flex: none; white-space: nowrap; min-height: 34px; padding: 6px 11px; font-size: 12.5px; }
+.ma-phone .ma-tabs, .ma-phone .sample-banner, .ma-phone .ma-rotate, .ma-phone .ma-tips, .ma-phone .kp-edit, .ma-phone .ma-live, .ma-phone .ma-ytbar, .ma-phone .ma-halfbar { display: none !important; }
+.ma-phone .ma-body { position: absolute; top: var(--hd); left: 0; right: 0; bottom: 0; display: grid !important; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 0; margin: 0; }
+.ma-phone .ma-video { display: none !important; }
+.ma-ph-left { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #000; padding-left: env(safe-area-inset-left); }
+.ma-ph-left .ma-vwrap { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; border-radius: 0; margin: 0; }
+.ma-ph-left .ma-vwrap video, .ma-ph-left .ma-vwrap .ma-yt, .ma-ph-left .ma-vwrap iframe { width: 100%; height: 100%; max-height: none !important; object-fit: contain; }
+.ma-ph-left .ma-ctl { flex: none; margin: 0; padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); gap: 4px; flex-wrap: nowrap; background: #0e1110; border-top: 1px solid var(--line); }
+.ma-ph-left .ma-ctl .icon-btn { min-width: 36px; min-height: 36px; }
+.ma-ph-left .ma-ctl select { font-size: 16px; height: 32px; }
+/* 오른쪽: 팀 · 전 · 후반 → 큰 버튼판 → 경기장 · 기록 (위아래로 넘김) */
+.ma-ph-right { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px calc(8px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) 8px; border-left: 1px solid var(--line); background: #0e1110; }
+.ma-ph-right .ma-panel { display: contents; }
+.ma-ph-right .ma-row { order: 0; display: flex; flex-wrap: wrap; gap: 5px; margin: 0; }
+.ma-ph-right .ma-row .btn, .ma-ph-right .ma-row .seg button { min-height: 36px; font-size: 12px; }
+.ma-ph-right .ma-kowarn { order: 1; margin: 0; font-size: 11.5px; }
+.ma-ph-right .ma-kb { order: 2; margin: 0; max-width: none; }
+.ma-ph-right .ma-panel > *:not(.ma-row):not(.ma-kowarn) { order: 3; }
+.ma-ph-right .kb-key { min-height: 52px; }
+.ma-ph-right .kb-key span { font-size: 11px; }
+.ma-ph-right .ma-log { max-height: 30vh; }
+.ma-ph-right input, .ma-ph-right select, .ma-ph-right textarea { font-size: 16px; }
+.ma-phone .ma-body { grid-template-rows: minmax(0, 100%); }
+.ma-ph-left, .ma-ph-right { height: 100%; }
+.ma-ph-right .kb-key span { white-space: normal; word-break: keep-all; overflow-wrap: normal; line-height: 1.15; text-overflow: clip; }
+.ma-ph-right .ma-kb > :is(p, small, .muted) { display: none; }
+.ma-ph-right .ma-kb { padding: 8px; }
+.ma-ph-right .ma-kowarn { padding: 8px 10px; }
+.ma-ph-right .kb-head .muted { display: none; }
+/* 휴대폰: 키보드 전용 키(Tab · Space)는 빼고, 취소 · 기록 지우기만 크게 */
+.ma-ph-right .kb-row.r4 { display: grid; grid-template-columns: 1fr 1fr; padding: 0; }
+.ma-ph-right [data-kbtab], .ma-ph-right [data-kbplay] { display: none; }
+.ma-ph-right .kb-key.fn b { display: none; }
+.ma-ph-right .kb-key.fn { align-items: center; justify-content: center; min-height: 44px; }
+.ma-ph-right .kb-key.fn span { font-size: 12.5px; }
+.ma-ph-right .kb-legend .muted { display: none; }
+.ma-ph-right .kb-key { padding: 5px 4px 5px 7px; }
+.ma-ph-right .kb-key span { font-size: 10.5px; overflow-wrap: anywhere; max-width: 100%; }
+.ma-tagpitch svg { touch-action: none; } /* 손가락으로 끌어서 끝 지점 — 화면이 스크롤되지 않게 */
+/* 경기분석 기록 목록: 손가락으로 누르기 쉽게 */
+.ma-ph-right .ma-log button, .ma-ph-right .ma-log .link-btn { min-height: 36px; min-width: 36px; padding: 6px 8px; display: inline-flex; align-items: center; justify-content: center; }
+.ma-ph-right .ma-log li { gap: 6px; }
+/* 경기분석 아래 줄(Tab · Space · Esc · Del): Esc 칸이 너무 좁아 '취소'가 안 보이던 것 */
+.kb-row.r4:not(.ma-ph-right .kb-row) { grid-template-columns: minmax(0, 1.4fr) minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.4fr); }
+.kb-key.fn { gap: 6px; }
+.kb-key.fn span { white-space: normal; word-break: keep-all; overflow: visible; text-overflow: clip; line-height: 1.15; }
+@media (max-width: 600px) { .kb-key.fn { flex-direction: column; align-items: flex-start; gap: 1px; } }
+
+/* ═══ 작전판 v3 (2026-10-20): 색 고르기 창 · 3D · 선수 연결 ═══ */
+.pad-teams, .pad-colors { position: relative; }
+.pcdot { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 3px 10px 3px 5px; border-radius: 999px; border: 1px solid var(--line2); background: var(--surface2); color: var(--text); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.pcdot i { width: 22px; height: 22px; border-radius: 50%; background: var(--c, transparent); border: 2px solid var(--s, rgba(255,255,255,.5)); flex: none; }
+.pcdot.def i { background: repeating-linear-gradient(45deg, #fff 0 4px, #222 4px 8px); }
+.pad-pop { position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; display: grid; grid-template-columns: repeat(5, auto); gap: 6px; padding: 10px; border-radius: 12px; border: 1px solid var(--line2); background: #121614; box-shadow: 0 14px 34px rgba(0,0,0,.55); }
+.pad-pop[hidden] { display: none; }
+.pad-tpop .pteam { min-width: 52px; min-height: 38px; padding: 4px 8px; border-radius: 10px; background: var(--c); color: var(--t); border: 2px solid var(--s, transparent); font-weight: 800; font-size: 12px; }
+.pad-tpop .pteam.on { outline: 2px solid #4ea1ff; outline-offset: 2px; }
+.pad-cpop { grid-template-columns: repeat(6, auto); }
+.pad-cpop .pcol { width: 30px; height: 30px; }
+.pad-phone .pad-pop { position: fixed; top: auto; left: calc(var(--rail) + 8px); bottom: calc(var(--sheet) + 8px); }
+.pad-phone.pad-typing .pad-pop { bottom: auto; top: calc(62px + env(safe-area-inset-top)); }
+/* 3D: 경기장을 눕혀 보기 */
+.pad-3d .pad-svg { transform-origin: 50% 50%; }
+.pad-3d { overflow: hidden; }
+.pad-tools [data-act="d3"].on, .pad-topbar [data-act="d3"].on { background: var(--text); color: #0b0d0c; border-color: var(--text); }
+.pad-tools [data-act="d3"].on .plab, .pad-topbar [data-act="d3"].on .plab { color: #0b0d0c; }
+.pad-acts [data-linkopt][hidden] { display: none; }
+.pad-acts [data-linkopt] .chip.on, .pad-acts [data-larea].on { background: var(--text); color: #0b0d0c; border-color: var(--text); }
+.pad-svg .it-link { cursor: pointer; }
+.pad-acts [data-linkopt][hidden], .pad-sel [data-linkopt][hidden] { display: none !important; }
+/* 아주 낮은 가로 화면(폴드 접은 화면 등): 도구 줄 버튼을 조금 작게 — 도구가 화면 아래로 넘치지 않게 */
+.pad-phone .pad-tools > .ptool, .pad-phone .pad-tools .pgroup > .ptool, .pad-phone .pad-tools .pgroup { min-height: 28px; }
+@media (max-height: 380px) {
+  .pad-phone .pad-tools { gap: 1px; padding-top: calc(3px + env(safe-area-inset-top)); padding-bottom: calc(3px + env(safe-area-inset-bottom)); }
+  .pad-phone .pad-tools .plab { font-size: 8.5px; }
+  .pad-phone .pad-tools .ptool b { font-size: 13px; }
+}
+.pad-phone .pad-tools .pgroup > .ptool { height: auto; align-self: stretch; }
+.pad-phone .pad-tools > .ptool, .pad-phone .pad-tools > .pgroup { flex: 1 1 0; min-height: 0; }
+.pad-phone .pad-tools .ptool { line-height: 1; overflow: hidden; }
+.pad-phone .pad-tools .pgroup > .ptool { flex: 1 1 auto; min-height: 0; }
+@media (max-height: 380px) {
+  .pad-phone .pad-tools .ptool { padding: 1px 2px; gap: 1px; }
+  .pad-phone .pad-tools .ptool b { line-height: 1; font-size: 12px; }
+  .pad-phone .pad-tools .plab { font-size: 8.5px; line-height: 1.05; }
+}
+@media (max-height: 380px) {
+  .pad-phone .pad-tools > .ptool, .pad-phone .pad-tools > .pgroup, .pad-phone .pad-tools .pgroup > .ptool { flex: 1 1 0 !important; min-height: 0 !important; height: auto !important; max-height: none !important; }
+}
+@media (max-height: 380px) {
+  .pad-phone .pad-tools > .ptool, .pad-phone .pad-tools > .pgroup { flex: 0 0 calc((100% - 9px) / 10) !important; }
+  .pad-phone .pad-tools .pgroup > .ptool { flex: 1 1 auto !important; }
+}
+/* 도구 줄: 도구가 몇 개든 세로 높이를 똑같이 나눔 (버튼이 글자 크기 때문에 안 줄어들던 것 — contain: size) */
+.pad-phone .pad-tools > .ptool, .pad-phone .pad-tools > .pgroup { flex: 1 1 0 !important; min-height: 0 !important; max-height: 52px !important; height: auto !important; }
+.pad-phone .pad-tools > .ptool, .pad-phone .pad-tools .pgroup > .ptool { contain: size; }
+.pad-phone .pad-tools .pgroup > .ptool { flex: 1 1 auto !important; height: auto !important; min-height: 0 !important; }
+.pad-phone .pad-tools > .pgroup { contain: size; overflow: visible; }
+.pad-phone .pad-tools > .pgroup { padding: 2px 0; box-sizing: border-box; } .pad-phone .pad-tools > .pgroup > .ptool { margin: -2px 0; }
+@media (max-height: 380px) { .pad-phone .pad-tools { gap: 0 !important; } }
+/* 휴대폰 전체화면 경기장 높이: 예전 규칙(.pad.pad-full .pad-svg 100%)보다 우선 — 아래 설정 줄 위까지만 */
+.pad.pad-full.pad-phone .pad-svg { height: calc(100% - var(--sheet)); }
+.pad.pad-full.pad-phone.pad-typing .pad-svg { top: calc(54px + env(safe-area-inset-top)); height: calc(var(--vvh, 100%) - 54px - env(safe-area-inset-top)); }
+@media (orientation: portrait) {
+  .pad.pad-full.pad-phone .pad-svg { top: var(--top); height: calc(100% - var(--top) - var(--sheet)); }
+  .pad.pad-full.pad-phone.pad-notes-on .pad-svg { height: calc(52% - var(--top) - var(--sheet) / 2); }
+  .pad.pad-full.pad-phone.pad-typing .pad-svg { top: calc(54px + env(safe-area-inset-top)); height: calc(var(--vvh, 100%) - 54px - env(safe-area-inset-top)); }
+}
+/* 가로에서도 위쪽 버튼은 따로 한 줄 — 경기장 모서리를 가리지 않게 */
+.pad.pad-full.pad-phone { --top: calc(50px + env(safe-area-inset-top)); }
+.pad-phone .pad-topbar { top: 0; left: var(--rail); right: 0; height: var(--top); padding: env(safe-area-inset-top) calc(8px + env(safe-area-inset-right)) 0 8px; overflow-x: auto; scrollbar-width: none; background: #0e1110; border-bottom: 1px solid var(--line); }
+.pad-phone .pad-topbar::-webkit-scrollbar { display: none; }
+.pad.pad-full.pad-phone .pad-svg { top: var(--top); height: calc(100% - var(--top) - var(--sheet)); }
+.pad-phone .pad-zoom, .pad-phone .pad-field:not([hidden]) { top: calc(var(--top) + 8px); }
+.pad.pad-full.pad-phone.pad-notes-on .pad-topbar { right: min(44%, 340px); }
+/* 색이 많아져서: 고르는 창은 칸에 맞춰 여러 줄 */
+.pad-pop { max-width: min(460px, calc(100vw - 24px)); }
+.pad-tpop { grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); width: min(420px, calc(100vw - 24px)); }
+.pad-tpop .pteam { min-width: 0; }
+.pad-cpop { grid-template-columns: repeat(auto-fill, minmax(30px, 1fr)); width: min(340px, calc(100vw - 24px)); }
+.pad-phone .pad-pop { max-width: calc(100vw - var(--rail) - 24px); }
+.pad-phone .pad-tpop { width: min(420px, calc(100vw - var(--rail) - 24px)); }
+/* 작은 색 칸 (색상별 · 밝기별) */
+.pad-swatch { grid-template-columns: repeat(10, 22px) !important; gap: 4px !important; width: auto !important; padding: 10px !important; }
+.pad-swatch .sw { width: 22px; height: 22px; padding: 0; border-radius: 5px; border: 1px solid rgba(255,255,255,.14); background: var(--c); cursor: pointer; }
+.pad-swatch .sw:hover { transform: scale(1.15); }
+.pad-swatch .sw.on { outline: 2px solid #4ea1ff; outline-offset: 1px; }
+.pad-swatch .sw.def { grid-column: 1 / -1; width: auto; height: 26px; background: repeating-linear-gradient(45deg, #2a2f2c 0 6px, #1c201e 6px 12px); color: var(--sub); font: inherit; font-size: 11.5px; font-weight: 700; }
+.pad-swatch .sw.def.on { color: var(--text); }
+.pcdot.multi i { background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
+@media (pointer: coarse) { .pad-swatch { grid-template-columns: repeat(10, 28px) !important; } .pad-swatch .sw { width: 28px; height: 28px; } }
+/* 좁은 화면: 색 칸이 화면 폭에 맞게 줄어듦 (10칸 그대로) */
+.pad-phone .pad-swatch, .pad-swatch { max-width: calc(100vw - 24px); }
+.pad-phone .pad-swatch { grid-template-columns: repeat(10, minmax(0, 1fr)) !important; width: min(340px, calc(100vw - var(--rail) - 24px)) !important; box-sizing: border-box; }
+.pad-phone .pad-swatch .sw:not(.def) { width: auto; height: auto; aspect-ratio: 1 / 1; }
+/* 재생바: 경기장 맞춘 장면 표시 (하늘색 작은 마름모) */
+.st-marks em.cal { position: absolute; bottom: -4px; width: 8px; height: 8px; margin-left: -4px; background: #00d1ff; transform: rotate(45deg); border-radius: 1px; box-shadow: 0 0 0 1.5px #0b0d0c; }

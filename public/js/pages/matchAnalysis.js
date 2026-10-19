@@ -5,6 +5,9 @@ import { esc, toast, fail, modal, confirmBox, empty } from '../ui.js';
 import { state, go } from '../store.js';
 import { createPad, blank } from '../tactic.js';
 
+// 손가락으로 쓰는 화면(휴대폰 · 태블릿)
+const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
 const col = () => ['teams', state.team.id, 'posts'];
 const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -447,8 +450,44 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     el.querySelectorAll('[data-kb], [data-tips]').forEach((x) => { x.hidden = k !== 'tag'; });
     el.querySelector('.ma-body').classList.toggle('wide', !(canEdit && (k === 'tag' || k === 'formation')));
     if (k === 'tag') drawTag(); else if (k === 'check') drawCheck(); else if (k === 'formation') drawFormation(); else drawReport();
+    syncMaPhone();
   };
   el.querySelectorAll('[data-tab]').forEach((a) => (a.onclick = () => setTab(a.dataset.tab)));
+
+  // ───────── 휴대폰을 가로로 들고 기록할 때: 왼쪽 영상 · 오른쪽 큰 버튼판 (ma-phone) ─────────
+  const landQ = matchMedia('(orientation: landscape)');
+  let maPh = null;
+  const maHint = COARSE && canEdit ? Object.assign(document.createElement('div'), { className: 'st-rotate ma-rotate', innerHTML: '<span><b>⟲ 가로로 돌리면</b> 영상 옆에 큰 버튼판이 나와서 엄지로 기록하기 편해요</span><button type="button" class="btn ghost sm" data-marot-no>이대로 쓰기</button>' }) : null;
+  if (maHint) {
+    el.querySelector('.ma-body').before(maHint);
+    maHint.querySelector('[data-marot-no]').onclick = () => { try { localStorage.setItem('ssaka.ma.portraitOk', '1'); } catch { /* */ } maHint.hidden = true; };
+  }
+  function syncMaPhone() {
+    if (!studioEl.isConnected) { landQ.removeEventListener('change', syncMaPhone); return; }
+    const has = !!el.querySelector('.ma-vwrap');
+    const on = COARSE && canEdit && landQ.matches && tab === 'tag' && has;
+    if (maHint) { let ok = false; try { ok = localStorage.getItem('ssaka.ma.portraitOk') === '1'; } catch { /* */ } maHint.hidden = on || ok || !has || tab !== 'tag'; }
+    if (on === !!maPh) return;
+    if (on) {
+      const L = document.createElement('div'); L.className = 'ma-ph-left';
+      const R = document.createElement('div'); R.className = 'ma-ph-right';
+      const marks = [];
+      const mv = (n, to) => { if (!n) return; const m = document.createComment('ma'); n.before(m); to.appendChild(n); marks.push([m, n]); };
+      const v = el.querySelector('.ma-video');
+      [...v.querySelectorAll(':scope > .ma-vwrap, :scope > .ma-ctl, :scope > .ma-ytbar')].forEach((n) => mv(n, L));
+      mv(v.querySelector(':scope > .ma-kb'), R);
+      mv(panel, R);
+      el.querySelector('.ma-body').append(L, R);
+      maPh = { L, R, marks };
+    } else {
+      maPh.marks.reverse().forEach(([m, n]) => m.replaceWith(n));
+      maPh.L.remove(); maPh.R.remove(); maPh = null;
+    }
+    studioEl.classList.toggle('ma-phone', on);
+    document.documentElement.classList.toggle('pad-locked', on);
+  }
+  landQ.addEventListener('change', syncMaPhone);
+  state.cleanup.push(() => { landQ.removeEventListener('change', syncMaPhone); document.documentElement.classList.remove('pad-locked'); });
 
   // ───────── 기록하기 ─────────
   const ls = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };

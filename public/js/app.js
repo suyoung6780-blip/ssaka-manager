@@ -126,6 +126,8 @@ async function route() {
   state.cleanup.forEach((f) => f());
   state.cleanup = [];
   document.querySelectorAll('.modal-wrap').forEach((m) => m.remove()); // 이전 화면에서 열린 창은 닫기
+  document.documentElement.classList.remove('pad-locked'); // 작전판 전체화면 중에 뒤로가기 → 화면 스크롤 풀기
+  document.querySelectorAll('.pad-loupe, .pad-mini').forEach((m) => m.remove());
   const path = location.hash.slice(1) || '/';
   const r = match(path) || match('/');
 

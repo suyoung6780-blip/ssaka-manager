@@ -1,6 +1,9 @@
 // 텍티컬 패드 v2 — 필드(종류·크기·색) · 그리드 · 선수/콘/골대/영역/화살표/텍스트를 배치하고 JSON 으로 저장
 // 좌표 단위는 미터. 예전(v1: home/away/ball/arrows) 데이터도 자동 변환해서 그대로 열린다.
 const NS = 'http://www.w3.org/2000/svg';
+// 손가락으로 쓰는 화면(휴대폰 · 태블릿): 손잡이 · 누르는 범위를 크게
+const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+const isPhone = () => COARSE || (typeof innerWidth === 'number' && innerWidth <= 900);
 
 export const FORMATIONS = {
   '4-4-2': [[5, 34], [20, 10], [18, 26], [18, 42], [20, 58], [38, 10], [36, 27], [36, 41], [38, 58], [50, 27], [50, 41]],
@@ -38,8 +41,14 @@ export const TEAMS = {
   h: { label: 'H', fill: '#38bdf8', text: '#000000', stroke: '#0b5a7a' },
   i: { label: 'I', fill: '#ec4899', text: '#ffffff', stroke: '#7a1f4c' },
   k: { label: 'K', fill: '#8a8a8a', text: '#ffffff', stroke: '#3a3a3a' },
-  j: { label: '조커', fill: '#f5c400', text: '#000000', stroke: '#6b5600' },
+  j: { label: '중립', fill: '#f5c400', text: '#000000', stroke: '#6b5600' }, // 예전 '조커' (같은 색)
+  s: { label: '서브', fill: '#94a3b8', text: '#0b1220', stroke: '#334155' },
+  t: { label: '타겟', fill: '#14b8a6', text: '#ffffff', stroke: '#0b5e55' },
+  x: { label: '코치', fill: '#111827', text: '#f5c400', stroke: '#f5c400' },
 };
+// 중립 · 서브 · 타겟 · 코치: 선수와 따로 놓는 역할 표시 (N · S · T · C)
+const ROLES = { n: { team: 'j', t: 'N', l: '중립' }, s: { team: 's', t: 'S', l: '서브' }, t: { team: 't', t: 'T', l: '타겟' }, c: { team: 'x', t: 'C', l: '코치' } };
+const ROLE_TEAMS = ['j', 's', 't', 'x']; // 선수 팀 색 목록에서는 뺌
 const THEME = {
   dark: { bg: '#0b0b0b', out: '#070707', line: 'rgba(255,255,255,.6)', grid: 'rgba(255,255,255,.22)', ink: '#ffffff', zone: 'rgba(255,255,255,.12)' },
   green: { bg: '#3d7a37', bg2: '#438541', out: '#2f5f2b', line: 'rgba(255,255,255,.9)', grid: 'rgba(255,255,255,.4)', ink: '#ffffff', zone: 'rgba(255,255,255,.18)' },
@@ -244,35 +253,101 @@ function wavyPts(pts, u) {
 const ptsD = (pts) => pts.map((p, i) => `${i ? 'L' : 'M'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ');
 
 // 기구 기본 색
-const KIND_COLOR = { cone: '#ff8a00', marker: '#f5c400', pole: '#ffd400', hurdle: '#ff3b30', ladder: '#ffd400', gmarker: '#ff9f0a', gymball: '#4ea1ff', bosu: '#5e5ce6', vision: '#ffd400' };
-export const TOOL_COLORS = ['', '#ffd400', '#ff3b30', '#ff9f0a', '#34c759', '#00d1ff', '#4ea1ff', '#bf5af2', '#ff6fb5', '#ffffff', '#111111'];
-const COLORABLE = ['arrow', 'zone', 'text', 'num', 'cone', 'marker', 'pole', 'hurdle', 'ladder', 'gmarker', 'gymball', 'bosu', 'vision'];
+const KIND_COLOR = { link: '#ffd400', cone: '#ff8a00', marker: '#f5c400', pole: '#ffd400', hurdle: '#ff3b30', ladder: '#ffd400', gmarker: '#ff9f0a', gymball: '#4ea1ff', bosu: '#5e5ce6', vision: '#ffd400' };
+// 색 고르기: 작은 색 칸을 색상별 · 밝기별로 (맨 위 회색 한 줄 + 색상 10가지 × 밝기 7단계)
+const hsl2hex = (h, s0, l0) => {
+  const s1 = s0 / 100; const l1 = l0 / 100; const a = s1 * Math.min(l1, 1 - l1);
+  const f = (n) => { const k = (n + h / 30) % 12; const c = l1 - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); return Math.round(c * 255).toString(16).padStart(2, '0'); };
+  return `#${f(0)}${f(8)}${f(4)}`;
+};
+export const SWATCHES = [
+  '#ffffff', '#e5e7eb', '#d1d5db', '#9ca3af', '#6b7280', '#4b5563', '#374151', '#1f2937', '#111111', '#000000',
+  ...[[92, 88], [88, 76], [84, 64], [80, 52], [76, 42], [72, 32], [66, 22]].flatMap(([sat, lig]) => [0, 25, 45, 58, 110, 160, 195, 220, 268, 322].map((h) => hsl2hex(h, sat, lig))),
+];
+export const TOOL_COLORS = ['', ...SWATCHES];
+const lumOf = (hex) => { const n = parseInt(hex.slice(1), 16); const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+const shadeOf = (hex, k) => { const n = parseInt(hex.slice(1), 16); return `#${[(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round(v * (1 - k)).toString(16).padStart(2, '0')).join('')}`; };
+// 선수 색: 직접 고른 색(pc)이 있으면 그 색 · 글자는 잘 보이게 흰색/검정 · 테두리는 진하게
+export const playerColors = (it) => (it.pc ? { fill: it.pc, text: lumOf(it.pc) > 0.42 ? '#000000' : '#ffffff', stroke: lumOf(it.pc) > 0.85 ? '#111111' : shadeOf(it.pc, 0.5) } : (TEAMS[it.team] || TEAMS.a));
+const colorKey = (x) => x.pc || (TEAMS[x.team] || TEAMS.a).fill;
+const COLORABLE = ['arrow', 'zone', 'text', 'num', 'cone', 'marker', 'pole', 'hurdle', 'ladder', 'gmarker', 'gymball', 'bosu', 'vision', 'link'];
 const ROTATABLE = ['goal', 'minigoal', 'hurdle', 'ladder'];
 
 // o: { prog: 화살표가 그어진 정도(0~1), op: 투명도, badge: 순서 번호 표시, origin: 시야 기준점(선수 위치) }
 function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
   const z = it.k === 'zone' ? 1 : (it.s || 1); // 아이템 크기 (기본 1)
   const u = u0 * z * (it.k === 'zone' || it.k === 'player' ? 1 : ITEM_SCALE); // 그림 크기 (선수는 원래 크기 · 나머지는 예전 65% 크기가 지금의 100%)
-  const uh = u0 * Math.max(1, z); // 끄는 점(손잡이)은 누르기 쉽게 원래 크기
+  const uh = u0 * Math.max(1, z) * (COARSE ? 1.5 : 1); // 끄는 점(손잡이)은 누르기 쉽게 원래 크기 (손가락 화면은 1.5배)
   const g = el('g', { 'data-i': i, class: `it it-${it.k}${selected ? ' sel' : ''}`, opacity: o.op != null && o.op < 1 ? Math.max(0, o.op).toFixed(2) : '' }, layer);
   const ring = (r) => selected && el('circle', { cx: it.x, cy: it.y, r, fill: 'none', stroke: '#4ea1ff', 'stroke-width': 0.3 * u, 'stroke-dasharray': `${u} ${u * 0.6}` }, g);
   const col = it.c || KIND_COLOR[it.k] || T.ink;
   const rotG = () => el('g', { transform: `rotate(${it.rot || 0} ${it.x} ${it.y})` }, g);
   switch (it.k) {
     case 'player': {
-      const tm = TEAMS[it.team] || TEAMS.a;
+      const tm = playerColors(it);
       const r = 2.1 * u;
-      el('circle', { cx: it.x, cy: it.y, r, fill: tm.fill, stroke: tm.stroke, 'stroke-width': 0.3 * u }, g);
-      const t = el('text', { x: 0, y: 0, 'text-anchor': 'middle', 'font-size': (String(it.n).length > 2 ? 1.5 : 2.1) * u * 20, 'letter-spacing': 0, fill: tm.text, 'font-weight': 800, transform: `${upright(it.x, it.y)} translate(${it.x} ${it.y + 0.75 * u}) scale(0.05)` }, g); // 크게 그려 줄임 (작은 글자 겹침 방지)
-      t.textContent = it.n ?? '';
+      const cx = it.x; const cy = it.y;
+      const numT = (y, fs) => { const t = el('text', { x: 0, y: 0, 'text-anchor': 'middle', 'font-size': fs * u * 20, 'letter-spacing': 0, fill: tm.text, 'font-weight': 800, transform: `${upright(cx, cy)} translate(${cx} ${y}) scale(0.05)` }, g); t.textContent = it.n ?? ''; return t; };
+      const long = String(it.n ?? '').length > 2;
+      if (it.ps === 'shirt' && !it.role) {
+        // 유니폼(셔츠) 모양 — 경기장을 세로로 돌려도 셔츠는 바로 서 있게 (글자처럼)
+        const sg = el('g', { transform: upright(cx, cy) }, g);
+        const P = (dx, dy) => `${(cx + dx * u).toFixed(2)} ${(cy + dy * u).toFixed(2)}`;
+        el('path', { d: `M${P(-1.15, -2.1)} L${P(-2.5, -1.45)} L${P(-2.9, 0)} L${P(-1.75, 0.45)} L${P(-1.75, 2.2)} L${P(1.75, 2.2)} L${P(1.75, 0.45)} L${P(2.9, 0)} L${P(2.5, -1.45)} L${P(1.15, -2.1)} Q${P(0, -1.2)} ${P(-1.15, -2.1)} Z`, fill: tm.fill, stroke: tm.stroke, 'stroke-width': 0.28 * u, 'stroke-linejoin': 'round' }, sg);
+        numT(cy + 1.15 * u, long ? 1.25 : 1.75);
+      } else {
+        el('circle', { cx, cy, r, fill: tm.fill, stroke: tm.stroke, 'stroke-width': it.role ? 0.45 * u : 0.3 * u }, g);
+        numT(cy + 0.75 * u, long ? 1.5 : 2.1); // 크게 그려 줄임 (작은 글자 겹침 방지)
+      }
       ring(r + 0.9 * u);
       break;
     }
-    case 'ball':
-      el('circle', { cx: it.x, cy: it.y, r: 1 * u, fill: '#fff', stroke: '#000', 'stroke-width': 0.25 * u }, g);
-      el('circle', { cx: it.x, cy: it.y, r: 0.38 * u, fill: '#000' }, g);
-      ring(1.9 * u);
+    case 'link': {
+      // 선수 연결: 이은 선수들을 따라다니는 선 (+ 면 채우기)
+      const pts = (it.ids || []).map((id) => o.posOf?.(id)).filter(Boolean);
+      if (!pts.length) break;
+      const d = pts.map((p, k) => `${k ? 'L' : 'M'}${p[0]} ${p[1]}`).join(' ') + (it.area && pts.length > 2 ? ' Z' : '');
+      if (it.area && pts.length > 2) el('path', { d, fill: col, 'fill-opacity': 0.18, stroke: 'none' }, g);
+      el('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 2.4 * u0, 'pointer-events': 'stroke' }, g); // 누르기 쉽게 넓은 투명 선
+      el('path', { d, fill: 'none', stroke: col, 'stroke-width': 0.5 * u0, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': it.style === 'dash' ? `${1.4 * u0} ${1 * u0}` : '', opacity: 0.95 }, g);
+      pts.forEach((p) => el('circle', { cx: p[0], cy: p[1], r: 0.55 * u0, fill: col }, g));
+      if (selected) el('path', { d, fill: 'none', stroke: '#4ea1ff', 'stroke-width': 0.25 * u0, 'stroke-dasharray': `${u0} ${u0 * 0.6}` }, g);
       break;
+    }
+    case 'ball': {
+      // 진짜 축구공처럼: 흰 공 + 가운데 검은 오각형 + 둘레의 오각형 조각(살짝만 보임) + 육각형 이음선 + 입체 그늘
+      const R = 1.7 * u; const bx = it.x; const by = it.y;
+      const svgEl = layer.ownerSVGElement;
+      const gid = 'ballshade';
+      if (svgEl && !svgEl.querySelector(`#${gid}`)) {
+        let defs = svgEl.querySelector('defs'); if (!defs) defs = el('defs', {}, svgEl);
+        defs.insertAdjacentHTML('beforeend', `<radialGradient id="${gid}" cx="38%" cy="32%" r="72%"><stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#f1f3f4"/><stop offset="1" stop-color="#a7b0b8"/></radialGradient>`);
+      }
+      const P = (a, rr) => [bx + Math.cos(a) * rr, by + Math.sin(a) * rr];
+      const pent = (c, rr, rot) => Array.from({ length: 5 }, (_, k) => { const a = rot + (k * 2 * Math.PI) / 5; return `${(c[0] + Math.cos(a) * rr).toFixed(3)},${(c[1] + Math.sin(a) * rr).toFixed(3)}`; }).join(' ');
+      const clipId = `bc${it.id || i}`.replace(/[^a-z0-9]/gi, '');
+      const cp = el('clipPath', { id: clipId }, g); el('circle', { cx: bx, cy: by, r: R }, cp);
+      el('ellipse', { cx: bx + 0.15 * R, cy: by + 0.85 * R, rx: 0.85 * R, ry: 0.28 * R, fill: 'rgba(0,0,0,.35)' }, g); // 바닥 그림자
+      el('circle', { cx: bx, cy: by, r: R, fill: `url(#${gid})` }, g);
+      const inner = el('g', { 'clip-path': `url(#${clipId})` }, g);
+      const top = -Math.PI / 2;
+      const cr = 0.34 * R; // 가운데 오각형
+      el('polygon', { points: pent([bx, by], cr, top), fill: '#161616' }, inner);
+      for (let k = 0; k < 5; k++) {
+        const a = top + (k * 2 * Math.PI) / 5; // 가운데 오각형 꼭짓점 방향
+        const b = a + Math.PI / 5; // 그 사이 방향 → 둘레 오각형
+        const v = P(a, cr); const w = P(a, 0.62 * R);
+        el('line', { x1: v[0], y1: v[1], x2: w[0], y2: w[1], stroke: '#8d949a', 'stroke-width': 0.05 * R }, inner); // 육각형 이음선
+        const w2 = P(a + (2 * Math.PI) / 5, 0.62 * R);
+        const e = P(b, 0.78 * R);
+        el('polyline', { points: `${w[0]},${w[1]} ${e[0]},${e[1]} ${w2[0]},${w2[1]}`, fill: 'none', stroke: '#8d949a', 'stroke-width': 0.05 * R }, inner);
+        el('polygon', { points: pent(P(b, 1.08 * R), 0.32 * R, b + Math.PI), fill: '#161616' }, inner); // 둘레 오각형 (가장자리에 일부만)
+      }
+      el('circle', { cx: bx, cy: by, r: R, fill: 'none', stroke: '#1d1d1d', 'stroke-width': 0.07 * R }, g);
+      el('ellipse', { cx: bx - 0.38 * R, cy: by - 0.42 * R, rx: 0.22 * R, ry: 0.12 * R, fill: 'rgba(255,255,255,.8)', transform: `rotate(-35 ${bx - 0.38 * R} ${by - 0.42 * R})` }, g); // 반짝임
+      ring(R + 0.9 * u);
+      break;
+    }
     case 'cone': {
       const s = 1.3 * u;
       el('path', { d: `M ${it.x} ${it.y - s} L ${it.x + s * 0.9} ${it.y + s * 0.7} L ${it.x - s * 0.9} ${it.y + s * 0.7} Z`, fill: col, stroke: 'rgba(0,0,0,.45)', 'stroke-width': 0.2 * u, transform: upright(it.x, it.y) }, g);
@@ -476,6 +551,11 @@ const TOOLS = [
   ['pass', '패스', '→'],
   ['run', '이동', '⇢'],
   ['dribble', '드리블', '↝'],
+  ['link', '선수 연결', '⟋'],
+  ['role-n', '중립 (N)', 'N'],
+  ['role-s', '서브 (S)', 'S'],
+  ['role-t', '타겟 (T)', 'T'],
+  ['role-c', '코치 (C)', 'C'],
   ['vision', '시야', '∨'],
   ['cone', '콘', '▲'],
   ['marker', '마커', '◒'],
@@ -502,8 +582,10 @@ const TOOLS = [
 const TOOL_GROUPS = [
   ['선택', '⬚', ['select']],
   ['선수', '●', ['player']],
+  ['역할', 'N', ['role-n', 'role-s', 'role-t', 'role-c']],
   ['공', '⚽', ['ball']],
   ['화살표', '→', ['pass', 'run', 'dribble']],
+  ['연결', '⟋', ['link']],
   ['시야', '∨', ['vision']],
   ['기구', '▲', ['cone', 'marker', 'gmarker', 'pole', 'hurdle', 'ladder', 'gymball', 'bosu', 'minigoal', 'goal']],
   ['영역', '▭', ['zone', 'zone-dash', 'zone-o', 'zone-o-dash', 'zone-tri', 'zone-tri-dash', 'zone-dia']],
@@ -534,6 +616,9 @@ export function createPad(container, initial, { editable = true, motion = false,
   let paused = null; // 보기 화면에서 멈춘 시각 { t }
   let mkey = ''; // 움직임 바를 다시 그릴지 (재생 중 매 프레임 다시 그리면 버튼이 안 눌림)
   let tool = 'select';
+  let linking = null; // 선수 연결: 지금 잇고 있는 선
+  let pdef = ''; // 새로 놓는 선수 모양 ('' 동그라미 · 'shirt' 유니폼)
+  let pcur = ''; // 새로 놓는 선수 색 (작은 색 칸에서 고른 색)
   let team = 'a';
   let sel = -1;
   const extra = new Set(); // 함께 고른 아이템들 (Ctrl · Shift + 클릭)
@@ -572,7 +657,8 @@ export function createPad(container, initial, { editable = true, motion = false,
       <span class="pad-tsep"></span>
       <button type="button" class="ptool" data-act="undo" title="되돌리기 (Ctrl+Z)"><b>↶</b><span class="plab">되돌리기</span></button>
       <button type="button" class="ptool" data-act="clear" title="모두 지우기"><b>⌫</b><span class="plab">모두 지우기</span></button>
-      <button type="button" class="ptool" data-fieldtg title="경기장 · 그리드 · 포메이션"><b>⚙</b><span class="plab">경기장</span></button>
+      <button type="button" class="ptool" data-fieldtg title="경기장 · 그리드 · 포메이션 · 선수 모양"><b>⚙</b><span class="plab">경기장</span></button>
+      <button type="button" class="ptool pnotes" data-notes hidden title="그림을 보면서 글 쓰기"><b>✎</b><span class="plab">글</span></button>
       <button type="button" class="ptool pfull" data-act="full" title="크게 (Esc로 닫기)"><b>⛶</b><span class="plab" data-flabel>크게</span></button>
     </div>
     <div class="pad-acts">
@@ -582,12 +668,17 @@ export function createPad(container, initial, { editable = true, motion = false,
     <div class="pad-acts pad-sel" data-selbar>
       <span class="pad-num" data-pnum><b data-pnlab hidden>번호</b><input data-pnin maxlength="4" placeholder="번호" title="번호 적고 Enter"></span>
       <span class="pad-num pad-txt" data-ptxt><input data-ptin maxlength="30" placeholder="글자" title="글자를 고치고 Enter"></span>
-      <span class="pad-teams" data-teams><small class="muted" data-tlab>팀 색</small>${Object.entries(TEAMS).map(([k, t]) => `<button type="button" class="pteam" data-team="${k}" style="--c:${t.fill};--t:${t.text}">${t.label}</button>`).join('')}</span>
+      <span class="pad-teams" data-teams><small class="muted" data-tlab>팀 색</small><button type="button" class="pcdot" data-tdot title="색 고르기"><i></i><span data-tdotlab></span>▾</button>
+        <span class="pad-pop pad-swatch pad-tpop" data-tpop hidden>${SWATCHES.map((c) => `<button type="button" class="sw" data-pc="${c}" style="--c:${c}" title="${c}"></button>`).join('')}</span></span>
       <span class="pad-tsel" data-tsel><button type="button" class="chip" data-selteam title="같은 색 선수 모두 고르기">같은 색 고르기</button><button type="button" class="chip" data-selall title="선수 모두 고르기">전체 고르기</button></span>
-      <span class="pad-colors" data-colors>${TOOL_COLORS.map((c) => `<button type="button" class="pcol ${c ? '' : 'def'}" data-col="${c}" style="--c:${c || 'transparent'}" title="${c || '기본색'}"></button>`).join('')}</span>
+      <span class="pad-colors" data-colors><button type="button" class="pcdot" data-cdot title="색 고르기"><i></i>색 ▾</button>
+        <span class="pad-pop pad-swatch pad-cpop" data-cpop hidden><button type="button" class="sw def wide" data-col="" title="기본색">기본색</button>${SWATCHES.map((c) => `<button type="button" class="sw" data-col="${c}" style="--c:${c}" title="${c}"></button>`).join('')}</span></span>
+      <span class="pad-grp" data-psbar><small class="muted">모양</small><button type="button" class="chip" data-psopt="">동그라미</button><button type="button" class="chip" data-psopt="shirt">유니폼</button></span>
+      <span class="pad-grp" data-rolebar>${Object.entries(ROLES).map(([k, R]) => `<button type="button" class="chip" data-roleopt="${k}"><b>${R.t}</b> ${R.l}</button>`).join('')}</span>
+      <span class="pad-grp" data-linkopt><button type="button" class="chip" data-lstyle="solid">실선</button><button type="button" class="chip" data-lstyle="dash">점선</button><button type="button" class="chip" data-larea title="이은 선수들 사이를 색으로 채우기">면 채우기</button></span>
       <span class="pad-opt" data-spread title="시야 넓이">${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="chip" data-sp="${v}">${l}</button>`).join('')}</span>
       <button type="button" class="chip" data-straight title="직선으로">⟋ 직선</button>
-      <span class="pad-grp"><button type="button" class="chip" data-act="front" title="맨 앞으로 (Ctrl+])">⬆ 앞으로</button><button type="button" class="chip" data-act="back" title="맨 뒤로 (Ctrl+[)">⬇ 뒤로</button><button type="button" class="chip" data-act="rotate" title="회전">⟳ 회전</button></span>
+      <span class="pad-grp"><button type="button" class="chip" data-act="dup" title="복제 (Ctrl+D · 복사 Ctrl+C · 붙여넣기 Ctrl+V)">⧉ 복제</button><button type="button" class="chip" data-act="front" title="맨 앞으로 (Ctrl+])">⬆ 앞으로</button><button type="button" class="chip" data-act="back" title="맨 뒤로 (Ctrl+[)">⬇ 뒤로</button><button type="button" class="chip" data-act="rotate" title="회전">⟳ 회전</button></span>
       <span class="pad-grp"><button type="button" class="chip" data-act="delete">선택 삭제</button><button type="button" class="chip" data-act="delonly">이 장면에서만 삭제</button><button type="button" class="chip" data-act="delall" title="모든 장면에서 삭제">✕ 전체</button><button type="button" class="chip" data-act="unmove" title="이 장면 움직임 취소">↺ 움직임</button></span>
     </div>
     <small class="muted pad-hint" data-hint></small>` : '';
@@ -595,6 +686,20 @@ export function createPad(container, initial, { editable = true, motion = false,
   const svg = el('svg', { class: 'pad-svg', tabindex: editable ? 0 : -1 });
   let world = svg; // 필드 · 아이템이 들어가는 그룹 (세로 필드면 돌아가 있음)
   container.appendChild(svg);
+  const unproj = (cx, cy, fn) => fn(cx, cy); // 화면 자리 → 그림 자리 (한 곳에서 계산)
+  // 확대: view = 지금 보이는 영역 [x, y, w, h] (null = 전체)
+  let view = null;
+  let baseVB = '';
+  let phoneUi = null; // 휴대폰 전체화면 { top, sheet, marks }
+  const zbtn = document.createElement('button');
+  zbtn.type = 'button'; zbtn.className = 'pad-zoom'; zbtn.hidden = true;
+  zbtn.onclick = () => { view = null; render(); };
+  container.appendChild(zbtn);
+  function zoomUi() {
+    const bw = +baseVB.split(' ')[2] || 1;
+    zbtn.hidden = !view;
+    if (view) zbtn.innerHTML = `<b>${Math.round((bw / view[2]) * 100)}%</b> 전체 보기`;
+  }
 
 
   const snapshot = () => { history.push(JSON.stringify(data)); if (history.length > 80) history.shift(); future.length = 0; queueDraft(); onChange?.(); };
@@ -613,8 +718,9 @@ export function createPad(container, initial, { editable = true, motion = false,
   const items = () => data.items;
   // 바깥 여백: 골대(2m)가 보일 만큼만 · 직접 설정은 거의 없이
   const margin = () => (data.field.type === 'custom' ? 0.6 * unit() : Math.max(2 * unit(), 2.4));
-  const nextNum = (tm) => {
-    const nums = items().filter((x) => x.k === 'player' && x.team === tm).map((x) => +x.n).filter((n) => !isNaN(n));
+  const nextNum = (tm, pc) => {
+    const key = pc || (TEAMS[tm] || TEAMS.a).fill; // 같은 색 선수끼리 번호
+    const nums = items().filter((x) => x.k === 'player' && !x.role && colorKey(x) === key).map((x) => +x.n).filter((n) => !isNaN(n));
     return String(nums.length ? Math.max(...nums) + 1 : 1);
   };
 
@@ -653,6 +759,11 @@ export function createPad(container, initial, { editable = true, motion = false,
     vertical = data.field.orient ? data.field.orient === 'v' : isVertical(data.field.type); // 가로 · 세로 보기 (직접 고르면 그대로)
     svg.setAttribute('viewBox', vertical ? `${-m} ${-m} ${h + 2 * m} ${w + 2 * m}` : `${-m} ${-m} ${w + 2 * m} ${h + 2 * m}`);
     svg.style.background = data.field.type === 'custom' ? T.bg : T.out;
+    // 두 손가락으로 확대한 상태 유지 (경기장 크기가 바뀌면 처음으로)
+    const baseNow = svg.getAttribute('viewBox');
+    if (baseNow !== baseVB) { baseVB = baseNow; view = null; }
+    if (view) svg.setAttribute('viewBox', view.join(' '));
+    zoomUi();
     svg.classList.toggle('vert', vertical);
     svg.innerHTML = '';
     // 화살촉: 색마다 하나씩
@@ -666,7 +777,7 @@ export function createPad(container, initial, { editable = true, motion = false,
       }
       return marks.get(c);
     };
-    world = el('g', vertical ? { transform: `matrix(0 -1 1 0 0 ${w})` } : {}, svg);
+    world = el('g', { id: `${mk}-w`, ...(vertical ? { transform: `matrix(0 -1 1 0 0 ${w})` } : {}) }, svg);
     drawField(el('g', {}, world), data, T, u);
     const pos = anim ? anim.pos : posAt(scene);
     const sc = anim ? anim.scene : scene;
@@ -699,7 +810,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     }
     const layer = el('g', {}, world);
     // 그리는 순서: 영역 → 화살표 → 장비 → 선수 → 공 → 글자
-    const order = { zone: 0, ladder: 0.5, vision: 0.8, arrow: 1, cone: 2, marker: 2, gmarker: 2, pole: 2, hurdle: 2, gymball: 2, bosu: 2, minigoal: 2, goal: 2, player: 3, ball: 4, text: 5, num: 6 };
+    const order = { zone: 0, ladder: 0.5, vision: 0.8, link: 0.9, arrow: 1, cone: 2, marker: 2, gmarker: 2, pole: 2, hurdle: 2, gymball: 2, bosu: 2, minigoal: 2, goal: 2, player: 3, ball: 4, text: 5, num: 6 };
     const badges = editable && data.items.some((x) => x.k === 'arrow' && (x.order || 1) > 1);
     const zOf = (x) => (x.z != null ? x.z : order[x.k] ?? 2);
     list.map((it, i) => [it, i]).sort((a, b) => zOf(a[0]) - zOf(b[0]))
@@ -709,6 +820,7 @@ export function createPad(container, initial, { editable = true, motion = false,
         const who = it.k === 'vision' && it.who && pos[it.who] ? { x: pos[it.who][0], y: pos[it.who][1] } : null;
         drawItem(layer, it, i, T, u, editable && !anim && (i === sel || extra.has(data.items[i])), mkFor, {
           op, prog: anim?.prog?.[it.id], badge: badges && it.k === 'arrow', origin: who,
+          posOf: (id) => pos[id],
         });
       });
     // 지금 장면 번호 (수정할 때만 · 재생 중엔 숨김)
@@ -724,6 +836,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     vertical = false;
     if (editable) syncUi();
     drawMotion();
+    syncSheet();
   }
 
   // ───────── 움직임 바 ─────────
@@ -899,11 +1012,14 @@ export function createPad(container, initial, { editable = true, motion = false,
       g.querySelector('[data-gbtn]').title = on ? TOOL_INFO[tool].l : l;
     });
     // 팀 색: 선수 도구일 땐 새로 놓을 선수 색 · 선수를 고르면 고른 선수들 색 바꾸기
-    const selPl = selected().filter((x) => x.k === 'player');
-    const selTeams = [...new Set(selPl.map((x) => x.team || 'a'))];
-    container.querySelectorAll('[data-team]').forEach((b) => b.classList.toggle('on', selPl.length ? selTeams.length === 1 && selTeams[0] === b.dataset.team : b.dataset.team === team));
-    container.querySelector('[data-teams]').hidden = !(tool === 'player' || selPl.length);
-    container.querySelector('[data-tlab]').textContent = selPl.length ? `선수 ${selPl.length}명 색 바꾸기` : '팀 색';
+    const selPl = selected().filter((x) => x.k === 'player' && !x.role);
+    const selAny = selected().filter((x) => x.k === 'player'); // 역할 표시(N · S · T · C)도 색은 바꿀 수 있음
+    const selTeams = [...new Set(selAny.map((x) => x.team || 'a'))];
+    container.querySelectorAll('[data-team]').forEach((b) => b.classList.toggle('on', selAny.length ? selTeams.length === 1 && selTeams[0] === b.dataset.team : b.dataset.team === team));
+    container.querySelector('[data-teams]').hidden = !(tool === 'player' || selAny.length);
+    const hasRole = selAny.some((x) => x.role);
+    container.querySelectorAll('[data-tpop] .rt').forEach((b) => { b.hidden = !hasRole; }); // 역할 색은 역할 표시를 골랐을 때만
+    container.querySelector('[data-tlab]').textContent = selAny.length ? (selPl.length ? `선수 ${selPl.length}명 색` : '색') : '팀 색';
     container.querySelector('[data-tsel]').hidden = !selPl.length;
     const s = items()[sel];
     container.querySelector('[data-act="rotate"]').hidden = !(s && ROTATABLE.includes(s.k));
@@ -914,7 +1030,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.querySelector('[data-act="delonly"]').hidden = !(s && multiScene);
     const delO = container.querySelector('[data-act="delonly"]'); delO.textContent = `✕ ${scene + 1}장면만`; delO.title = `장면 ${scene + 1}에서만 삭제`;
     container.querySelector('[data-act="delall"]').hidden = !(s && multiScene);
-    ['front', 'back'].forEach((k) => { container.querySelector(`[data-act="${k}"]`).hidden = !s; });
+    ['front', 'back', 'dup'].forEach((k) => { container.querySelector(`[data-act="${k}"]`).hidden = !s; });
     container.querySelector('[data-act="unmove"]').hidden = !(s && scene > 0 && selected().some((x) => data.steps[scene - 1]?.[x.id]));
     const canSize = s && s.k !== 'zone';
     container.querySelector('[data-size]').hidden = !(canSize || (tool !== 'select' && !tool.startsWith('zone')));
@@ -924,13 +1040,34 @@ export function createPad(container, initial, { editable = true, motion = false,
     const colorTool = COLORABLE.includes(kindOf(tool.startsWith('zone') ? 'zone' : tool));
     const colSel = selected().some((x) => COLORABLE.includes(x.k));
     container.querySelector('[data-colors]').hidden = !(colorTool || colSel);
+    // 색 점: 지금 색 · 팀 색 점: 고른 선수(또는 새로 놓을 선수)의 팀
+    const keys = [...new Set(selAny.map(colorKey))];
+    const curKey = selAny.length ? (keys.length === 1 ? keys[0] : null) : (pcur || (TEAMS[team] || TEAMS.a).fill);
+    const tdot = container.querySelector('[data-tdot]');
+    const dc = curKey ? playerColors(selAny.length && keys.length === 1 ? selAny[0] : { team, pc: pcur }) : null;
+    tdot.style.setProperty('--c', dc ? dc.fill : 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)'); tdot.style.setProperty('--s', dc ? dc.stroke : '#888');
+    tdot.classList.toggle('multi', !dc);
+    container.querySelector('[data-tdotlab]').textContent = dc ? '색' : '여러 색';
+    container.querySelectorAll('[data-pc]').forEach((b) => b.classList.toggle('on', !!curKey && b.dataset.pc.toLowerCase() === String(curKey).toLowerCase()));
+    const sl = s && s.k === 'link' && !extra.size;
+    container.querySelector('[data-linkopt]').hidden = !sl;
+    if (sl) { container.querySelectorAll('[data-lstyle]').forEach((b) => b.classList.toggle('on', (s.style === 'dash') === (b.dataset.lstyle === 'dash'))); container.querySelector('[data-larea]').classList.toggle('on', !!s.area); }
+    // 선수 모양 (동그라미 · 유니폼) · 역할 바꾸기
+    const plOnly = selected().filter((x) => x.k === 'player' && !x.role);
+    container.querySelector('[data-psbar]').hidden = !(plOnly.length || tool === 'player');
+    const curPs = plOnly.length ? (plOnly.every((x) => x.ps === 'shirt') ? 'shirt' : plOnly.every((x) => !x.ps) ? '' : null) : pdef;
+    container.querySelectorAll('[data-psopt]').forEach((b) => b.classList.toggle('on', b.dataset.psopt === curPs));
+    const roleSel = selected().filter((x) => x.k === 'player' && x.role);
+    container.querySelector('[data-rolebar]').hidden = !roleSel.length;
+    container.querySelectorAll('[data-roleopt]').forEach((b) => b.classList.toggle('on', roleSel.length > 0 && roleSel.every((x) => x.role === b.dataset.roleopt)));
     const curCol = colSel ? (selected().find((x) => COLORABLE.includes(x.k)).c || '') : ccol;
     container.querySelectorAll('[data-col]').forEach((b) => b.classList.toggle('on', b.dataset.col === curCol));
+    const cdot = container.querySelector('[data-cdot]'); cdot.style.setProperty('--c', curCol || 'transparent'); cdot.classList.toggle('def', !curCol);
     const movedHere = s && scene > 0 && data.steps[scene - 1]?.[s.id];
     container.querySelector('[data-order]').hidden = !(s && (s.k === 'arrow' || movedHere));
     const curOrd = s?.k === 'arrow' ? (s.order || 1) : movedHere ? ordOf(scene - 1, s.id) : 0;
     // 선수 번호 고치기 (선수 하나만 골랐을 때)
-    const onePlayer = s && (s.k === 'player' || s.k === 'num') && !extra.size;
+    const onePlayer = s && ((s.k === 'player' && !s.role) || s.k === 'num') && !extra.size;
     container.querySelector('[data-pnum]').hidden = !onePlayer;
     if (onePlayer) container.querySelector('[data-pnlab]').textContent = s.k === 'num' ? '순서' : '번호';
     const pnin = container.querySelector('[data-pnin]');
@@ -945,7 +1082,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.querySelector('[data-spread]').hidden = !(s && s.k === 'vision');
     container.querySelectorAll('[data-sp]').forEach((b) => b.classList.toggle('on', s?.k === 'vision' && +b.dataset.sp === (s.spread || 50)));
     const selbar = container.querySelector('[data-selbar]');
-    selbar.querySelectorAll('.pad-grp').forEach((g) => { g.hidden = ![...g.children].some((c) => !c.hidden); });
+    selbar.querySelectorAll('.pad-grp:not([data-linkopt]):not([data-psbar]):not([data-rolebar])').forEach((g) => { g.hidden = ![...g.children].some((c) => !c.hidden); });
     selbar.hidden = ![...selbar.children].some((c) => !c.hidden);
     container.querySelector('[data-hint]').textContent = {
       select: '끌어서 이동 · Ctrl(⌘)+클릭 여러 개 · Ctrl+C/V 복사·붙여넣기 · Ctrl+Z 되돌리기 · Delete 삭제 · +/- 크기 · 더블클릭 번호 수정',
@@ -1064,42 +1201,174 @@ export function createPad(container, initial, { editable = true, motion = false,
   const closeMenus = () => container.querySelectorAll('.pgmenu').forEach((m) => { m.hidden = true; });
   // ⚙ 경기장 설정 펼치기
   container.querySelector('[data-fieldtg]')?.addEventListener('click', (e) => { const fb = container.querySelector('[data-fieldbox]'); fb.hidden = !fb.hidden; e.currentTarget.classList.toggle('on', !fb.hidden); });
-  container.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = () => { tool = b.dataset.tool; sel = -1; extra.clear(); closeMenus(); render(); }));
+  container.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = () => { finishLink(); tool = b.dataset.tool; sel = -1; extra.clear(); closeMenus(); render(); }));
   container.querySelectorAll('[data-gbtn]').forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();
     const m = b.nextElementSibling;
     const open = m.hidden;
     closeMenus();
     m.hidden = !open;
-    m.style.left = '';
-    if (open) { // 휴대폰: 메뉴가 화면 오른쪽 밖으로 나가면 안쪽으로 당김
+    m.style.left = ''; m.style.top = '';
+    if (open && phoneUi) { // 휴대폰 전체화면: 도구 줄 옆으로, 화면 아래로 넘치면 위로
+      const r = m.getBoundingClientRect(); const over = r.bottom - (innerHeight - 8);
+      if (over > 0) m.style.top = `${-over}px`;
+    } else if (open) { // 휴대폰: 메뉴가 화면 오른쪽 밖으로 나가면 안쪽으로 당김
       const r = m.getBoundingClientRect(); const over = r.right - (document.documentElement.clientWidth - 8);
       if (over > 0) m.style.left = `${-Math.min(over, r.left - 8)}px`;
     }
   }));
   document.addEventListener('click', (e) => { if (!container.contains(e.target) || !e.target.closest('.pgroup')) closeMenus(); });
   // ⛶ 크게: 전체 화면에서 편집 (Esc 로 돌아오기)
-  const setFull = (on) => {
+  // ───────── 그림 + 글 (일지 장면 · 훈련 프로그램 등): 이 작전판과 같은 칸에 있는 글 칸 ─────────
+  const host = () => container.closest('.mj-scene, .sess, [data-notes-host], form, .modal');
+  const noteFields = () => {
+    const h = host(); if (!h) return [];
+    return [...h.querySelectorAll('textarea, input[data-sf], input[data-scene-note], input[data-scene-ask]')]
+      .filter((f) => !container.contains(f) && !f.closest('[hidden]') && !f.disabled && getComputedStyle(f).display !== 'none');
+  };
+  // 전체화면에서 [글]: 그 글 칸들을 오른쪽 창으로 잠깐 옮겨 와서 그림을 보면서 쓰기 → 닫으면 원래 자리로
+  let notes = null;
+  function openNotes() {
+    const fs = noteFields(); if (!fs.length) return;
+    const panel = document.createElement('div');
+    panel.className = 'pad-notes';
+    panel.innerHTML = '<div class="pn-head"><b>글</b><small class="muted">쓰는 내용은 원래 칸에 그대로 들어가요</small><button type="button" class="btn ghost sm" data-notes-x>닫기</button></div><div class="pn-body"></div>';
+    const body = panel.querySelector('.pn-body');
+    const moved = fs.map((f) => { const n = f.closest('label') && !f.closest('label').contains(container) ? f.closest('label') : f; const mark = document.createComment('note'); n.before(mark); body.appendChild(n); return { n, mark }; });
+    container.appendChild(panel);
+    container.classList.add('pad-notes-on');
+    panel.querySelector('[data-notes-x]').onclick = () => { closeNotes(); render(); };
+    notes = { panel, moved };
+    render();
+  }
+  function closeNotes() {
+    if (!notes) return;
+    notes.moved.forEach(({ n, mark }) => { mark.replaceWith(n); });
+    notes.panel.remove(); notes = null;
+    container.classList.remove('pad-notes-on');
+  }
+  // 세로 화면에서 글 칸을 쓰는 동안: 그림이 화면 밖으로 나가면 위에 작은 그림을 띄워 둠 (누르면 크게 그리기)
+  let mini = null;
+  if (editable && COARSE) {
+    const onFocusIn = (e) => {
+      if (!svg.isConnected) { document.removeEventListener('focusin', onFocusIn); return; }
+      const f = e.target;
+      if (container.classList.contains('pad-full') || !noteFields().includes(f)) { mini?.remove(); mini = null; return; }
+      const r = svg.getBoundingClientRect();
+      const vh = window.visualViewport?.height || innerHeight;
+      if (r.height && (Math.min(r.bottom, vh) - Math.max(r.top, 60)) / r.height > 0.6) return; // 그림이 거의 다 보이면 그대로
+      if (!mini) {
+        mini = document.createElement('button');
+        mini.type = 'button'; mini.className = 'pad-mini';
+        mini.innerHTML = `<svg viewBox="${baseVB}"><use href="#${mk}-w"/></svg><span>크게 그리기 ⛶</span>`;
+        mini.onpointerdown = (ev) => ev.preventDefault(); // 글 칸 포커스가 먼저 풀리지 않게
+        mini.onclick = () => { mini?.remove(); mini = null; setFull(true); };
+        document.body.appendChild(mini);
+      }
+      mini.firstChild.style.background = svg.style.background;
+      mini.firstChild.setAttribute('viewBox', baseVB);
+    };
+    const onFocusOut = () => setTimeout(() => { if (mini && !noteFields().includes(document.activeElement)) { mini.remove(); mini = null; } }, 120);
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('focusout', onFocusOut);
+  }
+
+  // 휴대폰: 화면 전체 · 도구는 왼쪽 세로 줄 · 고른 것 설정은 아래에서 올라오는 창 (pad-phone)
+  let autoFull = false; // 가로로 돌려서 저절로 커진 경우 → 세로로 돌리면 저절로 돌아옴
+  // 휴대폰 전체화면에서만: 버튼들을 위쪽 줄 · 아래 창으로 잠깐 옮김 (닫으면 원래 자리로)
+  function enterPhoneUi() {
+    if (phoneUi) return;
+    const top = document.createElement('div'); top.className = 'pad-topbar';
+    const sheet = document.createElement('div'); sheet.className = 'pad-sheet';
+    const marks = [];
+    const move = (n, to) => { if (!n) return; const m = document.createComment('pad'); n.before(m); to.appendChild(n); marks.push([m, n]); };
+    move(mbar, top);
+    ['[data-act="undo"]', '[data-act="clear"]', '[data-fieldtg]', '[data-notes]', '[data-act="full"]'].forEach((q) => move(container.querySelector(`.pad-tools ${q}`), top));
+    container.querySelectorAll(':scope > .pad-acts').forEach((a) => move(a, sheet));
+    container.append(top, sheet);
+    phoneUi = { top, sheet, marks };
+  }
+  function leavePhoneUi() {
+    if (!phoneUi) return;
+    phoneUi.marks.reverse().forEach(([m, n]) => m.replaceWith(n));
+    phoneUi.top.remove(); phoneUi.sheet.remove(); phoneUi = null;
+  }
+  // 아래 창: 보여줄 설정이 있을 때만
+  function syncSheet() {
+    if (!phoneUi) return;
+    const vis = (x) => !x.hidden && (x.classList.contains('pad-grp') ? [...x.children].some((c) => !c.hidden) : true);
+    phoneUi.sheet.classList.toggle('empty', ![...phoneUi.sheet.querySelectorAll(':scope > .pad-acts > *')].some(vis));
+  }
+  const setFull = (on, auto = false) => {
+    autoFull = on && auto;
+    const phone = on && isPhone();
+    if (phone) enterPhoneUi(); else leavePhoneUi();
+    container.closest('.modal-wrap')?.classList.toggle('pad-host-full', on); // 창 안의 작전판도 화면 전체로
     container.classList.toggle('pad-full', on);
-    container.querySelector('[data-flabel]').textContent = on ? '작게' : '크게';
-    if (on && container.requestFullscreen && !document.fullscreenElement) container.requestFullscreen().catch(() => {});
+    container.classList.toggle('pad-phone', phone);
+    document.documentElement.classList.toggle('pad-locked', !!document.querySelector('.pad.pad-full'));
+    container.querySelector('[data-flabel]').textContent = on ? (phone ? '완료' : '작게') : '크게';
+    if (on && !phone && container.requestFullscreen && !document.fullscreenElement) container.requestFullscreen().catch(() => {});
     if (!on && document.fullscreenElement === container) document.exitFullscreen().catch(() => {});
+    if (!on) { view = null; closeNotes(); }
+    notesBtn.hidden = !(on && noteFields().length);
+    hint?.classList.toggle('gone', on);
     render();
   };
+  // 세로로 들고 있을 때: '가로로 돌리면 크게' 한 번 안내 (이대로 쓰기를 누르면 다시 안 물어봄)
+  const PORTRAIT_OK = 'ssaka.pad.portraitOk';
+  let hint = null;
+  if (COARSE && editable) {
+    hint = document.createElement('div');
+    hint.className = 'pad-rotate';
+    hint.innerHTML = '<span><b>⟲ 가로로 돌리면</b> 작전판이 화면 전체로 커져요</span><button type="button" class="btn sm" data-rot-go>가로로 크게</button><button type="button" class="btn ghost sm" data-rot-no>이대로 쓰기</button>';
+    container.insertBefore(hint, svg.nextSibling);
+    const portrait = matchMedia('(orientation: portrait)');
+    const syncHint = () => { let ok = false; try { ok = localStorage.getItem(PORTRAIT_OK) === '1'; } catch { /* */ } hint.hidden = ok || !portrait.matches || container.classList.contains('pad-full'); };
+    syncHint();
+    hint.querySelector('[data-rot-go]').onclick = () => { setFull(true); try { screen.orientation?.lock?.('landscape').catch(() => {}); } catch { /* 지원 안 하는 폰 */ } };
+    hint.querySelector('[data-rot-no]').onclick = () => { try { localStorage.setItem(PORTRAIT_OK, '1'); } catch { /* */ } document.querySelectorAll('.pad-rotate').forEach((x) => { x.hidden = true; }); };
+    // 휴대폰을 돌리면: 가로 → 마지막으로 만진 작전판이 화면에 보이면 저절로 크게, 세로 → 저절로 커진 것은 원래대로
+    const onRot = () => {
+      if (!svg.isConnected) { portrait.removeEventListener('change', onRot); return; }
+      syncHint();
+      const r = svg.getBoundingClientRect();
+      const onScreen = r.bottom > 0 && r.top < innerHeight && r.width > 0;
+      if (!portrait.matches && activePad === padId && onScreen && !container.classList.contains('pad-full')) setFull(true, true);
+      else if (portrait.matches && autoFull) setFull(false);
+    };
+    portrait.addEventListener('change', onRot);
+  }
+  const notesBtn = container.querySelector('[data-notes]');
+  notesBtn.onclick = () => { if (notes) { closeNotes(); render(); } else openNotes(); };
   container.querySelector('[data-act="full"]').onclick = () => setFull(!container.classList.contains('pad-full'));
+  // 키보드가 올라오면 보이는 높이(visualViewport)에 맞춰 경기장 크기 조절
+  const fitKeyboard = () => container.style.setProperty('--vvh', `${Math.round(window.visualViewport?.height || innerHeight)}px`);
+  window.visualViewport?.addEventListener('resize', () => { if (container.classList.contains('pad-typing')) fitKeyboard(); });
+  // 글 칸을 누르면 (휴대폰 전체화면) 입력 줄을 화면 위로 — 키보드에 안 가려지게
+  ['[data-ptin]', '[data-pnin]', '[data-szin]', '[data-ordin]'].forEach((q) => {
+    const inp = container.querySelector(q);
+    inp.addEventListener('focus', () => { container.classList.add('pad-typing'); fitKeyboard(); });
+    inp.addEventListener('blur', () => setTimeout(() => { if (!container.contains(document.activeElement) || !/^INPUT$/.test(document.activeElement.tagName)) container.classList.remove('pad-typing'); }, 50));
+  });
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && container.classList.contains('pad-full')) setFull(false); });
+  container.querySelectorAll('[data-pc]').forEach((b) => (b.onclick = () => {
+    pcur = b.dataset.pc;
+    const ps = selected().filter((x) => x.k === 'player');
+    if (ps.length) { snapshot(); ps.forEach((x) => { x.pc = pcur; }); render(); } else syncUi();
+  }));
   container.querySelectorAll('[data-team]').forEach((b) => (b.onclick = () => {
     team = b.dataset.team;
-    const ps = selected().filter((x) => x.k === 'player');
+    const ps = selected().filter((x) => x.k === 'player'); // 선수 · 역할 표시 모두 (역할은 글자 그대로 색만)
     if (ps.length) { snapshot(); ps.forEach((x) => { x.team = team; }); render(); } else syncUi();
   }));
   // 선수 여러 명 한꺼번에 고르기 (휴대폰에서도 — Ctrl 없이)
   const pickPlayers = (f) => {
-    const ps = data.items.filter((x) => x.k === 'player' && visIn(x, scene) && f(x));
+    const ps = data.items.filter((x) => x.k === 'player' && !x.role && visIn(x, scene) && f(x));
     if (!ps.length) return;
     sel = data.items.indexOf(ps[0]); extra.clear(); ps.slice(1).forEach((x) => extra.add(x)); render();
   };
-  container.querySelector('[data-selteam]').onclick = () => { const t0 = selected().find((x) => x.k === 'player')?.team || 'a'; pickPlayers((x) => (x.team || 'a') === t0); };
+  container.querySelector('[data-selteam]').onclick = () => { const s0 = selected().find((x) => x.k === 'player'); if (!s0) return; const k0 = colorKey(s0); pickPlayers((x) => colorKey(x) === k0); };
   container.querySelector('[data-selall]').onclick = () => pickPlayers(() => true);
   // 화살표에 붙은 이동(다음 장면 자리) 지우기
   const unlinkArrow = (x) => {
@@ -1152,6 +1421,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     render();
   };
   container.querySelector('[data-act="front"]').onclick = () => toZ(true);
+  container.querySelector('[data-act="dup"]').onclick = () => { if (copy()) paste(); };
   container.querySelector('[data-act="back"]').onclick = () => toZ(false);
   // 이 장면으로 옮긴 것을 되돌림 (앞 장면 자리 그대로)
   container.querySelector('[data-act="unmove"]').onclick = () => {
@@ -1250,6 +1520,34 @@ export function createPad(container, initial, { editable = true, motion = false,
     render();
   };
   container.querySelector('[data-act="undo"]').onclick = undo;
+  // 선수 모양: 고른 선수들을 동그라미 · 유니폼으로 (새로 놓는 선수도 같은 모양)
+  container.querySelectorAll('[data-psopt]').forEach((b) => (b.onclick = () => {
+    pdef = b.dataset.psopt;
+    let ps = selected().filter((x) => x.k === 'player' && !x.role);
+    if (!ps.length) ps = data.items.filter((x) => x.k === 'player' && !x.role); // 고른 선수가 없으면 모든 선수
+    if (ps.length) { snapshot(); ps.forEach((x) => { if (pdef) x.ps = pdef; else delete x.ps; }); }
+    render();
+  }));
+  // 역할(중립 · 서브 · 타겟 · 코치) 바꾸기
+  container.querySelectorAll('[data-roleopt]').forEach((b) => (b.onclick = () => {
+    const R = ROLES[b.dataset.roleopt];
+    const rs = selected().filter((x) => x.k === 'player' && x.role);
+    if (rs.length) { snapshot(); rs.forEach((x) => { x.role = b.dataset.roleopt; x.team = R.team; x.n = R.t; delete x.pc; }); render(); }
+  }));  // 색 · 팀 색: 점을 누르면 고르는 창이 펼쳐짐
+  const closePops = () => container.querySelectorAll('.pad-pop').forEach((x) => { x.hidden = true; });
+  const togglePop = (q) => (e) => { e.stopPropagation(); const p = container.querySelector(q); const open = p.hidden; closePops(); p.hidden = !open; };
+  container.querySelector('[data-tdot]').onclick = togglePop('[data-tpop]');
+  container.querySelector('[data-cdot]').onclick = togglePop('[data-cpop]');
+  container.addEventListener('click', (e) => { if (e.target.closest('[data-team], [data-col], [data-pc]')) setTimeout(closePops, 0); });
+  document.addEventListener('pointerdown', (e) => { if (!svg.isConnected) return; if (!e.target.closest?.('.pad-pop, [data-tdot], [data-cdot]')) closePops(); }, true);
+  // 선수 연결 설정: 실선 · 점선 · 면 채우기
+  container.querySelectorAll('[data-lstyle]').forEach((b) => (b.onclick = () => { const x = items()[sel]; if (x?.k !== 'link') return; snapshot(); if (b.dataset.lstyle === 'dash') x.style = 'dash'; else delete x.style; render(); }));
+  container.querySelector('[data-larea]').onclick = () => { const x = items()[sel]; if (x?.k !== 'link') return; snapshot(); if (x.area) delete x.area; else x.area = true; render(); };
+  // 연결 끝: 한 명만 이은 선은 지움
+  function finishLink() {
+    if (linking && data.items.includes(linking) && (linking.ids || []).length < 2) data.items.splice(data.items.indexOf(linking), 1);
+    linking = null;
+  }
   // 복사 · 붙여넣기 · 모두 고르기
   const copy = () => { const list = selected(); if (list.length) clipboard = list.map((x) => { const c = clone(x); delete c.id; return c; }); return list.length; };
   const paste = () => {
@@ -1259,7 +1557,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     const added = clipboard.map((x) => {
       const c = clone(x);
       if ('x1' in c) { c.x1 = round(c.x1 + off); c.y1 = round(c.y1 + off); c.x2 = round(c.x2 + off); c.y2 = round(c.y2 + off); if (c.cx != null) { c.cx = round(c.cx + off); c.cy = round(c.cy + off); } if (c.via) c.via = c.via.map((v) => ({ x: round(v.x + off), y: round(v.y + off) })); } else { c.x = round(c.x + off); c.y = round(c.y + off); }
-      if (c.k === 'player') c.n = nextNum(c.team);
+      if (c.k === 'player' && !c.role) c.n = nextNum(c.team, c.pc);
       delete c.who; delete c.until; delete c.hide; // 붙여넣은 건 지금 장면부터 · 따로
       if (scene) c.from = scene; else delete c.from;
       return c;
@@ -1312,7 +1610,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     if (!mine) return;
     if (e.key === 'Enter' && !e.isComposing) {
       e.preventDefault(); // 방금 누른 도구 버튼이 다시 눌리지 않게
-      if (tool !== 'select') { tool = 'select'; render(); }
+      if (tool !== 'select') { finishLink(); tool = 'select'; render(); }
       return;
     }
     if (sel < 0) return;
@@ -1327,7 +1625,7 @@ export function createPad(container, initial, { editable = true, motion = false,
 
   // ───────── 포인터 ─────────
   const pt = (e) => {
-    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(world.getScreenCTM().inverse());
+    const p = unproj(e.clientX, e.clientY, (X, Y) => new DOMPoint(X, Y).matrixTransform(world.getScreenCTM().inverse()));
     const { w, h } = data.field;
     const m = margin();
     return { x: round(Math.max(-m, Math.min(w + m, p.x))), y: round(Math.max(-m, Math.min(h + m, p.y))) };
@@ -1350,6 +1648,81 @@ export function createPad(container, initial, { editable = true, motion = false,
     it.len = round(Math.max(3 * unit(), Math.hypot(p.x - o[0], p.y - o[1])));
   };
 
+  // ───────── 두 손가락: 확대 · 이동 ─────────
+  const touches = new Map();
+  let pinch = null;
+  let gestureMark = 0; // 첫 손가락을 댈 때의 되돌리기 위치 — 두 번째 손가락이 오면 첫 손가락이 한 것은 취소
+  const userPt = (x, y) => unproj(x, y, (X, Y) => new DOMPoint(X, Y).matrixTransform(svg.getScreenCTM().inverse()));
+  function startPinch() {
+    const [a, b] = [...touches.values()];
+    hideLoupe();
+    if (drag) drag = null;
+    if (history.length > gestureMark) { undo(); future.pop(); }
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const bw = +baseVB.split(' ')[2];
+    pinch = { d0: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), k0: view ? bw / view[2] : 1, P0: userPt(mid.x, mid.y) };
+  }
+  function movePinch() {
+    const [a, b] = [...touches.values()];
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const [bx, by, bw, bh] = baseVB.split(' ').map(Number);
+    const k = Math.min(4, Math.max(1, (pinch.k0 * Math.hypot(a.x - b.x, a.y - b.y)) / pinch.d0));
+    if (k < 1.03) { view = null; svg.setAttribute('viewBox', baseVB); zoomUi(); return; }
+    const w = bw / k; const h = bh / k;
+    let x = pinch.P0.x - w / 2; let y = pinch.P0.y - h / 2;
+    svg.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+    const P1 = userPt(mid.x, mid.y); // 손가락 가운데가 처음 잡은 자리에 오도록
+    x += pinch.P0.x - P1.x; y += pinch.P0.y - P1.y;
+    x = Math.min(bx + bw - w, Math.max(bx, x)); y = Math.min(by + bh - h, Math.max(by, y));
+    view = [x, y, w, h].map((v) => +v.toFixed(3));
+    svg.setAttribute('viewBox', view.join(' '));
+    zoomUi();
+  }
+  if (editable) {
+    svg.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch') return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 1) gestureMark = history.length;
+      if (touches.size === 2) { startPinch(); e.stopImmediatePropagation(); e.preventDefault(); }
+      else if (touches.size > 2) e.stopImmediatePropagation();
+    });
+    svg.addEventListener('pointermove', (e) => {
+      if (!touches.has(e.pointerId)) return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch) { e.stopImmediatePropagation(); if (touches.size >= 2) movePinch(); }
+    });
+    const lift = (e) => {
+      if (!touches.has(e.pointerId)) return;
+      touches.delete(e.pointerId);
+      if (pinch) { e.stopImmediatePropagation(); if (touches.size < 2) { pinch = null; if (!touches.size) render(); } }
+    };
+    svg.addEventListener('pointerup', lift);
+    svg.addEventListener('pointercancel', lift);
+  }
+
+  // ───────── 돋보기: 손가락으로 끄는 동안 가려진 곳을 손가락 위에 크게 ─────────
+  let loupe = null;
+  function showLoupe(e) {
+    if (!loupe) {
+      loupe = document.createElement('div');
+      loupe.className = 'pad-loupe';
+      loupe.innerHTML = `<svg><use href="#${mk}-w"/></svg><i></i>`;
+      document.body.appendChild(loupe);
+    }
+    const S = 112; const Z = 2.2;
+    const { q, scale } = unproj(e.clientX, e.clientY, (X, Y) => { const ctm = svg.getScreenCTM(); return { q: new DOMPoint(X, Y).matrixTransform(ctm.inverse()), scale: Math.hypot(ctm.a, ctm.b) || 1 }; });
+    const uw = S / Z / scale;
+    const ls = loupe.firstChild;
+    ls.setAttribute('viewBox', `${q.x - uw / 2} ${q.y - uw / 2} ${uw} ${uw}`);
+    ls.style.background = svg.style.background;
+    let top = e.clientY - S - 54;
+    if (top < 6) top = e.clientY + 54;
+    const left = Math.min(innerWidth - S - 6, Math.max(6, e.clientX - S / 2));
+    loupe.style.left = `${left}px`; loupe.style.top = `${top}px`;
+    loupe.hidden = false;
+  }
+  function hideLoupe() { if (loupe) loupe.hidden = true; }
+
   let lastTap = { t: 0, id: null };
   svg.addEventListener('pointerdown', (e) => {
     activePad = padId;
@@ -1357,7 +1730,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     // 같은 글자 · 선수를 0.4초 안에 두 번 누르면 바로 고치기 (화면을 다시 그려서 브라우저 더블클릭이 안 잡히던 것)
     const tg = e.target.closest?.('[data-i]');
     const tit = tg && items()[+tg.dataset.i];
-    if (tit && (tit.k === 'text' || tit.k === 'player' || tit.k === 'num')) {
+    if (tit && (tit.k === 'text' || (tit.k === 'player' && !tit.role) || tit.k === 'num')) {
       const now = performance.now();
       if (lastTap.id === tit.id && now - lastTap.t < 400) {
         lastTap = { t: 0, id: null };
@@ -1386,8 +1759,18 @@ export function createPad(container, initial, { editable = true, motion = false,
       svg.setPointerCapture(e.pointerId);
       return;
     }
-    const g = e.target.closest('[data-i]');
-    const handle = e.target.getAttribute('data-handle');
+    let g = e.target.closest('[data-i]');
+    if (!g && tool === 'select' && e.pointerType === 'touch') {
+      // 손가락은 마우스보다 굵어서, 살짝 빗나가도 가장 가까운 선수 · 공 · 기구를 잡음
+      const pos = posAt(scene); let best = null;
+      data.items.forEach((x, i) => {
+        if (!MOVABLE.includes(x.k) || !visIn(x, scene) || !pos[x.id]) return;
+        const d = Math.hypot(pos[x.id][0] - p.x, pos[x.id][1] - p.y);
+        if (d <= 2.8 * unit() * Math.max(1, x.s || 1) && (!best || d < best.d)) best = { i, d };
+      });
+      if (best) g = svg.querySelector(`[data-i="${best.i}"]`);
+    }
+    const handle = g ? e.target.getAttribute('data-handle') : null;
 
     // 고른 그림의 점(곡선 · 끝점 · 시야 방향)은 어떤 도구를 쥐고 있어도 바로 끌 수 있게
     if (tool === 'select' || (handle && g)) {
@@ -1421,9 +1804,25 @@ export function createPad(container, initial, { editable = true, motion = false,
       render();
       return;
     }
+    if (tool === 'link') {
+      const hitP = nearest(p, ['player'], 3.4);
+      const cur = linking && data.items.includes(linking) ? linking : null;
+      if (!hitP) { finishLink(); sel = -1; extra.clear(); render(); return; } // 빈 곳 → 이 선은 끝
+      if (cur) {
+        if (cur.ids[cur.ids.length - 1] !== hitP.it.id) { snapshot(); cur.ids.push(hitP.it.id); }
+      } else {
+        snapshot();
+        const ln = { k: 'link', ids: [hitP.it.id], ...(ccol ? { c: ccol } : {}) };
+        if (scene) ln.from = scene;
+        data.items.push(ln); linking = ln;
+      }
+      sel = data.items.indexOf(linking); extra.clear(); render();
+      return;
+    }
     snapshot();
     let it;
-    if (tool === 'player') it = { k: 'player', team, n: nextNum(team), x: p.x, y: p.y };
+    if (tool === 'player') it = { k: 'player', team, n: nextNum(team, pcur), x: p.x, y: p.y, ...(pdef ? { ps: pdef } : {}), ...(pcur ? { pc: pcur } : {}) };
+    else if (tool.startsWith('role-')) { const rk = tool.slice(5); const R = ROLES[rk]; it = { k: 'player', role: rk, team: R.team, n: R.t, x: p.x, y: p.y }; }
     else if (EQUIP.includes(tool)) it = { k: tool, x: p.x, y: p.y };
     else if (tool === 'num') { const ns = items().filter((x) => x.k === 'num').map((x) => +x.n).filter((n) => !isNaN(n)); it = { k: 'num', n: String(ns.length ? Math.max(...ns) + 1 : 1), x: p.x, y: p.y }; }
     else if (tool === 'vision') {
@@ -1438,9 +1837,9 @@ export function createPad(container, initial, { editable = true, motion = false,
     }
     else if (['pass', 'run', 'dribble'].includes(tool)) it = { k: 'arrow', style: tool, x1: p.x, y1: p.y, x2: p.x, y2: p.y };
     else if (tool === 'text') {
-      const t = prompt('필드에 쓸 글자');
-      if (!t) { history.pop(); return; }
-      it = { k: 'text', t: t.slice(0, 30), x: p.x, y: p.y };
+      // 그 자리에 '글자'를 놓고 입력 칸으로 바로 — 쓰는 대로 경기장에 보임 (휴대폰은 화면 위쪽 입력 줄)
+      it = { k: 'text', t: '글자', x: p.x, y: p.y };
+      setTimeout(() => { const inp = container.querySelector('[data-ptin]'); inp.focus(); inp.select(); }, 0);
     }
     if (!it) return;
     if (it.k !== 'zone' && curSize() !== 1) it.s = curSize();
@@ -1457,7 +1856,9 @@ export function createPad(container, initial, { editable = true, motion = false,
 
   svg.addEventListener('pointermove', (e) => {
     if (!drag) return;
+    if (drag.it?.k === 'link') return; // 연결선은 선수를 따라다님 — 직접 옮기지 않음
     const p = pt(e);
+    if (e.pointerType === 'touch') showLoupe(e);
     if (drag.cow) {
       // 처음 움직일 때 나눔: 앞 장면들은 원래 것, 이 장면부터는 복사본을 고침
       drag.cow = false;
@@ -1535,6 +1936,7 @@ export function createPad(container, initial, { editable = true, motion = false,
   });
 
   const end = () => {
+    hideLoupe();
     if (!drag) return;
     if (drag.ghost || drag.startPt) { drag = null; render(); return; }
     const { it, creating } = drag;
@@ -1589,12 +1991,11 @@ export function createPad(container, initial, { editable = true, motion = false,
       render();
       return;
     }
-    if (it.k === 'player') {
-      const v = prompt('번호 또는 이름 (짧게)', it.n);
-      if (v !== null) { snapshot(); it.n = v.slice(0, 4); render(); }
-    } else if (it.k === 'text') {
-      const v = prompt('글자 수정', it.t);
-      if (v) { snapshot(); it.t = v.slice(0, 30); render(); }
+    if ((it.k === 'player' && !it.role) || it.k === 'num' || it.k === 'text') {
+      // 두 번 누르면 아래(휴대폰은 위쪽) 입력 칸에서 바로 고치기
+      sel = items().indexOf(it); extra.clear(); render();
+      const inp = container.querySelector(it.k === 'text' ? '[data-ptin]' : '[data-pnin]');
+      setTimeout(() => { inp.focus(); inp.select(); }, 0);
     }
   });
 
