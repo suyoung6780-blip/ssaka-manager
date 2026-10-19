@@ -181,7 +181,7 @@ export const posGroup = (p) => (!p ? '' : p === 'GK' ? 'GK' : ['CB', 'LB', 'RB',
 
 // 데이터실 · 기록실 느낌의 숫자 칸 줄 (화면 맨 위 요약)
 // items: [{ l: 라벨, v: 값(HTML), u: 단위, s: 아래 작은 글(HTML), c: 숫자 색, p: 막대 0~100, stack: [[수, 색, 이름], …] }]
-export const kpiStrip = (items) => `<section class="kpi-strip">${items.map((k) => `<div class="kpi" style="--kc:${k.c || 'var(--text)'}">
+export const kpiStrip = (items, mini = false) => `<section class="kpi-strip ${mini ? 'mini' : ''}">${items.map((k) => `<div class="kpi" style="--kc:${k.c || 'var(--text)'}">
   <small>${esc(k.l)}</small><strong>${k.v}${k.u ? `<i>${esc(k.u)}</i>` : ''}</strong>
   ${k.stack ? `<div class="kpi-stack">${k.stack.filter(([n]) => n > 0).map(([n, c, t]) => `<i style="flex:${n};background:${c}" title="${esc(t || '')} ${n}"></i>`).join('') || '<i style="flex:1"></i>'}</div>` : k.p != null ? `<div class="kpi-bar"><i style="width:${Math.max(0, Math.min(100, k.p))}%"></i></div>` : ''}
   ${k.s ? `<span>${k.s}</span>` : ''}</div>`).join('')}</section>`;

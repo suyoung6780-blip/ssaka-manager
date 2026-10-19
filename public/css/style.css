@@ -3277,3 +3277,14 @@ html.pad-locked, html.pad-locked body { overflow: hidden; overscroll-behavior: n
 .card-head .gm-acts { display: flex; flex-wrap: wrap; gap: 6px; width: auto; }
 .pat-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 @media (max-width: 640px) { .card-head:has(.gm-acts) { flex-wrap: wrap; } .card-head .gm-acts, .pat-bar .gm-acts { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* 얇은 요약 줄 (공지 · 미팅룸): 아래 글 카드와 다르게 — 한 줄 띠 · 칸 사이 세로선 · 카드 테두리 없음 */
+.kpi-strip.mini { display: flex; flex-wrap: wrap; gap: 0; padding: 4px 6px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--line); width: fit-content; max-width: 100%; margin-bottom: 16px; }
+.kpi-strip.mini .kpi { flex-direction: row; align-items: baseline; gap: 8px; background: none; border: 0; border-radius: 0; padding: 6px 16px; container-type: normal; }
+.kpi-strip.mini .kpi + .kpi { border-left: 1px solid var(--line2); }
+.kpi-strip.mini .kpi strong { font-size: 18px; }
+.kpi-strip.mini .kpi small { font-size: 12.5px; }
+.kpi-strip.mini .kpi > span, .kpi-strip.mini .kpi-bar, .kpi-strip.mini .kpi-stack { display: none; }
+.post-list-h { margin-top: 4px; }
+@media (max-width: 520px) { .kpi-strip.mini { border-radius: var(--r); width: 100%; } .kpi-strip.mini .kpi { padding: 6px 10px; flex: 1 1 auto; justify-content: center; } }
+.post-card .post-att { display: inline-block; margin-top: 2px; font-size: 12px; font-weight: 700; color: #4ea1ff; }

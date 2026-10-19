@@ -91,6 +91,17 @@ const PATTERNS = (() => {
 seed('teams/T1/private/gameModel', { philosophy: '점유', captain: 'p1', formation: '4-3-3', patterns: PATTERNS });
 seed('teams/T1/posts/a', { type: 'notice', title: '10월 리그 일정 및 원정 버스 안내', body: '토요일 원정 경기 버스는 7시 30분 출발합니다.', createdAt: now(), pinned: true });
 seed('teams/T1/posts/a2', { type: 'notice', title: '이번 주 훈련 집중 포인트: 압박 탈출', body: '받기 전에 어깨 너머 보기! 일지에 꼭 적어오세요.', createdAt: now() });
+// 미팅룸 예시 (체험용)
+{ const ago = (d) => Timestamp.fromMillis(Date.now() - d * 864e5); const dd = (d) => ymd(new Date(Date.now() - d * 864e5));
+  seed('teams/T1/posts/mt1', { type: 'meeting', title: '주말 리그 상대 분석 — 화이트 유나이티드', date: dd(0), opponent: '화이트 유나이티드', authorName: '김코치', createdAt: ago(0),
+    body: '상대 기본 4-4-2 · 골킥은 거의 롱볼.\n9번이 등지고 받아 측면으로 펼치는 패턴이 많음 → 센터백 한 명은 무조건 붙고, 6번이 세컨볼.\n세트피스: 코너킥 니어 포스트로 두 명이 달려옴.\n\n우리 약속: 전반 20분까지는 라인 높게, 뺏기면 5초 역압박.',
+    links: [{ name: '상대 경기 영상 (전반 하이라이트)', url: 'https://www.youtube.com/' }, { name: '전술 PPT', url: 'https://drive.google.com/' }, { name: '세트피스 정리 PDF', url: 'https://drive.google.com/' }] });
+  seed('teams/T1/posts/mt2', { type: 'meeting', title: '세트피스 미팅 — 코너킥 수비 위치', date: dd(2), authorName: '최코치', createdAt: ago(2),
+    body: '지역 4명 + 대인 3명.\n니어 포스트 앞 공간은 7번 · 11번이 책임.\n골키퍼 앞을 가리는 상대는 4번이 밀어내기.',
+    links: [{ name: '코너킥 수비 그림', url: 'https://drive.google.com/' }] });
+  seed('teams/T1/posts/mt3', { type: 'meeting', title: '지난 경기 리뷰 — 그레이 FC (1:1)', date: dd(6), opponent: '그레이 FC', authorName: '김코치', createdAt: ago(6),
+    body: '잘된 점: 3-2 빌드업 · 6번이 계속 받아 줌.\n아쉬운 점: 왼쪽 풀백이 올라간 뒤 뒷공간 커버가 늦음 (실점 장면).\n이번 주 훈련: 풀백 올라갈 때 반대 센터백이 옆으로 밀어 주기.',
+    links: [{ name: '실점 장면 클립', url: 'https://www.youtube.com/' }, { name: '분석 리포트', url: 'https://drive.google.com/' }] }); }
 seed('teams/T1/posts/b', { type: 'schedule', title: '리그전', date: today, time: '10:00', kind: '경기', group: 'U15', createdAt: now() });
 [[1, '16:00', '훈련', 'U12', '패스 훈련'], [2, '17:00', '훈련', 'U15', '빌드업 훈련'], [3, '10:00', '경기', 'U12', '연습경기 vs 성남'], [5, '19:00', '미팅', '', '전술 미팅'], [6, '16:00', '훈련', 'U15', '세트피스'], [8, '', '휴식', '', '휴식일']]
   .forEach(([n, time, kind, group, title], i) => { const d = new Date(); d.setDate(d.getDate() + n); seed(`teams/T1/posts/s${i}`, { type: 'schedule', title, date: ymd(d), time, kind, group, place: kind === '경기' ? '탄천 보조구장' : '팀 훈련장', createdAt: now() }); });
