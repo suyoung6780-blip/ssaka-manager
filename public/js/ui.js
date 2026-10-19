@@ -174,3 +174,14 @@ export const sortBar = (k, cur) => `<div class="seg sm sort-bar" data-sortbar="$
 export function bindSortBar(root, k, onChange) {
   root.querySelectorAll(`[data-sortbar="${k}"] [data-sortv]`).forEach((b) => (b.onclick = () => { setSort(k, b.dataset.sortv); onChange(b.dataset.sortv); }));
 }
+
+// 포지션 줄 (GK · 수비 · 미드 · 공격) — 락커룸 카드 색 · 숫자 칸
+export const POS_GROUPS = [['GK', '골키퍼', '#ffd400'], ['DF', '수비', '#4ea1ff'], ['MF', '미드필더', '#39e75f'], ['FW', '공격', '#ff6b5a']];
+export const posGroup = (p) => (!p ? '' : p === 'GK' ? 'GK' : ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(p) ? 'DF' : ['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(p) ? 'MF' : 'FW');
+
+// 데이터실 · 기록실 느낌의 숫자 칸 줄 (화면 맨 위 요약)
+// items: [{ l: 라벨, v: 값(HTML), u: 단위, s: 아래 작은 글(HTML), c: 숫자 색, p: 막대 0~100, stack: [[수, 색, 이름], …] }]
+export const kpiStrip = (items) => `<section class="kpi-strip">${items.map((k) => `<div class="kpi" style="--kc:${k.c || 'var(--text)'}">
+  <small>${esc(k.l)}</small><strong>${k.v}${k.u ? `<i>${esc(k.u)}</i>` : ''}</strong>
+  ${k.stack ? `<div class="kpi-stack">${k.stack.filter(([n]) => n > 0).map(([n, c, t]) => `<i style="flex:${n};background:${c}" title="${esc(t || '')} ${n}"></i>`).join('') || '<i style="flex:1"></i>'}</div>` : k.p != null ? `<div class="kpi-bar"><i style="width:${Math.max(0, Math.min(100, k.p))}%"></i></div>` : ''}
+  ${k.s ? `<span>${k.s}</span>` : ''}</div>`).join('')}</section>`;

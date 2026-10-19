@@ -1,12 +1,12 @@
-// 훈련장 > 훈련 프로그램 — 작전판 라이브러리 + 아이들에게 크게 보여주는 '보여주기 모드'
-// (일일 훈련 · 코치 훈련 정리는 trainingDaily.js)
+// 전술보드 (코치만) — 택티컬(자유 작전판) · 훈련 프로그램(우리 팀 코치진이 만든 훈련) + 아이들에게 크게 보여주는 '보여주기 모드'
+// (훈련장의 일일 훈련 · 코치 훈련 정리는 trainingDaily.js)
 import {
   db, collection, doc, query, where, orderBy, limit, getDocs, addDoc, updateDoc, deleteDoc, serverTimestamp,
 } from '../fb.js';
 import {
-  esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, resizeImage,
+  esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, resizeImage, kpiStrip, toDate,
 } from '../ui.js';
-import { state, isCoach } from '../store.js';
+import { state, isCoach, go } from '../store.js';
 import { createPad, blank } from '../tactic.js';
 import { keepDraft, fillFields, draftStrip } from '../drafts.js';
 
@@ -29,11 +29,63 @@ const meta = (p) => [
   p.duration ? `${p.duration}분` : '',
 ].filter(Boolean).join('  ');
 
-// 훈련장 상단 탭 (일일 훈련 / 코치 훈련 정리 / 훈련 프로그램)
+// 훈련장 상단 탭 (일일 훈련 / 코치 훈련 정리) — 훈련 프로그램은 전술보드로 옮김
 export function trainingTabs(active) {
   // 선수는 일일 훈련만 (훈련 프로그램은 코치가 일일 훈련에 넣어 둔 것만 그 안에서 봄)
-  const tabs = [['/training', '일일 훈련'], ...(isCoach() ? [['/training/notes', '코치 훈련 정리'], ['/training/library', '훈련 프로그램']] : [])];
+  const tabs = [['/training', '일일 훈련'], ...(isCoach() ? [['/training/notes', '코치 훈련 정리']] : [])];
   return `<nav class="tabs">${tabs.map(([h, l]) => `<a href="#${h}" class="${h === active ? 'on' : ''}">${l}</a>`).join('')}</nav>`;
+}
+
+// 전술보드 상단 탭 (택티컬 / 훈련 프로그램)
+export function tacticsTabs(active, n) {
+  const tabs = [['/tactics', '택티컬'], ['/tactics/programs', `훈련 프로그램${n != null ? ` <small>${n}</small>` : ''}`]];
+  return `<nav class="tabs">${tabs.map(([h, l]) => `<a href="#${h}" class="${h === active ? 'on' : ''}">${l}</a>`).join('')}</nav>`;
+}
+
+// 이미지 · 영상으로 저장 버튼
+export async function exportPad(kind, data, title, btn) {
+  const { savePadImage, savePadVideo, canVideo } = await import('../padExport.js');
+  const old = btn?.innerHTML;
+  const lab = btn?.querySelector('.plab') || btn; // 작전판 도구 버튼이면 글자 칸만 바꿈
+  try {
+    if (btn) btn.disabled = true;
+    if (kind === 'image') { await savePadImage(data, title); toast('이미지로 저장했어요.'); return; }
+    if (!canVideo()) { toast('이 브라우저는 영상 저장을 지원하지 않아요. 크롬이나 사파리 최신 버전에서 해 주세요.'); return; }
+    await savePadVideo(data, title, (f) => { if (lab) lab.textContent = `${lab === btn ? '녹화 중 ' : ''}${Math.round(f * 100)}%`; });
+    toast('영상으로 저장했어요.');
+  } catch (e) { fail(e); } finally { if (btn) { btn.disabled = false; btn.innerHTML = old; } }
+}
+export const padMoves = (pd) => !!pd && ((pd.steps || []).length > 0 || (pd.items || []).some((x) => x.k === 'arrow')) && pd.anim !== false;
+
+// ───────── 택티컬: 마음대로 그리는 작전판 → 저장하면 훈련 프로그램으로 ─────────
+const BOARD_KEY = () => `${state.team.id}/board`;
+export async function board(el) {
+  let n = null;
+  try { n = (await loadPrograms()).length; } catch { /* */ }
+  let init = null;
+  try { init = JSON.parse(localStorage.getItem(`ssaka-pad:${BOARD_KEY()}`) || 'null')?.data || null; } catch { /* */ }
+  el.innerHTML = `${pageHead('TACTICS BOARD', '전술보드')}
+    ${tacticsTabs('/tactics', n)}
+    <div class="tb-bar">
+      <p class="muted small">마음대로 그리고 <b>훈련 프로그램으로 저장</b>하면 옆 칸 [훈련 프로그램]에 들어가요 · 그리던 것은 자동으로 보관돼요</p>
+      <div class="tb-acts">
+        <button class="btn ghost sm" data-tb-img>이미지로 저장</button>
+        <button class="btn ghost sm" data-tb-vid>영상으로 저장</button>
+        <button class="btn sm" data-tb-save>훈련 프로그램으로 저장</button>
+      </div>
+    </div>
+    <div class="tb-pad" data-pad></div>`;
+  const box = el.querySelector('[data-pad]');
+  const fresh = () => blank('full'); // 처음엔 경기장 전체 (경기장 버튼으로 반 코트 · 직접 크기)
+  let pad = createPad(box, init || fresh(), { motion: true, draft: BOARD_KEY(), exportTitle: '작전판' });
+  const vidBtn = el.querySelector('[data-tb-vid]');
+
+  el.querySelector('[data-tb-img]').onclick = (e) => exportPad('image', pad.getData(), '작전판', e.currentTarget);
+  vidBtn.onclick = (e) => {
+    if (!padMoves(pad.getData())) { toast('영상은 움직임이 있어야 해요 — 장면을 2개 이상 만들거나 화살표를 그려 주세요.'); return; }
+    exportPad('video', pad.getData(), '작전판', e.currentTarget);
+  };
+  el.querySelector('[data-tb-save]').onclick = () => editor({ pad: pad.getData() }, () => { pad.clearDraft(); go('/tactics/programs'); }, null, { lockPad: true });
 }
 
 export async function loadPrograms() {
@@ -49,8 +101,19 @@ export async function library(el) {
   const f = { q: '', age: '', people: '', sort: 'new', view: 'grid' };
   try { f.view = localStorage.getItem(VIEW_KEY) || 'grid'; } catch { /* */ }
 
-  el.innerHTML = `${pageHead('TRAINING GROUND', '훈련장', isCoach() ? '<button class="btn" data-new>+ 프로그램 만들기</button>' : '')}
-    ${trainingTabs('/training/library')}
+  el.innerHTML = `${pageHead('TACTICS BOARD', '전술보드')}
+    ${tacticsTabs('/tactics/programs', all.length)}
+    ${all.length ? (() => {
+      const ym = todayStr().slice(0, 7);
+      const tops = Object.entries(all.flatMap((x) => x.topics || []).reduce((m, t) => ({ ...m, [t]: (m[t] || 0) + 1 }), {})).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      const durs = all.map((x) => +x.duration).filter((x) => x > 0);
+      return kpiStrip([
+        { l: '훈련 프로그램', v: all.length, u: '개', s: `움직임 있는 것 <b>${all.filter((x) => (x.pad?.steps || []).length).length}</b>개` },
+        { l: '이번 달 추가', v: all.filter((x) => { const d = toDate(x.createdAt); return d && todayStr(d).startsWith(ym); }).length, u: '개', c: 'var(--accent)' },
+        { l: '평균 시간', v: durs.length ? Math.round(durs.reduce((a, b) => a + b, 0) / durs.length) : '-', u: durs.length ? '분' : '' },
+        { l: '많이 쓴 주제', v: tops[0] ? esc(tops[0][0]) : '-', s: tops.slice(1).map(([t, n]) => `${esc(t)} <b>${n}</b>`).join(' · ') || '&nbsp;' },
+      ]);
+    })() : ''}
     ${isCoach() ? '<div data-tdrafts hidden></div>' : ''}
     <div class="lib-bar">
       <input type="search" placeholder="제목 · 주제 · 내용 · 코칭 포인트 검색" data-q>
@@ -77,7 +140,8 @@ export async function library(el) {
     el.querySelectorAll('[data-view] button').forEach((b) => b.classList.toggle('on', b.dataset.v === f.view));
     const box = el.querySelector('[data-list]');
     if (!rows.length) {
-      box.innerHTML = empty(all.length ? '조건에 맞는 훈련이 없습니다.' : '아직 등록된 훈련이 없습니다.');
+      box.innerHTML = all.length ? empty('조건에 맞는 훈련이 없습니다.')
+        : `<div class="tb-empty"><b>아직 훈련 프로그램이 없어요</b><p class="muted">[택티컬]에서 훈련을 그리고 <b>훈련 프로그램으로 저장</b>을 누르면 여기에 모여요. 만든 훈련은 일일 훈련에 넣거나 커뮤니티에 공유할 수 있어요.</p><a class="btn sm" href="#/tactics">택티컬에서 그리기</a></div>`;
       return;
     }
     box.innerHTML = f.view === 'grid'
@@ -112,7 +176,6 @@ export async function library(el) {
     try { localStorage.setItem(VIEW_KEY, f.view); } catch { /* */ }
     draw();
   }));
-  el.querySelector('[data-new]')?.addEventListener('click', () => editor(null, refresh));
   const dbox = el.querySelector('[data-tdrafts]');
   redrawDrafts = () => {};
   if (dbox) redrawDrafts = draftStrip(dbox, `${state.team.id}/program`, {
@@ -142,7 +205,7 @@ export function detail(p, refresh) {
         ${p.space ? `<div><small>공간</small><b>${esc(p.space)}</b></div>` : ''}
       </div>
       ${visual(p, 'tr-visual')}
-      <div class="row"><button class="btn" data-present>▶ 선수들에게 보여주기</button></div>
+      <div class="row"><button class="btn" data-present>▶ 선수들에게 보여주기</button>${p.pad ? `<button class="btn ghost" data-ximg>이미지로 저장</button>${padMoves(p.pad) ? '<button class="btn ghost" data-xvid>영상으로 저장</button>' : ''}` : ''}</div>
       ${p.body ? `<h4>훈련 방법</h4><div class="prose">${text(p.body)}</div>` : ''}
       ${pts.length ? `<h4>코칭 포인트</h4><ol class="points">${pts.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
       ${isCoach() ? '<div class="row end"><button class="btn ghost" data-share-cm>커뮤니티에 공유</button><button class="btn ghost" data-del>삭제</button><button class="btn ghost" data-edit>수정</button></div>' : ''}
@@ -150,6 +213,8 @@ export function detail(p, refresh) {
   const padBox = m.el.querySelector('[data-pad]');
   if (padBox) createPad(padBox, p.pad, { editable: false });
   m.el.querySelector('[data-present]').onclick = () => present(p);
+  m.el.querySelector('[data-ximg]')?.addEventListener('click', (e) => exportPad('image', p.pad, p.title, e.currentTarget));
+  m.el.querySelector('[data-xvid]')?.addEventListener('click', (e) => exportPad('video', p.pad, p.title, e.currentTarget));
   m.el.querySelector('[data-edit]')?.addEventListener('click', () => { m.close(); editor(p, refresh); });
   m.el.querySelector('[data-share-cm]')?.addEventListener('click', async () => { m.close(); (await import('./community.js')).shareProgram(p); });
   m.el.querySelector('[data-del]')?.addEventListener('click', async () => {
@@ -199,7 +264,8 @@ export function present(p) {
 
 let knownTopics = [];
 
-export function editor(p, refresh, dr = null) {
+// lockPad: 택티컬에서 그린 그림을 그대로 저장 (여기서는 미리보기만 — 고치기는 훈련 프로그램에서 [수정])
+export function editor(p, refresh, dr = null, { lockPad = false } = {}) {
   p ||= {};
   const m = modal(`
     <span class="eyebrow">TRAINING</span><h2>${p.id ? '훈련 수정' : '훈련 올리기'}</h2>
@@ -223,8 +289,8 @@ export function editor(p, refresh, dr = null) {
           <small class="muted">사진·이미지 (선택) — 올리면 작전판 대신 썸네일과 보여주기 화면에 나옵니다</small>
           ${p.image ? '<button type="button" class="link-btn small" data-img-rm>그림 빼기</button>' : ''}</div>
       </div>
-      <label class="switch"><input type="checkbox" data-use-pad ${p.pad || !p.id ? 'checked' : ''}><span>작전판 그리기</span></label>
-      <div data-pad></div>
+      ${lockPad ? '<div class="tb-preview"><small class="muted">택티컬에서 그린 그림</small><div data-pad-lock></div></div>' : `<label class="switch"><input type="checkbox" data-use-pad ${p.pad || !p.id ? 'checked' : ''}><span>작전판 그리기</span></label>
+      <div data-pad></div>`}
       <label>훈련 방법<textarea name="body" rows="5" placeholder="조직 · 규칙 · 진행 순서">${esc(p.body || '')}</textarea></label>
       <label>코칭 포인트 <small class="muted">한 줄에 하나 — 보여주기 모드에서 크게 나옵니다</small>
         <textarea name="points" rows="4" placeholder="공 받기 전에 어깨 너머 확인하기&#10;첫 터치는 다음 패스 방향으로">${esc(p.points || '')}</textarea></label>
@@ -249,15 +315,19 @@ export function editor(p, refresh, dr = null) {
   let pad = null;
   const padBox = form.querySelector('[data-pad]');
   const usePad = form.querySelector('[data-use-pad]');
+  const lockBox = form.querySelector('[data-pad-lock]');
+  if (lockBox) createPad(lockBox, p.pad, { editable: false, play: false });
+  const padNow = () => (lockPad ? p.pad : usePad.checked && pad ? pad.getData() : null);
   const syncPad = () => {
-    if (usePad.checked && !pad) pad = createPad(padBox, dr?.pad || p.pad || { ...blank('custom'), grid: { preset: 'none', cols: 0, rows: 0 } }, { motion: true, onChange: () => keep.touch() });
+    if (!usePad) return;
+    if (usePad.checked && !pad) pad = createPad(padBox, dr?.pad || p.pad || { ...blank('custom'), grid: { preset: 'none', cols: 0, rows: 0 } }, { motion: true, onChange: () => keep.touch(), exportTitle: () => form.querySelector('[name=title]').value.trim() || '훈련' });
     padBox.hidden = !usePad.checked;
   };
-  if (dr && dr.pad) usePad.checked = true;
-  const keep = keepDraft(form, { scope: `${state.team.id}/program`, id: p.id, key: dr?.key, getPad: () => (usePad.checked && pad ? pad.getData() : null) });
+  if (dr && dr.pad && usePad) usePad.checked = true;
+  const keep = keepDraft(form, { scope: `${state.team.id}/program`, id: p.id, key: dr?.key, getPad: padNow });
   // 닫으면 바로 보관 · 목록의 '만들다 만 훈련' 새로 그림
   m.onClose = () => { keep.close(); if (document.querySelector('[data-tdrafts]')?.isConnected) redrawDrafts(); };
-  usePad.onchange = syncPad;
+  if (usePad) usePad.onchange = syncPad;
   syncPad();
 
   form.onsubmit = async (e) => {
@@ -270,7 +340,7 @@ export function editor(p, refresh, dr = null) {
       body: d.body, points: d.points, image,
       topics: [...new Set(d.topics.split(',').map((x) => x.trim()).filter(Boolean))].slice(0, 8),
       ages: [...form.querySelectorAll('[name=ages]:checked')].map((x) => x.value),
-      pad: usePad.checked && pad ? pad.getData() : null,
+      pad: padNow(),
     };
     try {
       const col = collection(db, 'teams', state.team.id, 'posts');
@@ -279,7 +349,7 @@ export function editor(p, refresh, dr = null) {
       keep.clear();
       pad?.clearDraft();
       m.close();
-      toast('저장했습니다.');
+      toast(lockPad ? '훈련 프로그램에 저장했어요.' : '저장했습니다.');
       refresh();
     } catch (err) { fail(err); btn.disabled = false; }
   };

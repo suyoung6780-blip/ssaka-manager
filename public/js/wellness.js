@@ -74,7 +74,7 @@ async function makeExcel(from, to) {
   const head = ['타임스탬프', '이름', '수면시간', '수면질 체크', '운동강도', '운동시간', '불참 사유', ...(withBody ? ['키(cm)', '몸무게(kg)'] : [])];
   const rows = resp.map((l) => {
     const p = nameOf(l.uid);
-    return [fmtTs(tsOf(l)) || l.date, p?.name || l.name, sleepOf(l) ?? '', l.sleepQ ?? '', l.absent ? 0 : (l.rpe ?? ''), l.absent ? 0 : (l.trainMin ?? ''), l.absent ? (l.absentReason || '불참') : '',
+    return [fmtTs(tsOf(l)) || l.date, p?.name || l.name, sleepOf(l) ?? '', l.sleepQ ?? '', l.absent ? 0 : (l.rpe ?? ''), l.absent ? 0 : (l.trainMin ?? ''), l.absent ? (l.absentReason || '불참') : l.hurt ? `${l.hurt === 'match' ? '경기' : '훈련'} 중 부상` : '',
       ...(withBody ? [l.height ?? '', l.weight ?? ''] : [])];
   });
   {
@@ -97,9 +97,9 @@ async function makeExcel(from, to) {
 
   // 1) 기록: 날짜별 한 줄
   sheet('기록', [
-    ['날짜', '이름', '등번호', '포지션', '자각도(RPE 1~10)', '훈련 시간(분)', '훈련 부하(RPE×분)', '취침', '기상', '수면 시간(분)', '수면 질(1~5)', '컨디션(1~5)', '통증(0~10)', '통증 부위', '제출'],
-    ...logs.map((l) => { const p = nameOf(l.uid); return [l.date, p?.name || l.name, p?.number || '', p?.position || '', l.rpe || '', l.trainMin ?? '', load(l), l.bedtime || '', l.wakeTime || '', sleepOf(l) ?? '', l.sleepQ || '', l.condition || '', l.injury ?? '', l.injuryPart || '', l.submitted ? 'O' : '작성 중']; }),
-  ], [11, 10, 7, 8, 15, 13, 17, 7, 7, 14, 12, 11, 11, 12, 8]);
+    ['날짜', '이름', '등번호', '포지션', '자각도(RPE 1~10)', '훈련 시간(분)', '훈련 부하(RPE×분)', '취침', '기상', '수면 시간(분)', '수면 질(1~5)', '컨디션(1~5)', '통증(0~10)', '통증 부위', '오늘 부상', '제출'],
+    ...logs.map((l) => { const p = nameOf(l.uid); return [l.date, p?.name || l.name, p?.number || '', p?.position || '', l.rpe || '', l.trainMin ?? '', load(l), l.bedtime || '', l.wakeTime || '', sleepOf(l) ?? '', l.sleepQ || '', l.condition || '', l.injury ?? '', l.injuryPart || '', l.hurt ? `${l.hurt === 'match' ? '경기' : '훈련'} 중${l.hurtWhen ? ` · ${l.hurtWhen}` : ''}` : '', l.submitted ? 'O' : '작성 중']; }),
+  ], [11, 10, 7, 8, 15, 13, 17, 7, 7, 14, 12, 11, 11, 12, 14, 8]);
 
   // 2) 선수별 평균 (기록이 없는 선수도 포함)
   sheet('선수별 평균', [

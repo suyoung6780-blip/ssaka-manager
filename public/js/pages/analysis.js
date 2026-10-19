@@ -245,7 +245,7 @@ const TOOLS = [
   ['offside', '오프사이드', '⫼'],
 ];
 const HINT = {
-  link: '다 누르면 Enter',
+  link: '다 누르면 Enter · 첫 선수를 다시 누르면 도형',
   move: '① 네모로 감싸기 ② 끌어서 놓기',
   pitch: '흰 점 두 개 = 골라인',
   angle: '꼭짓점에서 끌기',
@@ -1504,7 +1504,8 @@ export async function studio(el, { id, mode }) {
         <label class="st-range">화살표 크기 <b data-aszv>${Math.round((it.asz || 1) * 100)}%</b><input type="range" min="40" max="200" step="10" value="${Math.round((it.asz || 1) * 100)}" data-asz></label>`,
       link: () => {
         const trs = it.pts.map(trOf).filter(Boolean);
-        return `<div class="st-num"><span>선</span><div class="seg sm"><button type="button" class="${it.lstyle !== 'dash' ? 'on' : ''}" data-lst="solid">실선</button><button type="button" class="${it.lstyle === 'dash' ? 'on' : ''}" data-lst="dash">점선</button></div></div>
+        return `<div class="st-num"><span>모양</span><div class="seg sm"><button type="button" class="${it.closed ? '' : 'on'}" data-lshape="open">선</button><button type="button" class="${it.closed ? 'on' : ''}" data-lshape="closed" ${it.pts.length < 3 ? 'disabled title="선수 3명부터"' : 'title="마지막 선수와 첫 선수를 이어 도형으로"'}>도형</button></div></div>
+          <div class="st-num"><span>선</span><div class="seg sm"><button type="button" class="${it.lstyle !== 'dash' ? 'on' : ''}" data-lst="solid">실선</button><button type="button" class="${it.lstyle === 'dash' ? 'on' : ''}" data-lst="dash">점선</button></div></div>
           ${trs.length ? `<div class="st-lab">이은 선수 ${trs.length}명</div><ul class="st-items st-trs">${trs.map((tr) => trRow(tr, false)).join('')}</ul>${aiLine()}<button type="button" class="btn ghost sm full" data-linkprec>모두 AI 정밀 추적</button>` : ''}`;
       },
       text: () => `<label class="st-range">글자 <input data-ptext value="${esc(it.t)}" maxlength="30"></label>`,
@@ -1611,6 +1612,7 @@ export async function studio(el, { id, mode }) {
     box.querySelector('[data-tinc]')?.addEventListener('change', ch(() => { it.fill = box.querySelector('[data-tinc]').value; }));
     box.querySelector('[data-ptrail]')?.addEventListener('change', ch(() => { it.trail = it.trail === false; }));
     box.querySelectorAll('[data-lst]').forEach((b) => (b.onclick = ch(() => { it.lstyle = b.dataset.lst; })));
+    box.querySelectorAll('[data-lshape]').forEach((b) => (b.onclick = ch(() => { if (b.dataset.lshape === 'closed') { it.closed = true; it.area = true; } else { delete it.closed; delete it.area; } })));
     box.querySelector('[data-linkprec]')?.addEventListener('click', async () => {
       const trs = it.pts.map((q) => q.tr && tele.trackers.find((x) => x.id === q.tr)).filter(Boolean);
       for (const [i, tr] of trs.entries()) { const ok = await preciseTrack(tr); if (!ok) { if (i < trs.length - 1) toast(`${tr.name}에서 멈췄어요 — 고친 뒤 다시 누르면 이어서 해요`); break; } }
@@ -2129,11 +2131,30 @@ export async function studio(el, { id, mode }) {
     }).catch(() => {}).finally(() => { aiLive = false; });
   }
 
+  // 지금 장면이 이 선수를 고칠 수 있는 곳인지 (영상 끝 · 표시 시간 뒤 · 시작 전이면 아님)
+  const trStart = (tr) => tr.path?.[0]?.[0] ?? 0;
+  const inTrRange = (tr, x) => x >= trStart(tr) - 0.05 && x < Math.min((video.duration || Infinity) - 0.15, trackUntil(tr) - 0.1);
+  // 다시 분석할 곳: 놓친 구간이 있으면 그 바로 앞 → 놓침이면 놓친 자리 → 아니면 처음 잡은 곳
+  function troubleAt(tr) {
+    const g = gapsOf(tr)[0] || (tr.gaps || [])[0];
+    if (g) return Math.max(trStart(tr), g.a - 0.5);
+    if (tr.lost && tr.path?.length) return tr.path[tr.path.length - 1][0];
+    return trStart(tr);
+  }
+  // 버튼을 누르면 영상을 처음으로 안 돌려도 되게: 지금 자리가 안 맞으면 고칠 곳으로 바로 이동
+  async function goTrouble(tr, force = false) {
+    if (!force && inTrRange(tr, t())) return false;
+    const at = troubleAt(tr);
+    if (Math.abs(t() - at) > 0.01) await seekTo(at);
+    return true;
+  }
+
   // 다시 잡기: 화면 전체에서 선수 후보를 찾아 번호로 보여줌 → 맞는 선수를 누르면 그 선수로
   async function reacquire(tr) {
     if (!tr) return;
-    if (!fa.ok) { toast('이 영상은 AI로 분석할 수 없어요 — 네모로 직접 감싸세요'); cands = { tr, boxes: [] }; setHint('네모로 선수를 직접 감싸세요 · Esc 취소'); drawPanel(); return; }
     video.pause(); freeze = null;
+    if (await goTrouble(tr)) { toast(`${fmtT(t())} 장면에서 ${tr.name}을(를) 다시 잡아요`); render(); }
+    if (!fa.ok) { toast('이 영상은 AI로 분석할 수 없어요 — 네모로 직접 감싸세요'); cands = { tr, boxes: [] }; setHint('네모로 선수를 직접 감싸세요 · Esc 취소'); drawPanel(); return; }
     if (man) endManual();
     setTool('select');
     busy = { msg: `${tr.name} — AI가 화면의 선수들을 찾는 중`, p: 0 };
@@ -2213,6 +2234,8 @@ export async function studio(el, { id, mode }) {
     video.pause(); freeze = null; cands = null;
     if (man) endManual();
     const [VW, VH] = VWH();
+    // 영상이 끝났거나 이 선수 구간을 지났으면: 처음으로 돌릴 필요 없이 잘못 잡힌 곳부터 다시
+    if (opt.from == null && !opt.quiet && !inTrRange(tr, t())) { opt = { ...opt, from: troubleAt(tr) }; toast(`${fmtT(opt.from)}부터 ${tr.name}을(를) 다시 분석해요`); }
     busy = { msg: '', p: 0, stop: false };
     if (opt.from != null && Math.abs(t() - opt.from) > 0.01) await seekTo(opt.from);
     const start = t();
@@ -2612,6 +2635,9 @@ export async function studio(el, { id, mode }) {
         return;
       }
       if (tool === 'link') {
+        // 첫 선수를 다시 누르면 도형으로 닫고 끝 (삼각형 · 사각형 …)
+        const p0 = draft?.pts[0];
+        if (p0 && draft.pts.length >= 3 && ((p0.tr && snap(n).tr === p0.tr) || Math.hypot(n.x - p0.x, n.y - p0.y) < 0.025)) { draft.closed = true; draft.area = true; commit(draft); return; } // 도형은 안을 색으로 채움
         const pt = trackAt(n);
         if (!draft) draft = newItem('link', { pts: [pt] });
         else draft.pts.push(pt);
@@ -3099,8 +3125,27 @@ export async function studio(el, { id, mode }) {
       frameSrc = null; vtime = null;
     }
   }
+  // 내보낸 영상 오른쪽 아래: 작은 로고 + 이름 (흐리게)
+  const BRAND_TEXT = 'SSAKA MANAGER';
+  let brandMark = null;
+  const loadBrand = () => new Promise((r) => { if (brandMark) { r(); return; } const i = new Image(); i.onload = () => { brandMark = i; r(); }; i.onerror = () => r(); i.src = 'icons/logo-mark.png'; });
+  function drawBrand(c, W, H) {
+    const lh = Math.round(H * 0.026); const pad = Math.round(H * 0.024);
+    c.save();
+    c.font = `900 ${Math.round(lh * 0.62)}px Pretendard Variable, Pretendard, sans-serif`;
+    try { c.letterSpacing = `${Math.round(lh * 0.12)}px`; } catch { /* */ }
+    c.textAlign = 'right'; c.textBaseline = 'middle';
+    const tw = c.measureText(BRAND_TEXT).width;
+    const cy = H - pad - lh / 2;
+    c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = lh * 0.35;
+    c.globalAlpha = 0.72; c.fillStyle = '#ffffff';
+    c.fillText(BRAND_TEXT, W - pad, cy);
+    if (brandMark) { const mw = lh * (brandMark.width / brandMark.height); c.drawImage(brandMark, W - pad - tw - lh * 0.4 - mw, cy - lh / 2, mw, lh); }
+    c.restore();
+  }
   async function exportHQ({ from, to, maxH, fps, fileHandle = null }) {
     await loadMuxer();
+    await loadBrand();
     const VW = video.videoWidth; const VH = video.videoHeight;
     const k = Math.min(1, maxH / VH);
     const outW = Math.round((VW * k) / 2) * 2; const outH = Math.round((VH * k) / 2) * 2; // H.264 는 짝수 크기
@@ -3139,6 +3184,7 @@ export async function studio(el, { id, mode }) {
       cctx.imageSmoothingQuality = 'high';
       cctx.drawImage(SRC(), 0, 0, outW, outH);
       cctx.drawImage(canvas, 0, 0);
+      drawBrand(cctx, outW, outH);
       const vf = new VideoFrame(comp, { timestamp: Math.round(n * us), duration: Math.round(us) });
       enc.encode(vf, { keyFrame: n % (fps * 2) === 0 });
       vf.close();

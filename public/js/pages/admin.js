@@ -399,6 +399,7 @@ export async function users(el) {
         refs.push(doc(db, 'teams', u.teamId, 'members', u.id));
       }
       (await getDocs(collection(db, 'users', u.id, 'todos')).catch(() => ({ docs: [] }))).docs.forEach((d) => refs.push(d.ref));
+      (await getDocs(collection(db, 'users', u.id, 'notes')).catch(() => ({ docs: [] }))).docs.forEach((d) => refs.push(d.ref));
       if (u.consentToken) refs.push(doc(db, 'consents', u.consentToken));
       refs.push(doc(db, 'users', u.id));
       for (let i = 0; i < refs.length; i += 400) { const b = writeBatch(db); refs.slice(i, i + 400).forEach((x) => b.delete(x)); await b.commit(); }

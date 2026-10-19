@@ -66,6 +66,37 @@ const scale = (name, max, value, labels = []) => `<div class="scale" data-scale=
     <label><input type="radio" name="${name}" value="${n}" ${String(value) === String(n) ? 'checked' : ''}><span>${n}${labels[n] ? `<small>${labels[n]}</small>` : ''}</span></label>`).join('')}
 </div>`;
 
+// 시간 고르기: [오전 | 오후] + 시 + 분 (휴대폰에서 누르기 쉽게) — 값은 숨은 칸에 'HH:MM' 그대로
+function timePick(name, value, defPm) {
+  const [h0, m0] = value ? value.split(':').map(Number) : [null, null];
+  const pm = h0 == null ? defPm : h0 >= 12;
+  const h12 = h0 == null ? '' : (h0 % 12) || 12;
+  const mm = m0 == null ? '' : Math.round(m0 / 5) * 5 % 60;
+  return `<div class="tpick" data-tpick="${name}">
+    <input type="hidden" name="${name}" value="${esc(value || '')}">
+    <div class="tpick-ap"><button type="button" class="${pm ? '' : 'on'}" data-ap="am">오전</button><button type="button" class="${pm ? 'on' : ''}" data-ap="pm">오후</button></div>
+    <select data-th aria-label="시"><option value="">시</option>${Array.from({ length: 12 }, (_, i) => i + 1).map((n) => `<option value="${n}" ${n === h12 ? 'selected' : ''}>${n}시</option>`).join('')}</select>
+    <select data-tm aria-label="분">${Array.from({ length: 12 }, (_, i) => i * 5).map((n) => `<option value="${n}" ${n === mm ? 'selected' : ''}>${String(n).padStart(2, '0')}분</option>`).join('')}</select>
+  </div>`;
+}
+function bindTimePicks(root, onChange) {
+  root.querySelectorAll('[data-tpick]').forEach((w) => {
+    const hid = w.querySelector('input[type=hidden]'); const th = w.querySelector('[data-th]'); const tm = w.querySelector('[data-tm]');
+    const sync = () => {
+      const pm = w.querySelector('[data-ap="pm"]').classList.contains('on');
+      if (!th.value) { hid.value = ''; onChange(); return; }
+      const h = (+th.value % 12) + (pm ? 12 : 0);
+      hid.value = `${String(h).padStart(2, '0')}:${String(+tm.value || 0).padStart(2, '0')}`;
+      onChange();
+    };
+    w.querySelectorAll('[data-ap]').forEach((b) => (b.onclick = () => { w.querySelectorAll('[data-ap]').forEach((x) => x.classList.toggle('on', x === b)); sync(); }));
+    th.onchange = tm.onchange = sync;
+  });
+}
+
+// 오늘 다친 경우: 자각도는 빼고 (끝까지 못 한 운동이라 강도 분석이 헷갈리지 않게)
+export const HURT = { train: '훈련 중 부상', match: '경기 중 부상' };
+
 const FOCUS = ['', '아쉬움', '조금', '보통', '잘함', '최고'];
 const dailyTab = {}; // 날짜별로 보고 있던 탭 기억
 const fmtTime = (v) => { const d = v?.toDate ? v.toDate() : null; return d ? `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : ''; };
@@ -191,13 +222,21 @@ export async function daily(el, _p, date = todayStr()) {
         <h4>오늘 컨디션</h4>
         ${scale('condition', 5, l.condition, CONDITION)}
         <div class="grid2">
-          <label>취침 시간<input type="time" name="bedtime" value="${esc(l.bedtime || '')}"></label>
-          <label>기상 시간<input type="time" name="wakeTime" value="${esc(l.wakeTime || '')}"></label>
+          <div class="tpick-l"><span>취침 시간</span>${timePick('bedtime', l.bedtime, true)}</div>
+          <div class="tpick-l"><span>기상 시간</span>${timePick('wakeTime', l.wakeTime, false)}</div>
         </div>
         <p class="muted small" data-sleep></p>
         ${hasFeature('wellness') ? `${dailyFields(l, plans.reduce((a, p) => a + (p.blocks || []).reduce((x, b) => x + (+b.min || 0), 0), 0), bodyNeed)}${scale('sleepQ', 5, l.sleepQ, SLEEP_Q)}` : ''}
+        <h4>오늘 다쳤나요? <small class="muted">훈련 · 경기 중에 다쳐서 끝까지 못 했으면 골라 주세요</small></h4>
+        <div class="hurt-pick">${[['', '안 다쳤어요'], ['train', '훈련 중 부상'], ['match', '경기 중 부상']].map(([v, t]) => `<label><input type="radio" name="hurt" value="${v}" ${(l.hurt || '') === v ? 'checked' : ''}><span>${t}</span></label>`).join('')}</div>
+        <div class="hurt-box" data-hurt-box ${l.hurt ? '' : 'hidden'}>
+          <label>언제 다쳤나요<input name="hurtWhen" maxlength="40" value="${esc(l.hurtWhen || '')}" placeholder="예) 전반 20분 · 훈련 30분째 · 경합하다 착지"></label>
+          <p class="muted small">다친 날은 <b>자각도를 쓰지 않아요</b> — 코치님 데이터 분석에서도 이 날 자각도는 빠지고 <b>부상</b>으로 따로 표시돼요. 아래 부상도 · 부상 부위는 꼭 적어 주세요.</p>
+        </div>
+        <div data-rpe-box>
         <h4>자각도 <small class="muted">운동 강도를 스스로 느낀 정도 (RPE · 1 매우 쉬움 ~ 10 최대)</small></h4>
         ${scale('rpe', 10, l.rpe)}
+        </div>
         <h4>부상도 <small class="muted">0 없음 ~ 10 출전 불가</small></h4>
         ${scale('injury', 11, l.injury ?? 0)}
         <label>부상 부위<input name="injuryPart" value="${esc(l.injuryPart || '')}" placeholder="예) 왼쪽 발목"></label>
@@ -295,8 +334,16 @@ export async function daily(el, _p, date = todayStr()) {
     const m = sleepMin(form.bedtime.value, form.wakeTime.value);
     el.querySelector('[data-sleep]').textContent = m ? `수면 ${sleepLong(m)}` : '';
   };
-  form.bedtime.oninput = form.wakeTime.oninput = upd;
+  bindTimePicks(form, upd);
   upd();
+  // 다쳤으면 자각도 칸 감추기
+  const syncHurt = () => {
+    const h = form.querySelector('[name=hurt]:checked')?.value || '';
+    form.querySelector('[data-hurt-box]').hidden = !h;
+    form.querySelector('[data-rpe-box]').hidden = !!h;
+  };
+  form.querySelectorAll('[name=hurt]').forEach((r) => r.addEventListener('change', syncHurt));
+  syncHurt();
   el.querySelector('[data-date]').onchange = (e) => e.target.value && daily(el, _p, e.target.value);
   // 내 일지: 누르면 그 날 일지 보기
   el.querySelectorAll('[data-mylog]').forEach((li) => (li.onclick = (e) => {
@@ -434,7 +481,8 @@ export async function daily(el, _p, date = todayStr()) {
     }
     const data = {
       ...d, date, uid: state.user.uid, name: state.profile.name,
-      condition: +d.condition || null, rpe: +d.rpe || null, injury: +d.injury || 0, goalScore: +d.goalScore || null,
+      condition: +d.condition || null, rpe: d.hurt ? null : +d.rpe || null, injury: +d.injury || 0, goalScore: +d.goalScore || null,
+      hurt: d.hurt || '', hurtWhen: d.hurt ? (d.hurtWhen || '').trim() : '',
       sleep: sleepHours(d.bedtime, d.wakeTime), sleepMin: sleepMin(d.bedtime, d.wakeTime), updatedAt: serverTimestamp(),
       ...(hasFeature('wellness') ? {
         trainMin: d.absent ? 0 : d.trainMin === '' || d.trainMin == null ? null : +d.trainMin, sleepQ: +d.sleepQ || null,
@@ -547,18 +595,19 @@ export async function journalCheck(el, _p, date = todayStr()) {
   const done = players.filter((p) => logs[p.id]?.submitted); // 제출한 선수만 '제출'
   const drafting = players.filter((p) => logs[p.id] && !logs[p.id].submitted);
   const waiting = done.filter((p) => !logs[p.id].checked).length;
-  const alerts = players.filter((p) => logs[p.id]).filter((p) => logs[p.id].injury >= 5 || logs[p.id].condition <= 2 || (sleepOf(logs[p.id]) != null && sleepOf(logs[p.id]) < SHORT_SLEEP));
+  const alerts = players.filter((p) => logs[p.id]).filter((p) => logs[p.id].hurt || logs[p.id].injury >= 5 || logs[p.id].condition <= 2 || (sleepOf(logs[p.id]) != null && sleepOf(logs[p.id]) < SHORT_SLEEP));
   const all = Object.values(logs).map((l) => ({ ...l, sleepM: sleepOf(l) }));
 
   el.innerHTML = `${pageHead('JOURNAL CHECK', '일지검사', `${hasFeature('wellness') && isCoach() ? '<button class="btn ghost sm" data-xlsx>엑셀로 받기</button>' : ''}<input type="date" value="${date}" max="${todayStr()}" data-date>`)}
   <section class="stat-board small">
     <div><small>제출 · 검사 대기</small><strong>${done.length}<i>/${players.length}</i></strong><small>검사 대기 ${waiting} · 작성 중 ${drafting.length}</small></div>
-    <div><small>평균 컨디션</small><strong>${avg(all, 'condition')}</strong></div>
+    <div><small>평균 컨디션</small><strong style="color:var(--accent)">${avg(all, 'condition')}</strong></div>
     <div><small>평균 수면</small><strong>${avg(all, 'sleepM') === '-' ? '-' : Math.round(avg(all, 'sleepM'))}<i>분</i></strong></div>
     <div><small>평균 자각도</small><strong>${avg(all, 'rpe')}</strong></div>
-    <div><small>주의 선수</small><strong>${alerts.length}</strong></div>
+    <div><small>주의 선수</small><strong style="${alerts.length ? 'color:#ff453a' : ''}">${alerts.length}</strong></div>
   </section>
   ${alerts.length ? `<div class="banner">주의: ${alerts.map((p) => `${esc(p.name)}(${[
+    logs[p.id].hurt && `${HURT[logs[p.id].hurt]}${logs[p.id].hurtWhen ? ` ${esc(logs[p.id].hurtWhen)}` : ''}`,
     logs[p.id].injury >= 5 && `부상 ${logs[p.id].injury}${logs[p.id].injuryPart ? ` ${esc(logs[p.id].injuryPart)}` : ''}`,
     logs[p.id].condition <= 2 && `컨디션 ${logs[p.id].condition}`,
     sleepOf(logs[p.id]) != null && sleepOf(logs[p.id]) < SHORT_SLEEP && `수면 ${fmtSleep(sleepOf(logs[p.id]))}`,
@@ -568,7 +617,7 @@ export async function journalCheck(el, _p, date = todayStr()) {
     ${sortGroups(players, getSort('journal')).map(([gt, ps]) => `${gt ? `<h3 class="sort-h">${esc(gt)} <small>${ps.length}명</small></h3>` : ''}${ps.map((p) => {
       const l = logs[p.id];
       const st = !l ? ['none', '작성 안 함'] : !l.submitted ? ['draft', '작성 중 · 미제출'] : l.checked ? ['done', '검사 완료'] : ['sent', '제출함 · 검사 대기'];
-      const warn = l && (l.injury >= 5 || l.condition <= 2 || (sleepOf(l) != null && sleepOf(l) < SHORT_SLEEP));
+      const warn = l && (l.hurt || l.injury >= 5 || l.condition <= 2 || (sleepOf(l) != null && sleepOf(l) < SHORT_SLEEP));
       const wrote = l?.sessions ? Object.values(l.sessions).filter((x) => x.good || x.hard || x.next || x.did).length : 0;
       const asks = [...Object.entries(l?.sessions || {}), ...(l?.match?.scenes || []).filter((sc) => sc.key).map((sc) => [`m_${sc.key}`, sc])].filter(([k, x]) => x.ask && !(l.answers || {})[k]?.text).length;
       const kind = l?.kind || (l?.match && (l.match.good || l.match.bad || (l.match.scenes || []).length) ? 'match' : 'train');
@@ -577,8 +626,8 @@ export async function journalCheck(el, _p, date = todayStr()) {
         ${l ? `<div class="jstats">
           <div><small>컨디션</small><b>${l.condition ?? '-'}<i>/5</i></b>${l.condition ? `<span class="dots">${'●'.repeat(l.condition)}${'○'.repeat(5 - l.condition)}</span>` : ''}</div>
           <div><small>수면</small><b>${sleepOf(l) ?? '-'}<i>분</i></b></div>
-          <div><small>자각도</small><b>${l.rpe ?? '-'}</b></div>
-          <div class="${l.injury >= 5 ? 'hot' : ''}"><small>부상</small><b>${l.injury ?? 0}</b>${l.injuryPart ? `<em>${esc(l.injuryPart)}</em>` : ''}</div>
+          <div class="${l.hurt ? 'hot' : ''}"><small>자각도</small><b>${l.hurt ? '<span class="hurt-tag">부상</span>' : l.rpe ?? '-'}</b></div>
+          <div class="${l.injury >= 5 || l.hurt ? 'hot' : ''}"><small>부상</small><b>${l.injury ?? 0}</b>${l.injuryPart ? `<em>${esc(l.injuryPart)}</em>` : ''}</div>
         </div>
         <div class="jmeta"><span class="jbadge ${st[0]}">${st[1]}</span><p class="jwhat">${kind === 'match' ? `<span class="tag solid">경기 일지</span>${asks ? ` <span class="tag warn">질문 ${asks}</span>` : ''}` : `<span class="tag solid">훈련 일지</span>${l.sessions ? ` <span class="tag">세션 ${wrote}</span>` : ''}${asks ? ` <span class="tag warn">질문 ${asks}</span>` : ''}`}</p></div>` : `<p class="muted">아직 오늘 기록을 쓰지 않았어요.</p><div class="jmeta"><span class="jbadge ${st[0]}">${st[1]}</span></div>`}
         ${l?.submitted ? `<button class="btn full ${l.checked ? 'ghost' : ''}" data-open>${l.checked ? '검사 완료 · 다시 보기' : '일지 검사하기'}</button>` : ''}
@@ -610,7 +659,7 @@ export async function journalCheck(el, _p, date = todayStr()) {
     const m = modal(`<span class="eyebrow">JOURNAL · ${esc(l.date)}</span><h2>${esc(l.name)}</h2>
       <div class="kv"><span>컨디션</span><strong>${l.condition ?? '-'} / 5</strong></div>
       <div class="kv"><span>취침 · 기상 · 수면</span><strong>${esc(l.bedtime || '-')} · ${esc(l.wakeTime || '-')} · ${sleepLong(sleepOf(l))}</strong></div>
-      <div class="kv"><span>자각도</span><strong>${l.rpe ?? '-'} / 10</strong></div>
+      ${l.hurt ? `<div class="kv hot"><span>오늘 부상</span><strong>${HURT[l.hurt]}${l.hurtWhen ? ` · ${esc(l.hurtWhen)}` : ''} <small class="muted">(자각도 분석에서 빠짐)</small></strong></div>` : `<div class="kv"><span>자각도</span><strong>${l.rpe ?? '-'} / 10</strong></div>`}
       <div class="kv"><span>부상도</span><strong>${l.injury ?? 0} / 10 ${esc(l.injuryPart || '')}</strong></div>
       ${journalHtml(l) ? `<h4>훈련 일지</h4>${journalHtml(l, true)}` : ''}${matchHtml(l, true)}
       ${!journalHtml(l) && !matchHtml(l) ? '<p class="muted">일지 내용이 없습니다.</p>' : ''}
@@ -655,7 +704,7 @@ function pdfPage(x) {
   const sleep = sleepOf(x);
   const body = [x.condition && ['컨디션', `${x.condition} / 5 ${CONDITION[x.condition] ? `(${CONDITION[x.condition]})` : ''}`],
     sleep && ['수면', `${sleepLong(sleep)}${x.bedtime ? ` · ${x.bedtime} ~ ${x.wakeTime || ''}` : ''}`],
-    x.rpe && ['운동 강도(RPE)', `${x.rpe} / 10`], x.injury != null && ['통증 · 부상', x.injury ? `${x.injury} / 10` : '없음']].filter(Boolean);
+    x.hurt ? ['오늘 부상', `${HURT[x.hurt]}${x.hurtWhen ? ` · ${x.hurtWhen}` : ''}`] : x.rpe && ['운동 강도(RPE)', `${x.rpe} / 10`], x.injury != null && ['통증 · 부상', x.injury ? `${x.injury} / 10` : '없음']].filter(Boolean);
   return `<article class="pdf-page">
     <header class="pdf-head"><span class="pdf-brand">SSAKA MANAGER</span><span>${esc(state.profile?.name || '')}${state.team ? ` · ${esc(state.team.name)}` : ''} · ${todayStr()} 저장</span></header>
     <h1>${x.date.slice(0, 4)}년 ${fmtDay(x.date)} · ${k === 'match' ? `경기 일지${x.match?.opponent ? ` vs ${esc(x.match.opponent)}` : ''}` : '훈련 일지'}</h1>

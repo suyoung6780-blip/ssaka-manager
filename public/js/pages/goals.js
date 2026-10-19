@@ -41,6 +41,34 @@ const dday = (due) => {
 
 let tab = null;
 
+// 진행률 도넛 (경기 기록실과 같은 모양)
+const ring = (p, label) => {
+  const R = 44; const C = 2 * Math.PI * R;
+  return `<div class="rec-ring-fig"><svg class="rec-donut" viewBox="0 0 110 110" aria-hidden="true"><circle class="bg" r="${R}" cx="55" cy="55"/>${p > 0 ? `<circle class="w" r="${R}" cx="55" cy="55" stroke-dasharray="${(p / 100) * C} ${C}"/>` : ''}</svg>
+    <div class="rec-ring-c"><strong>${p}<i>%</i></strong><small>${label}</small></div></div>`;
+};
+const soon = (g) => g.due && g.status === 'doing' && (() => { const d = Math.round((new Date(`${g.due}T00:00`) - new Date(`${todayStr()}T00:00`)) / 864e5); return d >= 0 && d <= 14; })();
+// 위쪽 요약: 도넛 + 달성 / 진행 중 / 미달성 + 분야별 막대
+function goalHero(goals, cats, label) {
+  const n = (st) => goals.filter((g) => g.status === st).length;
+  const near = goals.filter(soon).length;
+  return `<section class="rec-hero goal-hero">
+    <div class="rec-ring">${ring(avgPct(goals), label)}
+      <ul class="rec-legend">
+        <li class="w"><i></i><span>달성</span><b>${n('done')}</b><em>${goals.length ? Math.round((n('done') / goals.length) * 100) : 0}%</em></li>
+        <li class="d"><i></i><span>진행</span><b>${n('doing')}</b><em>${goals.length ? Math.round((n('doing') / goals.length) * 100) : 0}%</em></li>
+        <li class="l"><i></i><span>미달</span><b>${n('miss')}</b><em>${goals.length ? Math.round((n('miss') / goals.length) * 100) : 0}%</em></li>
+        <li class="g"><span>목표 ${goals.length}개</span>${near ? `<b class="rec-streak warn">기한 2주 안 ${near}개</b>` : ''}</li>
+      </ul>
+    </div>
+    <div class="rec-kpis goal-cats" style="--n:${Math.max(1, cats.length)}">${cats.map((c) => { const arr = goals.filter((g) => (g.category || cats[0]) === c); const v = avgPct(arr); return `<div class="rk ${arr.length ? '' : 'empty'}"><small>${esc(c)}</small><strong>${arr.length ? `${v}<i>%</i>` : '-'}</strong><div class="rk-prog g"><i style="width:${arr.length ? v : 0}%"></i></div><span>${arr.length ? `달성 <b>${arr.filter((g) => g.status === 'done').length}/${arr.length}</b>` : '목표 없음'}</span></div>`; }).join('')}</div>
+  </section>`;
+}
+const nearList = (goals) => {
+  const arr = goals.filter(soon).sort((a, b) => a.due.localeCompare(b.due)).slice(0, 6);
+  return arr.length ? `<section class="card goal-near"><h3>기한이 가까운 목표</h3><ul>${arr.map((g) => `<li><span class="dday">${dday(g.due)}</span><b>${esc(g.title)}</b><div class="rk-prog g"><i style="width:${pct(g)}%"></i></div><em>${pct(g)}%</em></li>`).join('')}</ul></section>` : '';
+};
+
 export async function page(el) {
   const [gs, ms] = await Promise.all([getDocs(gcol()), getDocs(collection(db, 'teams', state.team.id, 'members'))]);
   const all = gs.docs.map((d) => norm({ id: d.id, ...d.data() }));
@@ -61,14 +89,9 @@ export async function page(el) {
 
 // ───────── 팀 목표 ─────────
 function teamView(box, goals, refresh) {
-  const total = avgPct(goals);
-  const done = goals.filter((g) => g.status === 'done').length;
   box.innerHTML = `
-    <section class="goal-summary">
-      <div class="gs-main"><small>팀 목표 전체 진행률</small><strong>${total}<i>%</i></strong><div class="bar"><i style="width:${total}%"></i></div>
-        <small>목표 ${goals.length}개 · 달성 ${done}개 · 진행 중 ${goals.filter((g) => g.status === 'doing').length}개</small></div>
-      ${CATS.map((c) => { const arr = goals.filter((g) => g.category === c); return `<div><small>${c}</small><strong>${arr.length ? `${avgPct(arr)}<i>%</i>` : '-'}</strong><small>${arr.length}개</small></div>`; }).join('')}
-    </section>
+    ${goalHero(goals, CATS, '팀 진행률')}
+    ${nearList(goals)}
     ${isCoach() ? '<div class="row end"><button class="btn" data-new>+ 팀 목표 추가</button></div>' : ''}
     ${goals.length ? CATS.map((c) => {
       const arr = goals.filter((g) => (g.category || CATS[0]) === c);
@@ -99,7 +122,7 @@ function teamCard(g) {
       <div class="bar"><i style="width:${p}%"></i></div>
       <div class="gnums">${g.target > 0
         ? `<strong>${+g.current || 0}${esc(g.unit || '')}</strong><span>목표 ${+g.target}${esc(g.unit || '')} ${g.lower ? '이하' : '이상'}</span>`
-        : `<strong>${p}%</strong>`}
+        : `<strong class="gpct">${p}<i>%</i></strong>`}
         ${isCoach() && g.target > 0 ? '<span class="gbtns"><button class="chip" data-dec>−</button><button class="chip" data-inc>+</button></span>' : ''}</div>
     </div>
     ${isCoach() ? `<footer><select data-status>${options(Object.entries(STATUS), g.status)}</select><button class="link-btn small" data-edit>수정</button></footer>` : ''}
@@ -157,6 +180,7 @@ function mineView(box, goals, refresh) {
       <div><span class="eyebrow">MY GOALS</span><h2>${esc(state.profile.name)}의 목표</h2><p>스스로 정한 목표를 적고, 노력한 만큼 진행률을 올려보세요. 코치님이 응원 한마디를 남겨줘요.</p></div>
       <button class="btn" data-new>+ 내 목표 적기</button>
     </section>
+    ${goals.length ? `${goalHero(goals, MY_CATS.filter((c) => goals.some((g) => g.category === c)), '내 진행률')}${nearList(goals)}` : ''}
     ${goals.length ? `<div class="goal-grid">${goals.map((g) => myCard(g, true)).join('')}</div>` : empty('아직 목표가 없어요. "내 목표 적기"를 눌러 첫 목표를 적어보세요!')}`;
   box.querySelector('[data-new]').onclick = () => myEditor(null, refresh);
   bindMyCards(box, goals, refresh);
@@ -172,7 +196,7 @@ function myCard(g, mine) {
     ${g.how ? `<p><b>어떻게?</b> ${text(g.how)}</p>` : ''}
     <div class="gprog">
       <div class="bar"><i style="width:${p}%"></i></div>
-      <div class="gnums"><strong>${p}%</strong>
+      <div class="gnums"><strong class="gpct">${p}<i>%</i></strong>
         ${mine && g.status !== 'done' ? '<span class="gbtns"><button class="chip" data-p="-10">−10</button><button class="chip" data-p="10">+10</button><button class="chip on" data-done>달성!</button></span>' : ''}</div>
     </div>
     ${g.coachComment ? `<div class="coach-note"><span class="tag solid">코치 한마디</span><p>${text(g.coachComment)}</p></div>` : ''}
@@ -228,12 +252,26 @@ function playersView(box, goals, members, refresh) {
   const by = (uid) => goals.filter((g) => g.ownerUid === uid);
   const written = players.filter((p) => by(p.id).length).length;
   box.innerHTML = `
-    <p class="lead">선수들이 직접 적어 올린 목표입니다. 목표를 눌러 코치 한마디를 남기고 확인 도장을 찍어주세요. (작성 ${written}/${players.length}명)</p>
+    <section class="rec-hero goal-hero">
+      <div class="rec-ring">${ring(players.length ? Math.round((written / players.length) * 100) : 0, '작성률')}
+        <ul class="rec-legend">
+          <li class="w"><i></i><span>작성</span><b>${written}</b><em>명</em></li>
+          <li class="d"><i></i><span>안 씀</span><b>${players.length - written}</b><em>명</em></li>
+          <li class="g"><span>선수 ${players.length}명</span>${goals.some((g) => !g.coachChecked) ? `<b class="rec-streak warn">확인 대기 ${goals.filter((g) => !g.coachChecked).length}개</b>` : ''}</li>
+        </ul>
+      </div>
+      <div class="rec-kpis">
+        <div class="rk"><small>평균 진행률</small><strong>${avgPct(goals)}<i>%</i></strong><div class="rk-prog g"><i style="width:${avgPct(goals)}%"></i></div><span>목표 <b>${goals.length}</b>개</span></div>
+        <div class="rk"><small>달성</small><strong>${goals.filter((g) => g.status === 'done').length}</strong><span>${goals.length ? Math.round((goals.filter((g) => g.status === 'done').length / goals.length) * 100) : 0}%</span></div>
+        <div class="rk"><small>코치 확인</small><strong>${goals.filter((g) => g.coachChecked).length}<i>/${goals.length}</i></strong><div class="rk-prog"><i style="width:${goals.length ? (goals.filter((g) => g.coachChecked).length / goals.length) * 100 : 0}%"></i></div><span>목표를 눌러 한마디 · 도장</span></div>
+      </div>
+    </section>
+    <p class="lead">선수들이 직접 적어 올린 목표입니다. 목표를 눌러 코치 한마디를 남기고 확인 도장을 찍어주세요.</p>
     ${players.length ? `<div class="pgoal-list">${players.map((p) => {
       const arr = by(p.id);
       return `<section class="pgoal">
         <header>${avatar(p.photo, p.name, 'sm')}<strong>${p.number ? `${esc(p.number)} ` : ''}${esc(p.name)}</strong>
-          <small>${arr.length ? `목표 ${arr.length}개 · 평균 ${avgPct(arr)}%` : '아직 작성 안 함'}</small>
+          <small>${arr.length ? `목표 ${arr.length}개 · 평균 ${avgPct(arr)}%` : '아직 작성 안 함'}</small>${arr.length ? `<div class="rk-prog g pg-bar"><i style="width:${avgPct(arr)}%"></i></div>` : ''}
           ${arr.some((g) => !g.coachChecked) ? '<span class="tag solid">새 목표</span>' : ''}</header>
         ${arr.length ? `<div class="goal-grid">${arr.map((g) => myCard(g, false)).join('')}</div>` : ''}
       </section>`;

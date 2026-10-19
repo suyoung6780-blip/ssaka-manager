@@ -105,6 +105,9 @@ export function signup(el) {
   el.innerHTML = `${brand}
   <form class="card auth-card">
     <h2>회원가입</h2>
+    <div class="signup-rule"><b>가입 전에 꼭 확인해 주세요</b>
+      <ul><li><b>성명</b>은 실명(성과 이름)으로 정확하게</li><li><b>팀 이름</b>은 실제 팀 이름 그대로 (예: 블랙 FC U15, 한빛초 축구부)</li></ul>
+      <p>별명 · 줄임말 · 알아볼 수 없는 이름으로 가입하면 운영자 확인 뒤 <b>이용이 제한될 수 있어요.</b></p></div>
     <label>이메일 <small class="muted">(로그인 아이디로 쓰여요)</small><input name="email" type="email" required autocomplete="email" placeholder="example@naver.com"></label>
     <p class="muted small field-hint">이메일이 없는 선수는 부모님 이메일로 가입해도 돼요. 비밀번호를 잊으면 이 이메일로 재설정 링크가 갑니다.</p>
     <div class="field-error" data-dup hidden>이미 가입된 이메일이에요. 이 이메일로 로그인하거나, 비밀번호가 기억나지 않으면 재설정 메일을 받으세요.
@@ -191,7 +194,8 @@ export function profileFields(p = {}, { withRole = false } = {}) {
         </label>`).join('')}
       <button type="button" class="link-btn small guide-link" data-guide>어떤 계정을 골라야 하나요? 권한 보기</button>
     </fieldset>` : ''}
-    <label>이름<input name="name" required maxlength="20" value="${esc(p.name || '')}"></label>
+    <label>이름 ${withRole ? '<small class="muted">(실명)</small>' : ''}<input name="name" required maxlength="20" value="${esc(p.name || '')}" ${withRole ? 'placeholder="예) 홍길동 — 별명 · 이니셜 말고 실명"' : ''}></label>
+    ${withRole ? '<p class="name-note real">실명(성과 이름)을 정확하게 적어 주세요. <b>별명 · 이니셜 · 알아볼 수 없는 이름</b>은 팀 승인이 안 되거나 <b>이용이 제한될 수 있어요.</b></p>' : ''}
     ${withRole
       ? `<div data-for="player" ${r === 'player' ? '' : 'hidden'}>${playerFields(p)}</div><div data-for="coach" ${r === 'coach' ? '' : 'hidden'}>${coachFields(p)}</div>`
       : r === 'coach' ? coachFields(p) : playerFields(p)}`;

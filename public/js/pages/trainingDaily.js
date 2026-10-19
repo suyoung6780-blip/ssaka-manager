@@ -2,7 +2,7 @@
 import {
   db, collection, doc, query, where, orderBy, limit, getDocs, addDoc, updateDoc, deleteDoc, serverTimestamp,
 } from '../fb.js';
-import { esc, text, toast, fail, formData, modal, confirmBox, todayStr, pageHead, empty, options } from '../ui.js';
+import { esc, text, toast, fail, formData, modal, confirmBox, todayStr, pageHead, empty, options, kpiStrip } from '../ui.js';
 import { state, isCoach } from '../store.js';
 import { createPad } from '../tactic.js';
 import { trainingTabs, loadPrograms, present } from './training.js';
@@ -68,7 +68,16 @@ export async function daily(el) {
     });
     const todays = plans.filter((p) => p.date === dailySel).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
     const box = el.querySelector('[data-dayview]');
+    const ws = weekStart(dailySel); const we = addDays(ws, 6);
+    const wk = plans.filter((p) => p.date >= ws && p.date <= we);
+    const mins = (arr) => arr.reduce((a, p) => a + (p.blocks || []).reduce((x, b) => x + (+b.min || 0), 0), 0);
+    const nBlocks = todays.reduce((a, p) => a + (p.blocks || []).length, 0);
     box.innerHTML = `
+      ${kpiStrip([
+        { l: '이 날 훈련', v: nBlocks, u: '개', s: todays.length ? `안내 <b>${todays.length}</b>개` : '안내 없음' },
+        { l: '이 날 시간', v: mins(todays), u: '분', c: mins(todays) ? 'var(--accent)' : '', p: Math.min(100, (mins(todays) / 120) * 100), s: '120분 기준 막대' },
+        { l: '이번 주 훈련일', v: new Set(wk.map((p) => p.date)).size, u: '일', stack: Array.from({ length: 7 }, (_, i) => [1, wk.some((p) => p.date === addDays(ws, i)) ? 'var(--accent)' : '#2a302d', DOW[(i + 1) % 7]]), s: `이번 주 <b>${mins(wk)}</b>분` },
+      ])}
       <div class="day-head"><h2>${fmtDay(dailySel)}${dailySel === todayStr() ? ' <span class="tag solid">오늘</span>' : ''}</h2>
         ${isCoach() ? '<button class="btn" data-new>+ 이 날 훈련 쓰기</button>' : ''}</div>
       ${todays.length ? todays.map((p) => planCard(p, progMap)).join('') : empty(isCoach() ? '이 날 훈련 안내가 없습니다. 선수들이 볼 훈련 내용을 적어주세요.' : '이 날은 등록된 훈련이 없습니다.')}`;
@@ -236,7 +245,14 @@ export async function notes(el) {
     const dayNotes = list.filter((n) => n.date === noteSel);
     const dayPlans = plans.filter((p) => p.date === noteSel);
     const box = el.querySelector('[data-dayview]');
+    const ws = weekStart(noteSel); const we = addDays(ws, 6);
+    const wkN = list.filter((n) => n.date >= ws && n.date <= we);
     box.innerHTML = `
+      ${kpiStrip([
+        { l: '이 날 훈련 정리', v: dayNotes.length, u: '개', s: dayPlans.length ? `선수 안내 <b>${dayPlans.length}</b>개` : '선수 안내 없음' },
+        { l: '이번 주 정리', v: new Set(wkN.map((n) => n.date)).size, u: '일', stack: Array.from({ length: 7 }, (_, k) => [1, wkN.some((n) => n.date === addDays(ws, k)) ? 'var(--accent)' : '#2a302d', DOW[(k + 1) % 7]]), s: `정리 <b>${wkN.length}</b>개` },
+        { l: '모든 정리', v: list.length, u: '개', s: '코치끼리만 봐요' },
+      ])}
       <div class="day-head"><h2>${fmtDay(noteSel)}</h2><button class="btn" data-new>+ 훈련 정리 쓰기</button></div>
       ${dayPlans.length ? `<div class="plan-ref"><small>이 날 선수 안내</small>${dayPlans.map((p) => `<span><b>${esc(p.title)}</b> : ${(p.blocks || []).map((b) => esc(b.name)).filter(Boolean).join(' → ')}</span>`).join('')}</div>` : ''}
       ${dayNotes.length ? dayNotes.map((n) => `

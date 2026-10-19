@@ -3,7 +3,7 @@ import {
 } from '../fb.js';
 import {
   esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, options, avatar,
-  ROLES, MATCH_TYPES, sortGroups, sortBar, bindSortBar, getSort, byName } from '../ui.js';
+  ROLES, MATCH_TYPES, sortGroups, sortBar, bindSortBar, getSort, byName, kpiStrip, posGroup, POS_GROUPS } from '../ui.js';
 import { state, isCoach, isOwner } from '../store.js';
 import { createPad, formationData, is8 } from '../tactic.js';
 import { keepDraft, fillFields, draftStrip } from '../drafts.js';
@@ -56,6 +56,9 @@ export async function gameModel(el) {
     </div>
     <section class="gm-pats">
       <div class="card-head"><h2>패턴 · 작전판 <small class="muted">${(gm.patterns || []).length}개</small></h2>${isCoach() ? '<button class="btn sm" data-padd>+ 패턴 만들기</button>' : ''}</div>
+      ${(gm.patterns || []).length ? kpiStrip([
+        { l: '패턴', v: (gm.patterns || []).length, u: '개', stack: PATTERN_CATS.map((c, i) => [(gm.patterns || []).filter((x) => x.cat === c).length, ['#4ea1ff', '#39e75f', '#ff6b5a', '#ffb020', '#b48cff', '#8e8e93'][i % 6], c]), s: PATTERN_CATS.filter((c) => (gm.patterns || []).some((x) => x.cat === c)).map((c) => `${esc(c)} <b>${(gm.patterns || []).filter((x) => x.cat === c).length}</b>`).join(' · ') },
+      ]) : ''}
       <div class="chips wrap">${['전체', ...PATTERN_CATS].map((c) => `<button class="chip ${c === patCat ? 'on' : ''}" data-pcat="${c}">${c}${c !== '전체' ? ` <small>${(gm.patterns || []).filter((x) => x.cat === c).length}</small>` : ''}</button>`).join('')}</div>
       ${isCoach() ? '<div data-pdrafts hidden></div>' : ''}<div class="pat-grid" data-pats></div>
     </section>`;
@@ -103,7 +106,10 @@ export async function gameModel(el) {
     const m = modal(`<span class="eyebrow">${esc(x.cat)}</span><h2>${esc(x.title)}</h2>
       <div data-vpad></div>
       ${x.note ? `<div class="prose">${text(x.note)}</div>` : ''}
-      ${isCoach() ? '<div class="row end"><button class="btn ghost sm" data-pdel>삭제</button><button class="btn sm" data-pedit>수정</button></div>' : ''}`, { wide: true });
+      ${isCoach() ? `<div class="row end"><button class="btn ghost sm" data-ximg>이미지로 저장</button>${(x.pad?.steps || []).length || (x.pad?.items || []).some((i) => i.k === 'arrow') ? '<button class="btn ghost sm" data-xvid>영상으로 저장</button>' : ''}<button class="btn ghost sm" data-pdel>삭제</button><button class="btn sm" data-pedit>수정</button></div>` : ''}`, { wide: true });
+    const ex = async (kind, b) => (await import('./training.js')).exportPad(kind, x.pad, x.title, b);
+    m.el.querySelector('[data-ximg]')?.addEventListener('click', (e) => ex('image', e.currentTarget));
+    m.el.querySelector('[data-xvid]')?.addEventListener('click', (e) => ex('video', e.currentTarget));
     const vpad = createPad(m.el.querySelector('[data-vpad]'), x.pad, { editable: false });
     const onKey = (e) => {
       if (!m.el.isConnected) { document.removeEventListener('keydown', onKey); return; }
@@ -122,6 +128,7 @@ export async function gameModel(el) {
       <form class="stack">
         <div class="grid2"><label>제목<input name="title" required maxlength="40" value="${esc(x?.title || '')}" placeholder="예) 오른쪽 코너킥 — 니어 포스트 런"></label>
           <label>종류<select name="cat">${PATTERN_CATS.map((c) => `<option ${c === (x?.cat || patCat) ? 'selected' : ''}>${c}</option>`).join('')}</select></label></div>
+        <div class="pat-bar"><small class="muted">작전판</small>${padBar()}</div>
         <div data-epad></div>
         <label>설명 <small class="muted">누가 · 언제 · 어떻게 (선수들이 함께 봐요)</small><textarea name="note" rows="3" maxlength="1500">${esc(x?.note || '')}</textarea></label>
         <div class="row end"><button type="button" class="btn ghost" data-cancel>취소</button><button class="btn">저장</button></div>
@@ -129,7 +136,10 @@ export async function gameModel(el) {
     const form = m.el.querySelector('form');
     if (dr) fillFields(form, dr.fields);
     let keep = null;
-    const pad = createPad(m.el.querySelector('[data-epad]'), dr?.pad || x?.pad || formationData('4-3-3', true), { motion: true, onChange: () => keep?.touch() });
+    const epBox = m.el.querySelector('[data-epad]');
+    const popt = { motion: true, onChange: () => keep?.touch(), exportTitle: () => form.querySelector('[name=title]').value.trim() || '패턴' };
+    let pad = createPad(epBox, dr?.pad || x?.pad || formationData('4-3-3', true), popt);
+    bindPadBar(m.el, () => pad, () => { epBox.innerHTML = ''; pad = createPad(epBox, formationData('4-3-3', true), popt); keep?.touch(); }, () => form.querySelector('[name=title]').value.trim() || '패턴');
     keep = keepDraft(form, { scope: PSCOPE(), id: x?.id, key: dr?.key, getPad: () => pad.getData() });
     m.onClose = () => { keep.close(); drawDrafts(); };
     m.el.querySelector('[data-cancel]').onclick = m.close;
@@ -143,10 +153,20 @@ export async function gameModel(el) {
     };
   }
 
+  // 전술보드와 같은 버튼 줄: 이미지로 저장 · 영상으로 저장 (지우기는 작전판의 [모두 지우기])
+  const padBar = () => `<div class="tb-acts gm-acts"><button type="button" class="btn ghost sm" data-ximg>이미지로 저장</button><button type="button" class="btn ghost sm" data-xvid>영상으로 저장</button></div>`;
+  const bindPadBar = (root, getPad, reset, title) => {
+    root.querySelector('[data-ximg]').onclick = async (e) => (await import('./training.js')).exportPad('image', getPad().getData(), title(), e.currentTarget);
+    root.querySelector('[data-xvid]').onclick = async (e) => {
+      const T = await import('./training.js');
+      if (!T.padMoves(getPad().getData())) { toast('영상은 움직임이 있어야 해요 — 장면을 2개 이상 만들거나 화살표를 그려 주세요.'); return; }
+      T.exportPad('video', getPad().getData(), title(), e.currentTarget);
+    };
+  };
   const edit = () => {
     el.innerHTML = `${pageHead('GAME MODEL', '게임모델 편집')}
     <form class="stack">
-      <section class="card"><h3>포메이션 · 배치</h3><div data-pad></div></section>
+      <section class="card"><div class="card-head"><h3>포메이션 · 배치</h3>${padBar()}</div><div data-pad></div></section>
       <section class="card">
         <div class="grid2">
           <label>주장<select name="captain"><option value="">-</option>${options(players.map((p) => [p.id, p.name]), gm.captain)}</select></label>
@@ -157,7 +177,9 @@ export async function gameModel(el) {
         <div class="row end"><button type="button" class="btn ghost" data-cancel>취소</button><button class="btn">저장</button></div>
       </section>
     </form>`;
-    const pad = createPad(el.querySelector('[data-pad]'), gm.pad || formationData('4-3-3', false), { motion: true, draft: `${state.team.id}/gamemodel` });
+    const padBox = el.querySelector('[data-pad]');
+    let pad = createPad(padBox, gm.pad || formationData('4-3-3', false), { motion: true, draft: `${state.team.id}/gamemodel`, exportTitle: '게임모델' });
+    bindPadBar(el, () => pad, () => { padBox.innerHTML = ''; pad = createPad(padBox, formationData('4-3-3', false), { motion: true, draft: `${state.team.id}/gamemodel`, exportTitle: '게임모델' }); }, () => `게임모델 ${pad.getData().formation || ''}`.trim());
     el.querySelector('[data-cancel]').onclick = view;
     el.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
@@ -188,6 +210,18 @@ export async function locker(el) {
 
   el.innerHTML = `${pageHead('LOCKER ROOM', '락커룸', code ? `<button class="btn ghost" data-code>팀 코드 ${esc(code)} 복사</button>` : '')}
     <p class="lead">선수 · 지도자는 팀 코드로 입장을 신청하고, 팀 대표가 승인하면 락커룸에 들어옵니다.</p>
+    ${(() => {
+      const ps = group('player'); const cs = group('coach');
+      const by = (g) => ps.filter((m) => posGroup(m.position) === g).length;
+      const avgOf = (k) => { const v = ps.map((m) => +m[k]).filter((x) => x > 0); return v.length ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1) : null; };
+      const hh = avgOf('height'); const ww = avgOf('weight');
+      return kpiStrip([
+        { l: '선수', v: ps.length, u: '명', stack: POS_GROUPS.map(([g, n, c]) => [by(g), c, n]), s: POS_GROUPS.map(([g]) => `${g} <b>${by(g)}</b>`).join(' · ') },
+        { l: '지도자', v: cs.length, u: '명', s: cs.map((m) => esc(m.coachTitle || '')).filter(Boolean).slice(0, 2).join(' · ') || '&nbsp;' },
+        { l: '평균 키', v: hh ?? '-', u: hh ? 'cm' : '', s: ww ? `몸무게 평균 <b>${ww}kg</b>` : '기록 없음' },
+        ...(isOwner() ? [{ l: '입장 승인 대기', v: waiting.length, u: '명', c: waiting.length ? '#ff9f0a' : '', s: waiting.length ? '아래에서 승인해 주세요' : '없음' }] : []),
+      ]);
+    })()}
     ${waiting.length ? `<section class="card wait-box"><h3>입장 승인 대기 <small>${waiting.length}명</small></h3>
       <p class="muted small">팀 코드로 들어왔거나 다른 팀에서 이적해 온 사람이에요. 우리 팀 선수 · 지도자가 맞는지 확인하고 승인해 주세요. 승인 전에는 팀 내용을 볼 수 없어요.
         만 14세 미만은 보호자 동의 내용도 확인해 주세요.</p>
@@ -296,7 +330,9 @@ export async function locker(el) {
 }
 
 export function playerCard(m, { manage = false, extra = '' } = {}) {
-  return `<article class="pcard" data-pid="${m.id}">
+  const pg = m.role === 'coach' ? '' : posGroup(m.position);
+  const pc = (POS_GROUPS.find(([g]) => g === pg) || [])[2];
+  return `<article class="pcard ${pc ? 'has-pg' : ''}" data-pid="${m.id}" ${pc ? `style="--pg:${pc}"` : ''}>
     ${avatar(m.photo, m.name, 'card')}
     <div class="pcard-body">
       <div class="pcard-top">${m.role === 'coach'
@@ -357,6 +393,33 @@ const result = (m) => (+m.gf > +m.ga ? 'W' : +m.gf === +m.ga ? 'D' : 'L');
 // 팀 구분별 학년(연령) — 기록실에서 경기마다 고르고, 학년별로 모아 봄
 export const AGE_GROUPS = { U12: ['U12', 'U11', 'U10', 'U9'], U15: ['U15', 'U14', 'U13'], U18: ['U18', 'U17', 'U16'], U22: ['U22', 'U21', 'U20', 'U19'] };
 
+// 기록실 그림 — 승/무/패 도넛 · 최근 흐름 막대 · 순위 막대
+function donut(st) {
+  const R = 44; const C = 2 * Math.PI * R; let off = 0;
+  const seg = (n, cls) => { if (!n || !st.games) return ''; const len = (n / st.games) * C; const g = st.games > n ? Math.min(1.5, len / 2) : 0; const out = `<circle class="${cls}" r="${R}" cx="55" cy="55" stroke-dasharray="${Math.max(0, len - g)} ${C}" stroke-dashoffset="${-off}"/>`; off += len; return out; };
+  return `<svg class="rec-donut" viewBox="0 0 110 110" aria-hidden="true"><circle class="bg" r="${R}" cx="55" cy="55"/>${seg(st.w, 'w')}${seg(st.d, 'd')}${seg(st.l, 'l')}</svg>`;
+}
+function streak(rows) { // rows: 최신이 앞
+  if (!rows.length) return '';
+  const r0 = result(rows[0]); let n = 0;
+  while (n < rows.length && result(rows[n]) === r0) n++;
+  let un = 0; while (un < rows.length && result(rows[un]) !== 'L') un++;
+  if (r0 === 'W') return `${n}연승${un > n ? ` · ${un}경기 무패` : ''}`;
+  if (un >= 2) return `${un}경기 무패`;
+  return r0 === 'D' ? `${n}경기 연속 무승부` : `${n}연패`;
+}
+function formChart(rows) {
+  const last = rows.slice(0, 10).reverse();
+  if (!last.length) return '';
+  const max = Math.max(1, ...last.map((m) => Math.max(+m.gf || 0, +m.ga || 0)));
+  return `<div class="rec-form" style="--n:${last.length}">${last.map((m) => `<div class="rf-col" title="${esc(m.date)} vs ${esc(m.opponent)} ${+m.gf}:${+m.ga}">
+      <div class="rf-up"><i style="height:${((+m.gf || 0) / max) * 100}%"></i><b>${+m.gf || 0}</b></div>
+      <div class="rf-dn"><i style="height:${((+m.ga || 0) / max) * 100}%"></i><b>${+m.ga || 0}</b></div>
+      <span class="res ${result(m)}">${result(m)}</span><small>${esc((m.opponent || '').slice(0, 5))}</small></div>`).join('')}</div>`;
+}
+const rankBars = (arr, unit) => (arr.length ? `<ol class="rec-rank">${arr.map(([n, g], i) => `<li class="${i < 3 ? `top t${i + 1}` : ''}"><em>${i + 1}</em><span>${esc(n)}</span><div class="rr-bar"><i style="width:${(g / arr[0][1]) * 100}%"></i></div><strong>${g}<i>${unit}</i></strong></li>`).join('')}</ol>` : empty('기록 없음'));
+const wdlMini = (x) => `<div class="wdl-mini"><i class="w" style="flex:${x.w}"></i><i class="d" style="flex:${x.d}"></i><i class="l" style="flex:${x.l}"></i></div>`;
+
 export async function records(el) {
   const [snap, list] = await Promise.all([getDocs(query(tcol('matches'), orderBy('date', 'desc'))), members()]);
   const ms = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -367,8 +430,8 @@ export async function records(el) {
   const pass = (m, skip) => (skip === 'year' || flt.year === '전체' || (m.date || '').startsWith(flt.year))
     && (skip === 'type' || flt.type === '전체' || m.matchType === flt.type)
     && (skip === 'age' || flt.age === '전체' || m.ageGroup === flt.age);
-  const statTable = (title, label, pairs) => `<section class="card"><h3>${title}</h3>${pairs.length ? `<table class="tbl"><tr><th>${label}</th><th>경기</th><th>승-무-패</th><th>승률</th><th>득/실</th></tr>
-    ${pairs.map(([t, x]) => `<tr><td>${esc(t)}</td><td>${x.games}</td><td>${x.w}-${x.d}-${x.l}</td><td>${x.winRate}%</td><td>${x.gf}/${x.ga}</td></tr>`).join('')}</table>` : empty('기록 없음')}</section>`;
+  const statTable = (title, label, pairs) => `<section class="card"><h3>${title}</h3>${pairs.length ? `<table class="tbl rec-tbl"><tr><th>${label}</th><th>경기</th><th>승-무-패</th><th>승률</th><th>득/실</th></tr>
+    ${pairs.map(([t, x]) => `<tr><td>${esc(t)}</td><td>${x.games}</td><td>${x.w}-${x.d}-${x.l}${wdlMini(x)}</td><td><b class="wr">${x.winRate}%</b></td><td>${x.gf}/${x.ga}</td></tr>`).join('')}</table>` : empty('기록 없음')}</section>`;
 
   const draw = () => {
     const rows = ms.filter((m) => pass(m));
@@ -395,20 +458,30 @@ export async function records(el) {
       <div class="chips"><span class="chip-label">경기</span>${['전체', ...MATCH_TYPES].map((t) => `<button class="chip ${t === flt.type ? 'active' : ''}" data-f="type" data-v="${t}">${t}</button>`).join('')}</div>
       ${groups.length ? `<div class="chips"><span class="chip-label">학년</span>${['전체', ...groups].map((t) => `<button class="chip ${t === flt.age ? 'active' : ''}" data-f="age" data-v="${t}">${t}</button>`).join('')}</div>` : ''}
     </div>
-    <section class="stat-board">
-      <div class="big"><small>승률</small><strong>${st.winRate}<i>%</i></strong>
-        <div class="wdl"><i style="flex:${st.w}" class="w"></i><i style="flex:${st.d}" class="d"></i><i style="flex:${st.l}" class="l"></i></div>
-        <small>${st.w}승 ${st.d}무 ${st.l}패 · ${st.games}경기</small></div>
-      <div><small>득점</small><strong>${st.gf}</strong><small>경기당 ${st.gfAvg}</small></div>
-      <div><small>실점</small><strong>${st.ga}</strong><small>경기당 ${st.gaAvg}</small></div>
-      <div><small>골득실</small><strong>${st.gd > 0 ? '+' : ''}${st.gd}</strong><small>승점 ${st.points}</small></div>
-      <div><small>클린시트</small><strong>${st.cleanSheets}</strong><small>${st.csRate}%</small></div>
-      <div class="duo-cell"><small>무승부율 · 패배율</small><strong class="duo"><span><em>무</em>${st.drawRate}<i>%</i></span><span class="sep">/</span><span><em>패</em>${st.lossRate}<i>%</i></span></strong></div>
+    <section class="rec-hero">
+      <div class="rec-ring">
+        <div class="rec-ring-fig">${donut(st)}<div class="rec-ring-c"><strong>${st.winRate}<i>%</i></strong><small>승률</small></div></div>
+        <ul class="rec-legend">
+          <li class="w"><i></i><span>승</span><b>${st.w}</b><em>${st.winRate}%</em></li>
+          <li class="d"><i></i><span>무</span><b>${st.d}</b><em>${st.drawRate}%</em></li>
+          <li class="l"><i></i><span>패</span><b>${st.l}</b><em>${st.lossRate}%</em></li>
+          <li class="g"><span>${st.games}경기</span>${streak(rows) ? `<b class="rec-streak">${esc(streak(rows))}</b>` : ''}</li>
+        </ul>
+      </div>
+      <div class="rec-kpis">
+        <div class="rk"><small>득점</small><strong>${st.gf}</strong><span>경기당 <b>${st.gfAvg}</b></span></div>
+        <div class="rk"><small>실점</small><strong>${st.ga}</strong><span>경기당 <b>${st.gaAvg}</b></span></div>
+        <div class="rk ${st.gd > 0 ? 'pos' : st.gd < 0 ? 'neg' : ''}"><small>골득실</small><strong>${st.gd > 0 ? '+' : ''}${st.gd}</strong>
+          <div class="rk-split" title="득점 ${st.gf} : 실점 ${st.ga}"><i class="f" style="flex:${st.gf || (st.ga ? 0 : 1)}"></i><i class="a" style="flex:${st.ga || (st.gf ? 0 : 1)}"></i></div></div>
+        <div class="rk"><small>승점</small><strong>${st.points}</strong><span>경기당 <b>${st.games ? (st.points / st.games).toFixed(2) : '0.00'}</b></span></div>
+        <div class="rk"><small>최다 득점</small><strong class="rk-name">${topS[0] ? esc(topS[0][0]) : '-'}</strong><span>${topS[0] ? `<b>${topS[0][1]}골</b>${topA[0] ? ` · 도움 1위 ${esc(topA[0][0])} ${topA[0][1]}` : ''}` : '기록 없음'}</span></div>
+        <div class="rk"><small>클린시트</small><strong>${st.cleanSheets}</strong><div class="rk-prog"><i style="width:${st.csRate}%"></i></div><span><b>${st.csRate}%</b> 무실점</span></div>
+      </div>
     </section>
-    <div class="form-line">최근 경기 ${rows.slice(0, 10).map((m) => `<span class="res ${result(m)}">${result(m)}</span>`).join('') || '-'}</div>
+    ${rows.length ? `<section class="card rec-flow"><div class="card-head"><h3>최근 ${Math.min(10, rows.length)}경기 흐름</h3><span class="rf-key"><i class="f"></i>득점 <i class="a"></i>실점</span></div>${formChart(rows)}</section>` : ''}
     <div class="grid2 top">
-      <section class="card"><h3>득점 순위</h3>${topS.length ? `<ol class="rank">${topS.map(([n, g]) => `<li><span>${esc(n)}</span><strong>${g}</strong></li>`).join('')}</ol>` : empty('기록 없음')}</section>
-      <section class="card"><h3>도움 순위</h3>${topA.length ? `<ol class="rank">${topA.map(([n, g]) => `<li><span>${esc(n)}</span><strong>${g}</strong></li>`).join('')}</ol>` : empty('기록 없음')}</section>
+      <section class="card"><h3>득점 순위</h3>${rankBars(topS, '골')}</section>
+      <section class="card"><h3>도움 순위</h3>${rankBars(topA, '개')}</section>
     </div>
     <div class="rec-tables">
       ${statTable('년도별', '년도', byYear)}
@@ -417,8 +490,8 @@ export async function records(el) {
     </div>
     <section class="card">
       <h3>상대 전적</h3>
-      ${Object.keys(opp).length ? `<table class="tbl"><tr><th>상대</th><th>경기</th><th>승-무-패</th><th>승률</th><th>득/실</th></tr>
-        ${Object.entries(opp).map(([o, arr]) => { const s = calcStats(arr); return `<tr><td>${esc(o)}</td><td>${s.games}</td><td>${s.w}-${s.d}-${s.l}</td><td>${s.winRate}%</td><td>${s.gf}/${s.ga}</td></tr>`; }).join('')}</table>` : empty('기록 없음')}
+      ${Object.keys(opp).length ? `<div class="tbl-scroll"><table class="tbl rec-tbl"><tr><th>상대</th><th>경기</th><th>승-무-패</th><th>승률</th><th>득/실</th></tr>
+        ${Object.entries(opp).sort((x, y) => y[1].length - x[1].length).map(([o, arr]) => { const s = calcStats(arr); return `<tr><td>${esc(o)}</td><td>${s.games}</td><td>${s.w}-${s.d}-${s.l}${wdlMini(s)}</td><td><b class="wr">${s.winRate}%</b></td><td>${s.gf}/${s.ga}</td></tr>`; }).join('')}</table></div>` : empty('기록 없음')}
     </section>
     <section class="card">
       <h3>경기 목록</h3>

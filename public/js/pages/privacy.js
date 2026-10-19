@@ -299,6 +299,7 @@ export function withdraw() {
         b.delete(doc(db, 'teams', t, 'members', uid));
       }
       (await getDocs(collection(db, 'users', uid, 'todos'))).docs.forEach((d) => b.delete(d.ref));
+      (await getDocs(collection(db, 'users', uid, 'notes')).catch(() => ({ docs: [] }))).docs.forEach((d) => b.delete(d.ref));
       if (state.profile?.consentToken) b.delete(doc(db, 'consents', state.profile.consentToken));
       b.delete(doc(db, 'users', uid));
       await b.commit();

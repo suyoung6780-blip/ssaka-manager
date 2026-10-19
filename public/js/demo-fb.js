@@ -267,6 +267,19 @@ seed('teams/T1/posts/dl2', { type: 'daily', date: day(-2), time: '16:00', place:
 seed('teams/T1/coachNotes/n1', { date: day(-2), attend: '14', intensity: '2', done: '회복 조깅\n스트레칭', good: '전원 참석, 분위기 좋음', improve: '스트레칭 집중도 낮음', players: '박선수 발목 통증 — 다음 훈련 강도 조절', next: '화요일 압박 탈출 론도', authorName: '김코치', authorUid: U, createdAt: now() });
 seed(`users/${U}/todos/t1`, { text: '오후 훈련 콘 세팅', done: false, createdAt: now() });
 seed(`users/${U}/todos/t2`, { text: '주말 리그전 명단 제출', done: true, createdAt: now() });
+// 코치 노트 (체험용)
+{ const ago = (d) => Timestamp.fromMillis(Date.now() - d * 864e5);
+  seed(`users/${U}/notes/n1`, { cat: 'period', title: '리그 3주차 마이크로 사이클 (토요일 경기)', pinned: true, tags: ['U15', '부하관리'], body: '지난 경기 뒤 햄스트링 뻐근한 선수 2명 — MD-4 스프린트 양 줄이기.', data: { phase: '시즌 중 · 3주차', goal: '수비 전환 속도 · 경기 전 이틀은 부하 낮추기', rows: [
+    { md: 'MD+1', day: '일', focus: '회복', load: '1', what: '출전 선수 회복 조깅 20분 · 미출전 선수 보충 훈련' },
+    { md: 'MD+2', day: '월', focus: '휴식', load: '0', what: '' },
+    { md: 'MD-4', day: '화', focus: '근력 · 소공간', load: '5', what: '4v4+3 론도 (20x25m) 4분 x 5세트 · 1v1 수비' },
+    { md: 'MD-3', day: '수', focus: '지구력 · 대공간', load: '4', what: '9v9 전환 게임 (뺏으면 6초 안에 슈팅)' },
+    { md: 'MD-2', day: '목', focus: '스피드 · 전술', load: '3', what: '11v0 빌드업 패턴 · 10m 스프린트 6회' },
+    { md: 'MD-1', day: '금', focus: '활성화 · 세트피스', load: '2', what: '코너킥 니어 런 · 프리킥 벽' },
+    { md: 'MD', day: '토', focus: '경기', load: '5', what: 'vs 화이트 유나이티드' }] }, createdAt: ago(3), updatedAt: ago(1) });
+  seed(`users/${U}/notes/n2`, { cat: 'paper', title: '소공간 게임에서 인원 수에 따른 신체 부하 차이', tags: ['SSG', '논문'], body: '3v3은 심박이 높지만 고강도 달리기 거리는 대공간이 더 김 — 한 주에 둘 다 필요.', data: { authors: 'Hill-Haas 외', year: '2011', source: 'Sports Medicine', link: 'doi.org/10.2165/11539740-000000000-00000', summary: '인원이 적을수록(2v2 · 3v3) 심박수 · 젖산 · 자각도가 높아짐.\n공간을 넓히면 이동 거리와 고강도 달리기가 늘어남.\n규칙(터치 제한 · 코치 격려)도 강도를 바꿈.', apply: 'MD-4는 3v3~4v4 작은 공간, MD-3은 8v8 이상 큰 공간으로 나눠서 쓰기.' }, createdAt: ago(6), updatedAt: ago(5) });
+  seed(`users/${U}/notes/n3`, { cat: 'think', title: '공을 잃은 뒤 5초 동안 우리는 무엇을 하나', tags: ['전환', '게임모델'], body: '지금은 가장 가까운 선수 혼자 달려가고 나머지는 멈춰서 본다.\n원하는 모습: 가장 가까운 3명이 공 쪽으로 좁히고, 뒤의 둘은 패스 길을 막는다.\n\n훈련에서 "뺏기면 5초" 규칙을 계속 걸어야 습관이 된다. 점수를 주자 — 5초 안에 다시 뺏으면 1점.', createdAt: ago(2), updatedAt: ago(2) });
+  seed(`users/${U}/notes/n4`, { cat: 'review', title: '리그 2라운드 — 그레이 FC', tags: ['리그'], body: '', data: { date: today, opp: '그레이 FC', score: '1 : 1 무', good: '전반 빌드업 3-2가 잘 됨 · 6번이 계속 받아 줌', bad: '실점 장면: 왼쪽 풀백이 올라간 뒤 뒷공간 · 커버 늦음', next: '풀백 올라갈 때 반대 센터백이 옆으로 밀어 주는 움직임 연습' }, createdAt: ago(8), updatedAt: ago(8) }); }
 seed('chats/p1_uCoach', { kind: 'member', teamId: 'T1', participants: ['p1', U], names: { [U]: '김코치', p1: '박선수' }, teams: { [U]: 'FC 블랙', p1: 'FC 블랙' }, updatedAt: now(), lastMessage: '내일 훈련 몇 시예요?' });
 seed('chats/p1_uCoach/messages/1', { uid: 'p1', text: '내일 훈련 몇 시예요?', createdAt: now() });
 seed('chats/uCoach_y', { kind: 'team', teamId: 'T3', fromTeamId: 'T1', participants: [U, 'y'], names: { [U]: '김코치', y: '그레이 FC' }, teams: { [U]: 'FC 블랙', y: '팀 계정' }, updatedAt: now(), lastMessage: '연습경기 가능할까요?' });

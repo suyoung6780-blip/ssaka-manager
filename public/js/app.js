@@ -24,6 +24,7 @@ import * as analysis from './pages/analysis.js';
 import * as goals from './pages/goals.js';
 import * as personal from './pages/personal.js';
 import * as social from './pages/social.js';
+import * as notes from './pages/notes.js';
 
 const app = $('#app');
 const PLAYER_DEMO = /[?&]as=player/.test(location.search); // 체험 모드: 선수로 보는 중
@@ -45,7 +46,10 @@ const routes = [
   ['/data', data.page, 'squad'],
   ['/training', trainingDaily.daily, 'squad'],
   ['/training/notes', trainingDaily.notes, 'coach'],
-  ['/training/library', training.library, 'coach'],
+  ['/training/library', () => go('/tactics/programs'), 'coach'], // 예전 주소 → 전술보드
+  ['/tactics', training.board, 'coach'],
+  ['/tactics/programs', training.library, 'coach'],
+  ['/notes', notes.page, 'coachRole'],
   ['/meeting', board.page('meeting'), 'squad'],
   ['/analysis', analysis.list, 'squad'],
   ['/analysis/:id', analysis.studio, 'squad'],
@@ -53,7 +57,7 @@ const routes = [
   ['/notice', board.page('notice'), 'member'],
   ['/schedule', board.page('schedule'), 'member'],
   ['/me', personal.profile],
-  ['/daily', personal.daily, 'squad'],
+  ['/daily', personal.daily, 'player'], // 오늘 기록은 선수만
   ['/journal-check', personal.journalCheck, 'coach'],
   ['/scout', social.scout, 'coach'],
   ['/teams/:id', social.teamView],
@@ -87,6 +91,7 @@ function match(path) {
 function allowed(guard) {
   switch (guard) {
     case 'squad': return isSquad();
+    case 'player': return isSquad() && !isCoach();
     case 'coach': return isCoach();
     case 'member': return inTeam();
     case 'coachRole': return role() === 'coach';
@@ -197,12 +202,13 @@ function navItems() {
   const items = [];
   const sec = (title, list) => list.length && items.push({ title, list });
   sec('TEAM', isSquad() ? [
-    ['/', '홈'], ['/gamemodel', '게임모델'], ['/locker', '락커룸'], ['/training', '훈련장'],
+    ['/', '홈'], ['/gamemodel', '게임모델'], ['/locker', '락커룸'], ...(isCoach() ? [['/tactics', '전술보드']] : []), ['/training', '훈련장'],
     ['/meeting', '미팅룸'], ['/analysis', '분석실'], ['/goals', '목표'], ['/records', '경기 기록실'], ['/data', '데이터실'],
   ] : [['/', '홈']]);
   sec('MY', [
     ['/me', '프로필'],
-    ...(isSquad() ? [['/daily', '오늘 기록']] : []),
+    ...(isSquad() && !isCoach() ? [['/daily', '오늘 기록']] : []), // 오늘 기록은 선수만
+    ...(role() === 'coach' || isCoach() ? [['/notes', '코치 노트']] : []),
     ...(isCoach() ? [['/journal-check', '일지검사']] : []),
   ]);
   sec('NOTICE', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄']] : []);

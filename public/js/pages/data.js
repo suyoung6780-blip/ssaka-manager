@@ -103,12 +103,12 @@ export async function page(el) {
 // ───────── AI 컨디션 분석 (규칙 기반 — 스포츠과학에서 쓰는 기준) ─────────
 // 급성:만성 부하 비율(ACWR) · 자각도 수준 · 훈련 단조로움 · 부상도 · 수면 양/규칙성 · 컨디션 흐름 · 기록 빈도
 const GROUPS = [
-  ['risk', '🚨 부상 위험', 'high'],
-  ['down', '⬇️ 강도 낮추기', 'mid'],
-  ['up', '⬆️ 강도 올려도 돼요', 'low'],
-  ['sleep', '🌙 수면', 'mid'],
-  ['cond', '📉 컨디션', 'mid'],
-  ['log', '📝 기록 부족', 'info'],
+  ['risk', '부상 위험', 'high'],
+  ['down', '강도 낮추기', 'mid'],
+  ['up', '강도 올려도 돼요', 'low'],
+  ['sleep', '수면', 'mid'],
+  ['cond', '컨디션', 'mid'],
+  ['log', '기록 부족', 'info'],
 ];
 function analyze(p, byKey, to) {
   const d7 = dayList(addDays(to, -6), to).map((d) => byKey[`${p.id}_${d}`]).filter(Boolean);
@@ -128,6 +128,8 @@ function analyze(p, byKey, to) {
   const acwr = a7 && c28 && d7.length >= 3 && d28.length >= 8 ? a7 / c28 : null;
 
   // 부상 위험
+  const hurt7 = d7.filter((l) => l.hurt);
+  if (hurt7.length) add('risk', `최근 7일 <b>${hurt7.map((l) => `${md(l.date)} ${l.hurt === 'match' ? '경기' : '훈련'} 중 부상`).join(' · ')}</b>${hurt7[0].injuryPart ? ` (${esc(hurt7[0].injuryPart)})` : ''}`, '다친 날 자각도는 분석에서 뺐어요. 복귀 전까지 상태를 매일 확인해 주세요', 2);
   const maxInj = Math.max(0, ...inj7);
   const painDays = inj7.filter((v) => v >= 3).length;
   if (maxInj >= 5) add('risk', `최근 7일 부상도 최고 <b>${maxInj}</b>${part ? ` (${esc(part)})` : ''}`, '훈련 참여 여부를 확인하고, 필요하면 쉬게 하거나 치료를 권해요', 2);
@@ -195,7 +197,7 @@ function aiCard(players, report, to, coach) {
   const good = players.filter((p) => lv[p.id] === 'good');
   const head = cnt('high') ? `<b>${cnt('high')}명</b>은 부상 위험 신호가 있어요.` : cnt('mid') ? `부상 위험 신호는 없지만 <b>${cnt('mid')}명</b>은 관리가 필요해요.` : '팀 전체 컨디션이 안정적이에요.';
   return `<section class="card dr-ai ${folded() ? 'folded' : ''}">
-    <div class="dr-ai-head"><div><span class="eyebrow">AI CONDITION REPORT</span><h3>🤖 AI 컨디션 리포트 <button type="button" class="chip dr-fold" data-fold>${folded() ? '펼치기 ▾' : '접기 ▴'}</button></h3>
+    <div class="dr-ai-head"><div><span class="eyebrow">AI CONDITION REPORT</span><h3>AI 컨디션 리포트 <button type="button" class="chip dr-fold" data-fold>${folded() ? '펼치기 ▾' : '접기 ▴'}</button></h3>
       <p class="muted small">${md(to)} 기준 · 최근 7일을 4주 평균과 비교해서 바로 분석해요</p></div>
       <div class="dr-ai-sum">${['high', 'mid', 'good'].map((k) => `<span style="--c:${LEVEL[k][1]}"><b>${cnt(k)}</b>${LEVEL[k][0]}</span>`).join('')}</div></div>
     <p class="dr-ai-lead">${head} ${good.length && good.length < total ? `<span class="muted">좋음: ${good.map((p) => esc(p.name)).join(', ')}</span>` : ''}</p>
@@ -206,7 +208,7 @@ function aiCard(players, report, to, coach) {
       return `<div class="dr-ai-g ${l}"><h4>${title} <small>${new Set(rows.map((r) => r.p.id)).size}명</small></h4>
         <ul>${rows.map(({ p, x }, i) => `<li ${coach ? `data-pl="${p.id}"` : ''} ${i >= 3 ? 'class="more" hidden' : ''}><strong>${esc(p.name)}</strong><span>${x.text}</span><em>→ ${x.tip}</em></li>`).join('')}</ul>
         ${rows.length > 3 ? `<button type="button" class="link-btn small" data-more>+ ${rows.length - 3}개 더 보기</button>` : ''}</div>`;
-    }).join('') || '<p class="muted">특별히 살펴볼 선수가 없어요. 👍</p>'}</div>
+    }).join('') || '<p class="muted">특별히 살펴볼 선수가 없어요.</p>'}</div>
     <p class="muted small dr-ai-note">훈련 부하(자각도 × 훈련 시간)의 급변(최근 7일 ÷ 4주 평균), 자각도 · 부상도 · 수면(청소년 권장 480분 이상) · 컨디션 흐름을 기준으로 자동 분석해요. 최종 판단은 코치님이 선수와 이야기해서 정해 주세요.</p>
   </section>`;
 }
@@ -284,9 +286,9 @@ function playerView(box, ctx) {
     ${coach ? `<div class="dr-who"><select data-who>${players.map((x) => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${x.number ? `${esc(x.number)}. ` : ''}${esc(x.name)}${x.position ? ` · ${esc(x.position)}` : ''}</option>`).join('')}</select>
       <span class="muted small">기록 ${mine.filter(Boolean).length}일 / ${dates.length}일 · 그래프 점선 = 팀 평균</span></div>` : `<p class="muted small">기록 ${mine.filter(Boolean).length}일 / ${dates.length}일</p>`}
     <section class="card dr-ai one" style="--c:${LEVEL[lv][1]}"><span class="eyebrow">AI CONDITION REPORT · ${md(to)} 기준</span>
-      <h3>🤖 ${coach ? `${esc(p.name)} 분석` : '내 컨디션 분석'} <span class="dr-badge">${LEVEL[lv][0]}</span></h3>
+      <h3>${coach ? `${esc(p.name)} 분석` : '내 컨디션 분석'} <span class="dr-badge">${LEVEL[lv][0]}</span></h3>
       ${items.length ? `<ul class="dr-ai-list">${items.map((x) => `<li class="${grp(x.g)[2]}"><span>${grp(x.g)[1]}</span><div>${x.text}<em>→ ${coach ? x.tip : ME_TIP[x.tip] || x.tip}</em></div></li>`).join('')}</ul>`
-        : '<p>최근 7일 데이터에서 특별한 위험 신호가 없어요. 지금처럼 꾸준히! 👍</p>'}</section>
+        : '<p>최근 7일 데이터에서 특별한 위험 신호가 없어요. 지금처럼 꾸준히!</p>'}</section>
     <div class="dr-grid">${mets.map(([k, l, max, , unit]) => {
       const pts = mine.map((x) => val(x, k));
       const a = avg(pts.filter((v) => v != null));

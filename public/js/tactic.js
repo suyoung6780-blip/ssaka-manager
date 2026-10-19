@@ -306,8 +306,9 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
       // 선수 연결: 이은 선수들을 따라다니는 선 (+ 면 채우기)
       const pts = (it.ids || []).map((id) => o.posOf?.(id)).filter(Boolean);
       if (!pts.length) break;
-      const d = pts.map((p, k) => `${k ? 'L' : 'M'}${p[0]} ${p[1]}`).join(' ') + (it.area && pts.length > 2 ? ' Z' : '');
-      if (it.area && pts.length > 2) el('path', { d, fill: col, 'fill-opacity': 0.18, stroke: 'none' }, g);
+      const d0 = pts.map((p, k) => `${k ? 'L' : 'M'}${p[0]} ${p[1]}`).join(' ');
+      const d = d0 + (it.closed && pts.length > 2 ? ' Z' : ''); // 도형: 첫 선수까지 닫음
+      if (it.area && pts.length > 2) el('path', { d: `${d0} Z`, fill: col, 'fill-opacity': 0.3, stroke: 'none' }, g);
       el('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 2.4 * u0, 'pointer-events': 'stroke' }, g); // 누르기 쉽게 넓은 투명 선
       el('path', { d, fill: 'none', stroke: col, 'stroke-width': 0.5 * u0, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': it.style === 'dash' ? `${1.4 * u0} ${1 * u0}` : '', opacity: 0.95 }, g);
       pts.forEach((p) => el('circle', { cx: p[0], cy: p[1], r: 0.55 * u0, fill: col }, g));
@@ -606,7 +607,7 @@ const newId = () => `i${Date.now().toString(36)}${(++idSeq).toString(36)}`;
 const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2);
 
 // draft: 임시 보관 이름 (예: '팀id/gm') — 주면 고칠 때마다 이 컴퓨터에 자동 보관 → 저장 안 하고 나갔다 와도 불러오기
-export function createPad(container, initial, { editable = true, motion = false, play = true, draft = null, onChange = null } = {}) {
+export function createPad(container, initial, { editable = true, motion = false, play = true, draft = null, onChange = null, exportTitle = null } = {}) {
   let data = normalize(initial);
   data.steps ||= [];
   let scene = 0; // 0 = 장면 1 (기본)
@@ -654,11 +655,13 @@ export function createPad(container, initial, { editable = true, motion = false,
         ? `<button type="button" class="ptool" data-tool="${ks[0]}" title="${l}"><b>${ic}</b><span class="plab">${l}</span></button>`
         : `<span class="pgroup" data-grp="${gi}"><button type="button" class="ptool" data-gbtn="${gi}" title="${l}"><b>${ic}</b><span class="plab"><span data-glabel>${l}</span> ▾</span></button>
           <span class="pgmenu" hidden>${ks.map((k) => `<button type="button" data-tool="${k}"><b>${TOOL_INFO[k].ic}</b>${TOOL_INFO[k].l}</button>`).join('')}</span></span>`)).join('')}
-      <span class="pad-tsep"></span>
-      <button type="button" class="ptool" data-act="undo" title="되돌리기 (Ctrl+Z)"><b>↶</b><span class="plab">되돌리기</span></button>
-      <button type="button" class="ptool" data-act="clear" title="모두 지우기"><b>⌫</b><span class="plab">모두 지우기</span></button>
       <button type="button" class="ptool" data-fieldtg title="경기장 · 그리드 · 포메이션 · 선수 모양"><b>⚙</b><span class="plab">경기장</span></button>
+      <span class="pad-tsep"></span>
+      <button type="button" class="ptool pact" data-act="undo" title="되돌리기 (Ctrl+Z)"><b>↶</b><span class="plab">되돌리기</span></button>
+      <button type="button" class="ptool pact" data-act="clear" title="모두 지우기"><b>⌫</b><span class="plab">모두 지우기</span></button>
       <button type="button" class="ptool pnotes" data-notes hidden title="그림을 보면서 글 쓰기"><b>✎</b><span class="plab">글</span></button>
+      ${exportTitle != null ? `<button type="button" class="ptool pexp" data-xp="image" title="이미지로 저장"><b>▣</b><span class="plab">이미지 저장</span></button>
+      <button type="button" class="ptool pexp" data-xp="video" title="영상으로 저장 (움직임이 있을 때)"><b>▶</b><span class="plab">영상 저장</span></button>` : ''}
       <button type="button" class="ptool pfull" data-act="full" title="크게 (Esc로 닫기)"><b>⛶</b><span class="plab" data-flabel>크게</span></button>
     </div>
     <div class="pad-acts">
@@ -675,7 +678,7 @@ export function createPad(container, initial, { editable = true, motion = false,
         <span class="pad-pop pad-swatch pad-cpop" data-cpop hidden><button type="button" class="sw def wide" data-col="" title="기본색">기본색</button>${SWATCHES.map((c) => `<button type="button" class="sw" data-col="${c}" style="--c:${c}" title="${c}"></button>`).join('')}</span></span>
       <span class="pad-grp" data-psbar><small class="muted">모양</small><button type="button" class="chip" data-psopt="">동그라미</button><button type="button" class="chip" data-psopt="shirt">유니폼</button></span>
       <span class="pad-grp" data-rolebar>${Object.entries(ROLES).map(([k, R]) => `<button type="button" class="chip" data-roleopt="${k}"><b>${R.t}</b> ${R.l}</button>`).join('')}</span>
-      <span class="pad-grp" data-linkopt><button type="button" class="chip" data-lstyle="solid">실선</button><button type="button" class="chip" data-lstyle="dash">점선</button><button type="button" class="chip" data-larea title="이은 선수들 사이를 색으로 채우기">면 채우기</button></span>
+      <span class="pad-grp" data-linkopt><button type="button" class="chip" data-lshape="open" title="이은 순서대로 선">선</button><button type="button" class="chip" data-lshape="closed" title="마지막 선수와 첫 선수를 이어 도형으로 (3명부터)">도형</button><button type="button" class="chip" data-lstyle="solid">실선</button><button type="button" class="chip" data-lstyle="dash">점선</button><button type="button" class="chip" data-larea title="이은 선수들 사이를 색으로 채우기">면 채우기</button></span>
       <span class="pad-opt" data-spread title="시야 넓이">${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="chip" data-sp="${v}">${l}</button>`).join('')}</span>
       <button type="button" class="chip" data-straight title="직선으로">⟋ 직선</button>
       <span class="pad-grp"><button type="button" class="chip" data-act="dup" title="복제 (Ctrl+D · 복사 Ctrl+C · 붙여넣기 Ctrl+V)">⧉ 복제</button><button type="button" class="chip" data-act="front" title="맨 앞으로 (Ctrl+])">⬆ 앞으로</button><button type="button" class="chip" data-act="back" title="맨 뒤로 (Ctrl+[)">⬇ 뒤로</button><button type="button" class="chip" data-act="rotate" title="회전">⟳ 회전</button></span>
@@ -706,12 +709,13 @@ export function createPad(container, initial, { editable = true, motion = false,
   // ── 임시 보관 ──
   const DKEY = editable && draft ? `ssaka-pad:${draft}` : null;
   let draftT = null;
+  let draftOff = false; // 저장 · 지우기 뒤엔 다시 고칠 때까지 보관 안 함
   const saveDraft = () => {
     clearTimeout(draftT); draftT = null;
-    if (!DKEY) return;
+    if (!DKEY || draftOff) return;
     try { localStorage.setItem(DKEY, JSON.stringify({ at: Date.now(), data })); } catch { /* 보관 못 해도 그냥 진행 */ }
   };
-  function queueDraft() { if (DKEY) { clearTimeout(draftT); draftT = setTimeout(saveDraft, 1200); } }
+  function queueDraft() { if (DKEY) { draftOff = false; clearTimeout(draftT); draftT = setTimeout(saveDraft, 1200); } }
   const selected = () => [items()[sel], ...extra].filter(Boolean);
   // 작은 그리드 훈련장에서도 선수·콘이 너무 작아지지 않게 하한을 둔다
   const unit = () => Math.max(0.55, Math.max(data.field.w, data.field.h) / 105);
@@ -1051,7 +1055,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.querySelectorAll('[data-pc]').forEach((b) => b.classList.toggle('on', !!curKey && b.dataset.pc.toLowerCase() === String(curKey).toLowerCase()));
     const sl = s && s.k === 'link' && !extra.size;
     container.querySelector('[data-linkopt]').hidden = !sl;
-    if (sl) { container.querySelectorAll('[data-lstyle]').forEach((b) => b.classList.toggle('on', (s.style === 'dash') === (b.dataset.lstyle === 'dash'))); container.querySelector('[data-larea]').classList.toggle('on', !!s.area); }
+    if (sl) { container.querySelectorAll('[data-lstyle]').forEach((b) => b.classList.toggle('on', (s.style === 'dash') === (b.dataset.lstyle === 'dash'))); container.querySelector('[data-larea]').classList.toggle('on', !!s.area); container.querySelectorAll('[data-lshape]').forEach((b) => { b.classList.toggle('on', !!s.closed === (b.dataset.lshape === 'closed')); if (b.dataset.lshape === 'closed') b.disabled = (s.ids || []).length < 3; }); }
     // 선수 모양 (동그라미 · 유니폼) · 역할 바꾸기
     const plOnly = selected().filter((x) => x.k === 'player' && !x.role);
     container.querySelector('[data-psbar]').hidden = !(plOnly.length || tool === 'player');
@@ -1102,8 +1106,22 @@ export function createPad(container, initial, { editable = true, motion = false,
     hasMotion: () => hasMotion(),
     play: () => { if (!hasMotion()) return false; stop(); scene = 0; playAll(0); return true; },
     reset: () => { stop(); scene = 0; render(); },
+    // 이미지 · 영상으로 내보내기 (padExport.js)
+    scenes: () => data.steps.length + 1,
+    setScene: (k) => { stop(); scene = Math.max(0, Math.min(data.steps.length, k)); sel = -1; extra.clear(); render(); },
+    svgEl: () => svg,
+    motionPlan: () => {
+      if (!hasMotion()) return null;
+      playAll(0); cancelAnimationFrame(raf);
+      const plan = pl; if (!plan) return null;
+      return {
+        total: plan.total,
+        at: (t) => { pl = plan; anim = plan.frameAt(Math.max(0, Math.min(t, plan.total - 1))); render(); },
+        end: () => { stop(); pl = null; scene = plan.N; render(); },
+      };
+    },
   };
-  api.clearDraft = () => { clearTimeout(draftT); draftT = null; if (DKEY) try { localStorage.removeItem(DKEY); } catch { /* */ } };
+  api.clearDraft = () => { clearTimeout(draftT); draftT = null; draftOff = true; if (DKEY) try { localStorage.removeItem(DKEY); } catch { /* */ } };
   if (!editable) return api;
 
   // 저장 안 하고 나갔던 작전판이 있으면 위에 알림 → 불러오기 / 버리기
@@ -1114,13 +1132,13 @@ export function createPad(container, initial, { editable = true, motion = false,
       const t0 = new Date(d0.at);
       const bar = document.createElement('div');
       bar.className = 'pad-draft';
-      bar.innerHTML = `<span>💾 저장하지 않은 작전판이 있어요 (${t0.getMonth() + 1}/${t0.getDate()} ${String(t0.getHours()).padStart(2, '0')}:${String(t0.getMinutes()).padStart(2, '0')})</span>
+      bar.innerHTML = `<span>저장하지 않은 작전판이 있어요 (${t0.getMonth() + 1}/${t0.getDate()} ${String(t0.getHours()).padStart(2, '0')}:${String(t0.getMinutes()).padStart(2, '0')})</span>
         <button type="button" class="chip on" data-dload>불러오기</button><button type="button" class="chip" data-ddrop>버리기</button>`;
       container.prepend(bar);
       bar.querySelector('[data-dload]').onclick = () => { snapshot(); data = normalize(d0.data); data.steps ||= []; scene = 0; sel = -1; extra.clear(); bar.remove(); render(); };
       bar.querySelector('[data-ddrop]').onclick = () => { api.clearDraft(); bar.remove(); };
     }
-    window.addEventListener('pagehide', saveDraft);
+    window.addEventListener('pagehide', () => { if (svg.isConnected) saveDraft(); }); // 다른 화면으로 옮긴 작전판은 건드리지 않음
   }
 
   // ───────── 필드 · 그리드 설정 ─────────
@@ -1283,7 +1301,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     const marks = [];
     const move = (n, to) => { if (!n) return; const m = document.createComment('pad'); n.before(m); to.appendChild(n); marks.push([m, n]); };
     move(mbar, top);
-    ['[data-act="undo"]', '[data-act="clear"]', '[data-fieldtg]', '[data-notes]', '[data-act="full"]'].forEach((q) => move(container.querySelector(`.pad-tools ${q}`), top));
+    ['[data-fieldtg]', '[data-act="undo"]', '[data-act="clear"]', '[data-notes]', '[data-act="full"]'].forEach((q) => move(container.querySelector(`.pad-tools ${q}`), top));
     container.querySelectorAll(':scope > .pad-acts').forEach((a) => move(a, sheet));
     container.append(top, sheet);
     phoneUi = { top, sheet, marks };
@@ -1339,6 +1357,11 @@ export function createPad(container, initial, { editable = true, motion = false,
     };
     portrait.addEventListener('change', onRot);
   }
+  // [크게] 화면에서 바로 이미지 · 영상으로 저장 (코치가 만드는 작전판만 — exportTitle)
+  container.querySelectorAll('[data-xp]').forEach((b) => (b.onclick = async () => {
+    const t = typeof exportTitle === 'function' ? exportTitle() : exportTitle;
+    (await import('./pages/training.js')).exportPad(b.dataset.xp, clone(data), t || '작전판', b);
+  }));
   const notesBtn = container.querySelector('[data-notes]');
   notesBtn.onclick = () => { if (notes) { closeNotes(); render(); } else openNotes(); };
   container.querySelector('[data-act="full"]').onclick = () => setFull(!container.classList.contains('pad-full'));
@@ -1535,13 +1558,24 @@ export function createPad(container, initial, { editable = true, motion = false,
     if (rs.length) { snapshot(); rs.forEach((x) => { x.role = b.dataset.roleopt; x.team = R.team; x.n = R.t; delete x.pc; }); render(); }
   }));  // 색 · 팀 색: 점을 누르면 고르는 창이 펼쳐짐
   const closePops = () => container.querySelectorAll('.pad-pop').forEach((x) => { x.hidden = true; });
-  const togglePop = (q) => (e) => { e.stopPropagation(); const p = container.querySelector(q); const open = p.hidden; closePops(); p.hidden = !open; };
+  const togglePop = (q) => (e) => {
+    e.stopPropagation(); const p = container.querySelector(q); const open = p.hidden; closePops(); p.hidden = !open;
+    // [크게] 화면(컴퓨터): 설정 줄 안에 갇히지 않게 화면 위에 띄움
+    p.style.position = p.style.left = p.style.top = '';
+    if (open && container.classList.contains('pad-full') && !container.classList.contains('pad-phone')) {
+      const r = e.currentTarget.getBoundingClientRect();
+      p.style.position = 'fixed';
+      p.style.left = `${Math.max(8, Math.min(r.left, innerWidth - p.offsetWidth - 8))}px`;
+      p.style.top = `${Math.min(r.bottom + 6, innerHeight - p.offsetHeight - 8)}px`;
+    }
+  };
   container.querySelector('[data-tdot]').onclick = togglePop('[data-tpop]');
   container.querySelector('[data-cdot]').onclick = togglePop('[data-cpop]');
   container.addEventListener('click', (e) => { if (e.target.closest('[data-team], [data-col], [data-pc]')) setTimeout(closePops, 0); });
   document.addEventListener('pointerdown', (e) => { if (!svg.isConnected) return; if (!e.target.closest?.('.pad-pop, [data-tdot], [data-cdot]')) closePops(); }, true);
   // 선수 연결 설정: 실선 · 점선 · 면 채우기
   container.querySelectorAll('[data-lstyle]').forEach((b) => (b.onclick = () => { const x = items()[sel]; if (x?.k !== 'link') return; snapshot(); if (b.dataset.lstyle === 'dash') x.style = 'dash'; else delete x.style; render(); }));
+  container.querySelectorAll('[data-lshape]').forEach((b) => (b.onclick = () => { const x = items()[sel]; if (x?.k !== 'link') return; snapshot(); if (b.dataset.lshape === 'closed') { x.closed = true; x.area = true; } else { delete x.closed; delete x.area; } render(); }));
   container.querySelector('[data-larea]').onclick = () => { const x = items()[sel]; if (x?.k !== 'link') return; snapshot(); if (x.area) delete x.area; else x.area = true; render(); };
   // 연결 끝: 한 명만 이은 선은 지움
   function finishLink() {
@@ -1651,6 +1685,12 @@ export function createPad(container, initial, { editable = true, motion = false,
   // ───────── 두 손가락: 확대 · 이동 ─────────
   const touches = new Map();
   let pinch = null;
+  let dblTap = null; // 두 번 톡톡 → 선택 도구 { t, x, y, mark }
+  const toastPad = (msg) => {
+    const t = document.createElement('div'); t.className = 'pad-toast'; t.textContent = msg;
+    (container.classList.contains('pad-full') ? container : document.body).appendChild(t);
+    setTimeout(() => t.remove(), 1300);
+  };
   let gestureMark = 0; // 첫 손가락을 댈 때의 되돌리기 위치 — 두 번째 손가락이 오면 첫 손가락이 한 것은 취소
   const userPt = (x, y) => unproj(x, y, (X, Y) => new DOMPoint(X, Y).matrixTransform(svg.getScreenCTM().inverse()));
   function startPinch() {
@@ -1682,6 +1722,22 @@ export function createPad(container, initial, { editable = true, motion = false,
     svg.addEventListener('pointerdown', (e) => {
       if (e.pointerType !== 'touch') return;
       touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      // 휴대폰: 그리는 도구일 때 빈 곳 · 그림을 빠르게 두 번 톡톡 → 첫 번째 톡으로 생긴 것은 취소하고 [선택]으로
+      if (touches.size === 1 && tool !== 'select') {
+        const now = performance.now(); const dt = dblTap;
+        if (dt && now - dt.t < 330 && Math.hypot(e.clientX - dt.x, e.clientY - dt.y) < 34) {
+          dblTap = null;
+          e.stopImmediatePropagation(); e.preventDefault();
+          touches.delete(e.pointerId);
+          while (history.length > dt.mark) { undo(); future.pop(); }
+          finishLink(); drag = null; tool = 'select'; sel = -1; extra.clear();
+          document.activeElement?.blur?.();
+          render();
+          toastPad('선택으로 돌아왔어요');
+          return;
+        }
+        dblTap = { t: now, x: e.clientX, y: e.clientY, mark: history.length };
+      } else if (touches.size > 1) dblTap = null;
       if (touches.size === 1) gestureMark = history.length;
       if (touches.size === 2) { startPinch(); e.stopImmediatePropagation(); e.preventDefault(); }
       else if (touches.size > 2) e.stopImmediatePropagation();
@@ -1809,6 +1865,8 @@ export function createPad(container, initial, { editable = true, motion = false,
       const cur = linking && data.items.includes(linking) ? linking : null;
       if (!hitP) { finishLink(); sel = -1; extra.clear(); render(); return; } // 빈 곳 → 이 선은 끝
       if (cur) {
+        // 첫 선수를 다시 누르면 도형으로 닫고 끝
+        if (cur.ids.length >= 3 && cur.ids[0] === hitP.it.id) { snapshot(); cur.closed = true; cur.area = true; const k = data.items.indexOf(cur); finishLink(); sel = k; extra.clear(); render(); return; }
         if (cur.ids[cur.ids.length - 1] !== hitP.it.id) { snapshot(); cur.ids.push(hitP.it.id); }
       } else {
         snapshot();

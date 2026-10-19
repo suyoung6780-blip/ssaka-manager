@@ -1259,7 +1259,9 @@ export function drawItem(ctx, it, P, W, items, resolve) {
     }
     case 'poly':
     case 'link': {
-      let pts = it.pts.map(P);
+      // 도형으로 잇기: 마지막 선수 → 첫 선수까지 닫음 (삼각형 · 사각형 …)
+      const lp = it.k === 'link' && it.closed && it.pts.length >= 3 ? [...it.pts, it.pts[0]] : it.pts;
+      let pts = lp.map(P);
       if (pts.length < 2) break;
       const fade = it.k === 'poly' ? easeOut(prog) : 1;
       if (it.k === 'link') pts = partialLine(pts, easeOut(prog));
@@ -1274,11 +1276,11 @@ export function drawItem(ctx, it, P, W, items, resolve) {
       }
       // 수비 라인 '벽': 이은 선수들 사이에 세운 반투명 판 (선수 키만큼)
       if (it.k === 'link' && it.wall && it._phs && it.pts.length > 1) {
-        const full = it.pts.map(P);
+        const full = lp.map(P); const nP = it.pts.length; const ph = (k) => it._phs[k % nP];
         ctx.save();
         for (let i = 0; i < full.length - 1; i++) {
           const a = full[i]; const b = full[i + 1];
-          const ha = (it._phs[i] || it._phs[i + 1] || W / 14) * 0.95; const hb = (it._phs[i + 1] || it._phs[i] || W / 14) * 0.95;
+          const ha = (ph(i) || ph(i + 1) || W / 14) * 0.95; const hb = (ph(i + 1) || ph(i) || W / 14) * 0.95;
           const top = Math.min(a.y - ha, b.y - hb);
           const gr = ctx.createLinearGradient(0, Math.max(a.y, b.y), 0, top);
           gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(255,255,255,0)');
@@ -1304,11 +1306,11 @@ export function drawItem(ctx, it, P, W, items, resolve) {
         solid(ctx, build, { col, width: wdt, depth: wdt * 0.9, closed: true });
       } else {
         // 면 채우기: 이은 선수들이 만드는 모양 (라인 · 블록)
-        if (it.area && pts.length >= 3) { ctx.save(); ctx.globalAlpha = 0.9 * easeOut(prog); ctx.fillStyle = rgba(col, 0.2); gpath(ctx, it.pts.map(P)); ctx.fill(); ctx.restore(); }
+        if (it.area && pts.length >= 3) { ctx.save(); ctx.globalAlpha = 0.9 * easeOut(prog); ctx.fillStyle = rgba(col, 0.34); gpath(ctx, it.pts.map(P)); ctx.fill(); ctx.restore(); }
         // 잔디에 깔린 팀 색 선 — 기본 실선 (선택: 점선)
         const dashOn = it.lstyle === 'dash'; // 기본은 실선
         if (CAL) {
-          const g = it.pts.map(P).map((q) => CAL.S(q));
+          const g = lp.map(P).map((q) => CAL.S(q));
           const segs = [];
           for (let i3 = 0; i3 < g.length - 1; i3++) {
             const a = g[i3]; const b = g[i3 + 1]; const L = Math.hypot(b.x - a.x, b.y - a.y) * easeOut(prog); if (L < 0.05) continue;

@@ -4,7 +4,7 @@ import {
   serverTimestamp, storageRef, uploadBytes, getDownloadURL,
 } from '../fb.js';
 import {
-  esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, options,
+  esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, options, kpiStrip, toDate,
 } from '../ui.js';
 import { STORAGE_ENABLED } from '../config.js';
 import { state, isCoach } from '../store.js';
@@ -41,7 +41,18 @@ export const page = (type) => async (el) => {
   if (type === 'schedule') return renderSchedule(body, posts, refresh);
 
   if (type === 'notice') posts.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
-  body.innerHTML = posts.length ? `<div class="post-grid">${posts.map((p) => `
+  const ym = todayStr().slice(0, 7);
+  const inMonth = (p) => (p.date || (toDate(p.createdAt) ? todayStr(toDate(p.createdAt)) : '')).startsWith(ym);
+  const strip = posts.length ? kpiStrip(type === 'notice' ? [
+    { l: '공지', v: posts.length, u: '개', s: '최근 60개까지' },
+    { l: '이번 달', v: posts.filter(inMonth).length, u: '개', c: 'var(--accent)' },
+    { l: '고정', v: posts.filter((p) => p.pinned).length, u: '개', c: posts.some((p) => p.pinned) ? '#ffb020' : '', s: '맨 위에 보여요' },
+  ] : [
+    { l: '미팅 자료', v: posts.length, u: '개' },
+    { l: '이번 달', v: posts.filter(inMonth).length, u: '개', c: 'var(--accent)' },
+    { l: '첨부 자료', v: posts.reduce((a, p) => a + (p.files?.length || 0), 0), u: '개', s: '링크 · 파일' },
+  ]) : '';
+  body.innerHTML = posts.length ? `${strip}<div class="post-grid">${posts.map((p) => `
     <article class="post-card ${p.pinned ? 'pinned' : ''}" data-id="${p.id}">
       ${cfg.pad && p.pad ? '<div class="thumb-pad" data-thumb></div>' : ''}
       <div class="post-meta">${p.pinned ? '<span class="tag">고정</span>' : ''}${p.opponent ? `<span class="tag">vs ${esc(p.opponent)}</span>` : ''}<small>${esc(p.date || fmtDate(p.createdAt))}</small></div>
@@ -86,7 +97,16 @@ function renderSchedule(body, all, refresh) {
     const monthList = shown.filter((p) => p.date?.startsWith(month))
       .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
     const note = notes.find((x) => x.month === month);
+    const mAll = posts.filter((p) => p.date?.startsWith(month));
+    const nextUp = posts.filter((p) => p.date >= todayStr()).sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))[0];
+    const dd = nextUp ? Math.round((new Date(`${nextUp.date}T00:00`) - new Date(`${todayStr()}T00:00`)) / 864e5) : null;
     body.innerHTML = `
+      ${kpiStrip([
+        { l: `${m + 1}월 일정`, v: mAll.length, u: '개', stack: SCHED_COLORS.map(([k, c]) => [mAll.filter((p) => schedKey(p) === k).length, c, k]), s: SCHED_COLORS.map(([k]) => `${k} <b>${mAll.filter((p) => schedKey(p) === k).length}</b>`).join(' · ') },
+        { l: '경기', v: mAll.filter((p) => p.kind === '경기').length, u: '번', c: '#ef4444' },
+        { l: '훈련', v: mAll.filter((p) => p.kind === '훈련').length, u: '번', c: '#3b82f6' },
+        { l: '다음 일정', v: nextUp ? (dd === 0 ? 'D-DAY' : `D-${dd}`) : '-', c: nextUp ? 'var(--accent)' : '', s: nextUp ? esc(`${nextUp.date.slice(5).replace('-', '.')} ${nextUp.title}`) : '예정 없음' },
+      ])}
       <div class="sched-bar">
         <div class="legend">${SCHED_COLORS.map(([l, c]) => `<button class="lg ${only === l ? 'on' : ''}" data-only="${l}"><i style="background:${c}"></i>${l}</button>`).join('')}
           ${only ? '<button class="link-btn small" data-only="">전체 보기</button>' : ''}</div>
