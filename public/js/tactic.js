@@ -293,11 +293,41 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
         // 유니폼(셔츠) 모양 — 경기장을 세로로 돌려도 셔츠는 바로 서 있게 (글자처럼)
         const sg = el('g', { transform: upright(cx, cy) }, g);
         const P = (dx, dy) => `${(cx + dx * u).toFixed(2)} ${(cy + dy * u).toFixed(2)}`;
-        el('path', { d: `M${P(-1.15, -2.1)} L${P(-2.5, -1.45)} L${P(-2.9, 0)} L${P(-1.75, 0.45)} L${P(-1.75, 2.2)} L${P(1.75, 2.2)} L${P(1.75, 0.45)} L${P(2.9, 0)} L${P(2.5, -1.45)} L${P(1.15, -2.1)} Q${P(0, -1.2)} ${P(-1.15, -2.1)} Z`, fill: tm.fill, stroke: tm.stroke, 'stroke-width': 0.28 * u, 'stroke-linejoin': 'round' }, sg);
-        numT(cy + 1.15 * u, long ? 1.25 : 1.75);
+        const shirtD = `M${P(-1.15, -2.1)} L${P(-2.5, -1.45)} L${P(-2.9, 0)} L${P(-1.75, 0.45)} L${P(-1.75, 2.2)} L${P(1.75, 2.2)} L${P(1.75, 0.45)} L${P(2.9, 0)} L${P(2.5, -1.45)} L${P(1.15, -2.1)} Q${P(0, -1.2)} ${P(-1.15, -2.1)} Z`;
+        el('path', { d: shirtD, fill: tm.fill, stroke: 'none' }, sg);
+        // 두 번째 색: 가로(위 · 아래 상하의 느낌) · 세로(3줄 — 인터밀란 느낌)
+        if ((it.sp === 'h' || it.sp === 'v') && it.pc2) {
+          const cid = `sh${String(it.id || i).replace(/[^a-z0-9]/gi, '')}`;
+          const cp = el('clipPath', { id: cid }, sg); el('path', { d: shirtD }, cp);
+          const band = el('g', { 'clip-path': `url(#${cid})` }, sg);
+          if (it.sp === 'h') el('rect', { x: cx - 3 * u, y: cy + 0.15 * u, width: 6 * u, height: 2.2 * u, fill: it.pc2 }, band);
+          else el('rect', { x: cx - 0.58 * u, y: cy - 2.3 * u, width: 1.16 * u, height: 4.6 * u, fill: it.pc2 }, band), el('rect', { x: cx - 2.95 * u, y: cy - 2.3 * u, width: 1.2 * u, height: 4.6 * u, fill: it.pc2 }, band), el('rect', { x: cx + 1.75 * u, y: cy - 2.3 * u, width: 1.2 * u, height: 4.6 * u, fill: it.pc2 }, band);
+        }
+        el('path', { d: shirtD, fill: 'none', stroke: tm.stroke, 'stroke-width': 0.28 * u, 'stroke-linejoin': 'round' }, sg);
+        const nt = numT(cy + 1.15 * u, long ? 1.25 : 1.75);
+        if ((it.sp === 'h' || it.sp === 'v') && it.pc2) { // 번호는 두 번째 색(아래쪽 · 가운데 줄) 위에 — 그 색에 맞춰 글자색
+          const light = lumOf(it.pc2) > 0.42;
+          nt.setAttribute('fill', light ? '#000000' : '#ffffff');
+          nt.setAttribute('stroke', light ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)'); nt.setAttribute('stroke-width', 2.2); nt.setAttribute('paint-order', 'stroke');
+        }
       } else {
-        el('circle', { cx, cy, r, fill: tm.fill, stroke: tm.stroke, 'stroke-width': it.role ? 0.45 * u : 0.3 * u }, g);
-        numT(cy + 0.75 * u, long ? 1.5 : 2.1); // 크게 그려 줄임 (작은 글자 겹침 방지)
+        const pat = !it.role && (it.sp === 'h' || it.sp === 'v') && it.pc2;
+        el('circle', { cx, cy, r, fill: tm.fill, stroke: pat ? 'none' : tm.stroke, 'stroke-width': it.role ? 0.45 * u : 0.3 * u }, g);
+        if (pat) { // 동그라미도 두 번째 색: 가로(아래 반) · 세로(가운데 줄 — 3줄)
+          const cg = el('g', { transform: upright(cx, cy) }, g);
+          const cid = `cc${String(it.id || i).replace(/[^a-z0-9]/gi, '')}`;
+          const cp = el('clipPath', { id: cid }, cg); el('circle', { cx, cy, r }, cp);
+          const band = el('g', { 'clip-path': `url(#${cid})` }, cg);
+          if (it.sp === 'h') el('rect', { x: cx - r, y: cy, width: 2 * r, height: r, fill: it.pc2 }, band);
+          else el('rect', { x: cx - r / 3, y: cy - r, width: (2 * r) / 3, height: 2 * r, fill: it.pc2 }, band);
+          el('circle', { cx, cy, r, fill: 'none', stroke: tm.stroke, 'stroke-width': 0.3 * u }, g);
+        }
+        const nc = numT(cy + 0.75 * u, long ? 1.5 : 2.1); // 크게 그려 줄임 (작은 글자 겹침 방지)
+        if (pat) { // 번호가 두 색에 걸쳐도 보이게 테두리
+          const light = it.sp === 'v' ? lumOf(it.pc2) > 0.42 : lumOf(tm.fill.startsWith('#') ? tm.fill : '#ffffff') > 0.42;
+          nc.setAttribute('fill', light ? '#000000' : '#ffffff');
+          nc.setAttribute('stroke', light ? 'rgba(255,255,255,.7)' : 'rgba(0,0,0,.6)'); nc.setAttribute('stroke-width', 2.4); nc.setAttribute('paint-order', 'stroke');
+        }
       }
       ring(r + 0.9 * u);
       break;
@@ -619,6 +649,7 @@ export function createPad(container, initial, { editable = true, motion = false,
   let tool = 'select';
   let linking = null; // 선수 연결: 지금 잇고 있는 선
   let pdef = ''; // 새로 놓는 선수 모양 ('' 동그라미 · 'shirt' 유니폼)
+  let sdef = ''; let c2def = '#ffffff'; // 새로 놓는 유니폼 무늬 ('' 단색 · 'h' 가로 2색 · 'v' 세로 3줄) · 두 번째 색
   let pcur = ''; // 새로 놓는 선수 색 (작은 색 칸에서 고른 색)
   let team = 'a';
   let sel = -1;
@@ -677,6 +708,9 @@ export function createPad(container, initial, { editable = true, motion = false,
       <span class="pad-colors" data-colors><button type="button" class="pcdot" data-cdot title="색 고르기"><i></i>색 ▾</button>
         <span class="pad-pop pad-swatch pad-cpop" data-cpop hidden><button type="button" class="sw def wide" data-col="" title="기본색">기본색</button>${SWATCHES.map((c) => `<button type="button" class="sw" data-col="${c}" style="--c:${c}" title="${c}"></button>`).join('')}</span></span>
       <span class="pad-grp" data-psbar><small class="muted">모양</small><button type="button" class="chip" data-psopt="">동그라미</button><button type="button" class="chip" data-psopt="shirt">유니폼</button></span>
+      <span class="pad-grp" data-spbar><small class="muted">무늬</small><button type="button" class="chip" data-spopt="">단색</button><button type="button" class="chip" data-spopt="h" title="위 · 아래 두 색 (상하의 느낌)">가로</button><button type="button" class="chip" data-spopt="v" title="세로 3줄 (인터밀란 느낌)">세로</button>
+        <span class="pad-teams" data-sp2wrap><button type="button" class="pcdot" data-t2dot title="두 번째 색 고르기"><i></i>두 번째 색 ▾</button>
+        <span class="pad-pop pad-swatch pad-t2pop" data-t2pop hidden>${SWATCHES.map((c) => `<button type="button" class="sw" data-pc2="${c}" style="--c:${c}" title="${c}"></button>`).join('')}</span></span></span>
       <span class="pad-grp" data-rolebar>${Object.entries(ROLES).map(([k, R]) => `<button type="button" class="chip" data-roleopt="${k}"><b>${R.t}</b> ${R.l}</button>`).join('')}</span>
       <span class="pad-grp" data-linkopt><button type="button" class="chip" data-lshape="open" title="이은 순서대로 선">선</button><button type="button" class="chip" data-lshape="closed" title="마지막 선수와 첫 선수를 이어 도형으로 (3명부터)">도형</button><button type="button" class="chip" data-lstyle="solid">실선</button><button type="button" class="chip" data-lstyle="dash">점선</button><button type="button" class="chip" data-larea title="이은 선수들 사이를 색으로 채우기">면 채우기</button></span>
       <span class="pad-opt" data-spread title="시야 넓이">${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="chip" data-sp="${v}">${l}</button>`).join('')}</span>
@@ -1061,6 +1095,14 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.querySelector('[data-psbar]').hidden = !(plOnly.length || tool === 'player');
     const curPs = plOnly.length ? (plOnly.every((x) => x.ps === 'shirt') ? 'shirt' : plOnly.every((x) => !x.ps) ? '' : null) : pdef;
     container.querySelectorAll('[data-psopt]').forEach((b) => b.classList.toggle('on', b.dataset.psopt === curPs));
+    const shirts = plOnly; // 동그라미 · 유니폼 모두 무늬 가능
+    container.querySelector('[data-spbar]').hidden = !(shirts.length || (tool === 'player' && !plOnly.length));
+    const curSp = shirts.length ? (shirts.every((x) => (x.sp || '') === (shirts[0].sp || '')) ? (shirts[0].sp || '') : null) : sdef;
+    container.querySelectorAll('[data-spopt]').forEach((b) => b.classList.toggle('on', b.dataset.spopt === curSp));
+    const cur2 = shirts.length ? (shirts[0].pc2 || c2def) : c2def;
+    container.querySelector('[data-sp2wrap]').hidden = !curSp;
+    container.querySelector('[data-t2dot]').style.setProperty('--c', cur2);
+    container.querySelectorAll('[data-pc2]').forEach((b) => b.classList.toggle('on', b.dataset.pc2.toLowerCase() === String(cur2).toLowerCase()));
     const roleSel = selected().filter((x) => x.k === 'player' && x.role);
     container.querySelector('[data-rolebar]').hidden = !roleSel.length;
     container.querySelectorAll('[data-roleopt]').forEach((b) => b.classList.toggle('on', roleSel.length > 0 && roleSel.every((x) => x.role === b.dataset.roleopt)));
@@ -1086,7 +1128,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.querySelector('[data-spread]').hidden = !(s && s.k === 'vision');
     container.querySelectorAll('[data-sp]').forEach((b) => b.classList.toggle('on', s?.k === 'vision' && +b.dataset.sp === (s.spread || 50)));
     const selbar = container.querySelector('[data-selbar]');
-    selbar.querySelectorAll('.pad-grp:not([data-linkopt]):not([data-psbar]):not([data-rolebar])').forEach((g) => { g.hidden = ![...g.children].some((c) => !c.hidden); });
+    selbar.querySelectorAll('.pad-grp:not([data-linkopt]):not([data-psbar]):not([data-rolebar]):not([data-spbar])').forEach((g) => { g.hidden = ![...g.children].some((c) => !c.hidden); });
     selbar.hidden = ![...selbar.children].some((c) => !c.hidden);
     container.querySelector('[data-hint]').textContent = {
       select: '끌어서 이동 · Ctrl(⌘)+클릭 여러 개 · Ctrl+C/V 복사·붙여넣기 · Ctrl+Z 되돌리기 · Delete 삭제 · +/- 크기 · 더블클릭 번호 수정',
@@ -1551,6 +1593,20 @@ export function createPad(container, initial, { editable = true, motion = false,
     if (ps.length) { snapshot(); ps.forEach((x) => { if (pdef) x.ps = pdef; else delete x.ps; }); }
     render();
   }));
+  // 무늬 · 두 번째 색 (고른 선수 · 없으면 선수 모두 — 동그라미 · 유니폼)
+  const shirtTargets = () => { const sel = selected().filter((x) => x.k === 'player' && !x.role); return sel.length ? sel : data.items.filter((x) => x.k === 'player' && !x.role); };
+  container.querySelectorAll('[data-spopt]').forEach((b) => (b.onclick = () => {
+    sdef = b.dataset.spopt;
+    const ps = shirtTargets();
+    if (ps.length) { snapshot(); ps.forEach((x) => { if (sdef) { x.sp = sdef; x.pc2 ||= c2def; } else { delete x.sp; delete x.pc2; } }); }
+    render();
+  }));
+  container.querySelectorAll('[data-pc2]').forEach((b) => (b.onclick = () => {
+    c2def = b.dataset.pc2;
+    const ps = shirtTargets().filter((x) => x.sp);
+    if (ps.length) { snapshot(); ps.forEach((x) => { x.pc2 = c2def; }); }
+    setTimeout(closePops, 0); render();
+  }));
   // 역할(중립 · 서브 · 타겟 · 코치) 바꾸기
   container.querySelectorAll('[data-roleopt]').forEach((b) => (b.onclick = () => {
     const R = ROLES[b.dataset.roleopt];
@@ -1571,8 +1627,9 @@ export function createPad(container, initial, { editable = true, motion = false,
   };
   container.querySelector('[data-tdot]').onclick = togglePop('[data-tpop]');
   container.querySelector('[data-cdot]').onclick = togglePop('[data-cpop]');
+  container.querySelector('[data-t2dot]').onclick = togglePop('[data-t2pop]');
   container.addEventListener('click', (e) => { if (e.target.closest('[data-team], [data-col], [data-pc]')) setTimeout(closePops, 0); });
-  document.addEventListener('pointerdown', (e) => { if (!svg.isConnected) return; if (!e.target.closest?.('.pad-pop, [data-tdot], [data-cdot]')) closePops(); }, true);
+  document.addEventListener('pointerdown', (e) => { if (!svg.isConnected) return; if (!e.target.closest?.('.pad-pop, [data-tdot], [data-cdot], [data-t2dot]')) closePops(); }, true);
   // 선수 연결 설정: 실선 · 점선 · 면 채우기
   container.querySelectorAll('[data-lstyle]').forEach((b) => (b.onclick = () => { const x = items()[sel]; if (x?.k !== 'link') return; snapshot(); if (b.dataset.lstyle === 'dash') x.style = 'dash'; else delete x.style; render(); }));
   container.querySelectorAll('[data-lshape]').forEach((b) => (b.onclick = () => { const x = items()[sel]; if (x?.k !== 'link') return; snapshot(); if (b.dataset.lshape === 'closed') { x.closed = true; x.area = true; } else { delete x.closed; delete x.area; } render(); }));
@@ -1879,7 +1936,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     }
     snapshot();
     let it;
-    if (tool === 'player') it = { k: 'player', team, n: nextNum(team, pcur), x: p.x, y: p.y, ...(pdef ? { ps: pdef } : {}), ...(pcur ? { pc: pcur } : {}) };
+    if (tool === 'player') it = { k: 'player', team, n: nextNum(team, pcur), x: p.x, y: p.y, ...(pdef ? { ps: pdef } : {}), ...(pcur ? { pc: pcur } : {}), ...(sdef ? { sp: sdef, pc2: c2def } : {}) };
     else if (tool.startsWith('role-')) { const rk = tool.slice(5); const R = ROLES[rk]; it = { k: 'player', role: rk, team: R.team, n: R.t, x: p.x, y: p.y }; }
     else if (EQUIP.includes(tool)) it = { k: tool, x: p.x, y: p.y };
     else if (tool === 'num') { const ns = items().filter((x) => x.k === 'num').map((x) => +x.n).filter((n) => !isNaN(n)); it = { k: 'num', n: String(ns.length ? Math.max(...ns) + 1 : 1), x: p.x, y: p.y }; }
