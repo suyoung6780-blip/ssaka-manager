@@ -1,0 +1,6 @@
+#DaumWebMasterTool:9339475620c48ddd62b4d4af5d96b922249dc2792b9cc94ca73cb6f7b72ca61a:6JNuku1jO8QFMMcL4HrRjQ==
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://www.ssakamanager.co.kr/sitemap.xml

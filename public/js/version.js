@@ -8,7 +8,7 @@ export const CHANGELOG = [
   {
     date: '2026-10-20', ver: '0.9.1',
     items: [
-      ['주소', '새 주소 www.ssakamanager.co.kr'],
+      ['주소', '새 주소 www.ssakamanager.co.kr · 네이버 · 구글 · 다음 검색 등록'],
       ['회원가입', '카카오 · Google 계정으로 가입 · 로그인'],
       ['약관', '이용약관 추가 · 개인정보 처리방침 정리'],
       ['전술보드', '새 메뉴 · 훈련 저장 · 이미지 · 영상'],

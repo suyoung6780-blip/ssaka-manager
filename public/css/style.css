@@ -3306,3 +3306,5 @@ html.pad-locked, html.pad-locked body { overflow: hidden; overscroll-behavior: n
 .ver-list li.ver-it span { font-size: 14px; color: var(--text); line-height: 1.5; }
 .ver-list ul:has(.ver-it) { padding-left: 0; margin: 4px 0 0; }
 @media (max-width: 520px) { .ver-list li.ver-it { grid-template-columns: 76px minmax(0, 1fr); gap: 8px; } }
+/* 검색 로봇용 소개 — 화면에는 안 보임 */
+.seo-intro { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
