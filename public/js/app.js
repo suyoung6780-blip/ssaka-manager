@@ -25,10 +25,12 @@ import * as goals from './pages/goals.js';
 import * as personal from './pages/personal.js';
 import * as social from './pages/social.js';
 import * as notes from './pages/notes.js';
+import * as terms from './pages/terms.js';
+import { kakaoReturn } from './social.js';
 
 const app = $('#app');
 const PLAYER_DEMO = /[?&]as=player/.test(location.search); // 체험 모드: 선수로 보는 중
-const RESTRICT_OK = ['/', '/settings', '/support', '/support/qna', '/me', '/privacy', '/pay'];
+const RESTRICT_OK = ['/', '/settings', '/support', '/support/qna', '/me', '/privacy', '/terms', '/pay'];
 
 // guard: auth(기본) / squad(팀원: 코치·선수) / coach / member / owner
 const routes = [
@@ -71,6 +73,7 @@ const routes = [
   ['/admin/inbox/qna', support.inbox, 'admin'],
   ['/admin/inbox/:id', support.inbox, 'admin'],
   ['/privacy', privacy.page, 'any'],
+  ['/terms', terms.page, 'any'],
   ['/consent/:token', privacy.consentPage, 'any'],
   ['/community', (el) => community.page(el, { cat: 'training' }), 'coach'],
   ['/community/:cat', community.page, 'coach'],
@@ -112,6 +115,7 @@ const FOOTER = `
       <span>축구팀을 위한 매니지먼트 플랫폼</span>
     </div>
     <nav class="sf-links">
+      <a href="#/terms">이용약관</a>
       <a href="#/privacy"><b>개인정보처리방침</b></a>
       <a href="#/support">운영자 문의</a>
     </nav>
@@ -277,7 +281,7 @@ document.addEventListener('click', (e) => {
   modal(`<span class="eyebrow">UPDATES</span><h2>업데이트 내역 <small class="muted">${versionLabel()}</small></h2>
     <p class="muted small">지금은 무료로 시험 운영하는 <b>베타</b>예요. 유료 정식 출시 때 1.0이 돼요.</p>
     <div class="ver-list">${CHANGELOG.map((c) => `<section><div class="ver-h"><b>v${esc(c.ver)}</b><small>${esc(c.date.replace(/-/g, '.'))}</small></div>
-      <ul>${c.items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></section>`).join('')}</div>`);
+      <ul>${c.items.map((x) => (Array.isArray(x) ? `<li class="ver-it"><b>${esc(x[0])}</b><span>${esc(x[1])}</span></li>` : `<li>${esc(x)}</li>`)).join('')}</ul></section>`).join('')}</div>`);
 });
 
 hooks.route = route;
@@ -310,6 +314,7 @@ if (!isConfigured) {
   (q.get('mode') === 'resetPassword' ? authPages.resetPage : authPages.verifyEmailPage)($('#view'), q.get('oobCode') || '');
 } else {
   let first = true;
+  kakaoReturn(); // 카카오에서 돌아왔으면 그 열쇠로 로그인 (주소에서 바로 지움)
   onAuthStateChanged(auth, async (u) => {
     state.user = u;
     if (!u) stopNews();

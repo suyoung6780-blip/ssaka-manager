@@ -35,7 +35,7 @@ export const FEEDS_URL = '';
 export const ADMIN_EMAILS = ['suyoung6780@gmail.com'];
 
 // ⑦ 개인정보 처리방침 — 보호책임자 연락처 · 시행일 (바꾸면 처리방침 화면에 바로 반영)
-export const PRIVACY = { officer: '싸카매니저 운영자', email: 'suyoung6780@gmail.com', effective: '2026-10-07' };
+export const PRIVACY = { officer: '유수영 (대표)', email: 'suyoung6780@gmail.com', effective: '2026-10-20' };
 
 // ⑧ 파일 저장소(Cloud Storage) — Firebase Blaze 요금제에서만 켤 수 있음.
 //    false: 분석실은 '내 컴퓨터 영상'으로 분석 + 유튜브 공유, 미팅룸은 자료 링크로 (무료)
@@ -43,3 +43,6 @@ export const PRIVACY = { officer: '싸카매니저 운영자', email: 'suyoung67
 export const STORAGE_ENABLED = false;
 
 export const isConfigured = !firebaseConfig.apiKey.startsWith('YOUR_');
+
+// 소셜 로그인 (구글: Firebase 콘솔 › Authentication › Google 사용 설정 · 카카오: Vercel 환경 변수 KAKAO_REST_KEY + /api/kakao)
+export const SOCIAL_LOGIN = { google: true, kakao: true };

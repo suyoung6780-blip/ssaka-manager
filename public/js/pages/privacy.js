@@ -6,6 +6,7 @@ import {
 import { esc, toast, fail, modal, confirmBox } from '../ui.js';
 import { state, loadContext, go, isOwner } from '../store.js';
 import { PRIVACY } from '../config.js';
+import { TERMS_VER, showTerms } from './terms.js';
 
 export const POLICY_VER = PRIVACY.effective;
 const brand = `<div class="brand"><span>SSAKA</span><span>MANAGER</span><small>축구팀을 위한 매니지먼트 플랫폼</small></div>`;
@@ -26,8 +27,9 @@ export function policyHtml() {
     <tr><th>선수 (필수)</th><td>생년월일</td></tr>
     <tr><th>선수 (선택)</th><td>사진, 키, 몸무게, 포지션, 등번호, 주발, 소속(학교 · 학년 · 클럽), 소개</td></tr>
     <tr><th>지도자 (선택)</th><td>사진, 직책, 담당, 자격증, 출신학교, 지도 경력</td></tr>
-    <tr><th>건강 정보 (민감정보, 선수 필수 · 별도 동의)</th><td>컨디션, 통증 · 부상 정도와 부위, 수면 시간, 운동 강도(RPE)</td></tr>
-    <tr><th>서비스 이용 중 생성</th><td>훈련 · 경기 일지, 목표, 상담 내용, 대화 내용, 분석실 영상 · 그림, 스카웃 노트(지도자가 적은 선수 메모), 문의 · 개선 제안</td></tr>
+    <tr><th>건강 정보 (민감정보, 선수 필수 · 별도 동의)</th><td>컨디션, 통증 · 부상 정도와 부위, 훈련 · 경기 중 부상 여부와 다친 때, 수면 시간 · 수면 질, 운동 강도(RPE) · 운동 시간, 키 · 몸무게(선택)</td></tr>
+    <tr><th>서비스 이용 중 생성</th><td>훈련 · 경기 일지, 목표, 상담 내용, 대화 내용, 분석실 영상 · 그림, 작전판 · 훈련 프로그램, 경기 기록, 스카웃 노트(지도자가 적은 선수 메모), 코치 노트(지도자 본인 메모), 문의 · 개선 제안</td></tr>
+    <tr><th>소셜 로그인 (선택)</th><td>Google: 이메일 주소, 이름(가입 화면에 미리 채우는 데만 씀) · 카카오: 카카오 회원번호, 이메일 주소 — 각 서비스에서 이용자가 동의한 항목만 받으며, 비밀번호는 받지 않습니다</td></tr>
     <tr><th>만 14세 미만 회원의 보호자</th><td>보호자 이름, 관계, 휴대폰 번호, 동의 일시</td></tr>
     <tr><th>자동 수집</th><td>접속 기록(IP 주소, 접속 시각, 브라우저 정보)</td></tr>
   </tbody></table>
@@ -47,7 +49,8 @@ export function policyHtml() {
   <ul><li>같은 팀 지도자: 소속 선수의 프로필, 일지, 건강 정보, 목표, 상담 내용</li>
     <li>같은 팀 구성원: 이름, 사진, 포지션 등 프로필(락커룸 · 선수단)</li>
     <li>만 14세 미만 선수의 보호자 정보(이름 · 관계 · 휴대폰 번호): 팀 대표가 입장 승인 때 보호자 동의를 확인하는 데 씁니다</li>
-    <li>다른 팀: 팀이 '공개'로 설정한 경우에 한해 선수단 프로필(이름, 사진, 포지션, 키 · 몸무게, 소속 등). 일지 · 건강 정보는 보이지 않습니다.</li></ul>
+    <li>다른 팀 · 다른 이용자: 팀 이름 · 구분 · 대표 지도자 이름만 보입니다. 선수단 · 일지 · 건강 정보 등 팀 안의 내용은 보이지 않습니다.</li>
+    <li>커뮤니티(훈련 공유 · 지도자 게시판): 지도자가 직접 올린 글 · 훈련 프로그램과 작성자 이름이 서비스의 다른 지도자에게 보입니다.</li></ul>
 
   <h3>5. 개인정보 처리 위탁 및 국외 이전</h3>
   <p>서비스는 원활한 운영을 위해 아래와 같이 개인정보 처리를 위탁하며, 이 과정에서 개인정보가 국외로 이전됩니다. 이전은 서비스 이용 시 네트워크를 통해 수시로 이루어지며, 보유 기간은 회원 탈퇴 시 또는 위탁 계약 종료 시까지입니다.</p>
@@ -71,16 +74,21 @@ export function policyHtml() {
   <h3>10. 안전성 확보 조치</h3>
   <ul><li>모든 통신은 암호화(HTTPS)되어 전송됩니다.</li>
     <li>비밀번호는 암호화되어 저장되며 운영자도 볼 수 없습니다.</li>
-    <li>데이터베이스 접근 규칙으로 본인 · 소속 팀 지도자 외에는 개인 기록을 볼 수 없게 제한합니다.</li></ul>
+    <li>데이터베이스 접근 규칙으로 본인 · 소속 팀 지도자 외에는 개인 기록을 볼 수 없게 제한합니다.</li>
+    <li>운영자는 문의 응대, 탈퇴 · 계정 정리, 부정 이용 확인, 법령에 따른 요청 처리에 필요한 경우에만 최소한으로 개인정보에 접근합니다.</li></ul>
 
-  <h3>11. 개인정보 보호책임자</h3>
+  <h3>11. 쿠키 등 자동 수집 장치</h3>
+  <p>서비스는 로그인 유지, 화면 설정 기억, 작성 중인 글 · 작전판의 임시 보관을 위해 브라우저 저장 공간(쿠키 · 로컬 저장소)을 씁니다. 광고 · 추적 목적으로는 쓰지 않습니다. 브라우저 설정에서 지울 수 있으며, 지우면 로그인이 풀리고 임시 보관한 내용이 사라집니다.</p>
+
+  <h3>12. 개인정보 보호책임자</h3>
   <p>${esc(PRIVACY.officer)} · 이메일 ${esc(PRIVACY.email)}<br>서비스 안의 <b>운영자 문의</b>로도 요청할 수 있습니다.</p>
 
-  <h3>12. 권익침해 구제 방법</h3>
+  <h3>13. 권익침해 구제 방법</h3>
   <p>개인정보침해 신고센터 (국번없이) 118 · 개인정보 분쟁조정위원회 1833-6972 · 대검찰청 사이버수사과 1301 · 경찰청 사이버수사국 182</p>
 
-  <h3>13. 시행일</h3>
+  <h3>14. 시행일 · 변경 이력</h3>
   <p>이 처리방침은 ${esc(PRIVACY.effective)}부터 적용됩니다.</p>
+  <ul class="muted small"><li>2026-10-07 제정</li><li>2026-10-20 개정: 다른 팀에 보이는 범위를 실제와 같게 정정, 커뮤니티 · 운영자 접근 · 쿠키 등 항목 추가, 부상 기록 · 작전판 · 코치 노트 반영, 보호책임자 표시, 소셜 로그인(Google · 카카오) 수집 항목 추가</li></ul>
   </div>`;
 }
 
@@ -96,6 +104,7 @@ export const showPolicy = () => modal(`<span class="eyebrow">PRIVACY POLICY</spa
 export function agreeFields() {
   return `<fieldset class="agree"><legend>동의</legend>
     <label class="chk all"><input type="checkbox" data-agall> <b>모두 동의합니다</b></label>
+    <label class="chk"><input type="checkbox" name="agTerms" required> [필수] 이용약관 동의 <button type="button" class="link-btn small" data-terms>보기</button></label>
     <label class="chk"><input type="checkbox" name="agPrivacy" required> [필수] 개인정보 수집 · 이용 동의 <button type="button" class="link-btn small" data-policy>보기</button></label>
     <label class="chk"><input type="checkbox" name="agOverseas" required> [필수] 개인정보 국외 이전 동의 (Google · Vercel, 미국) <button type="button" class="link-btn small" data-policy>보기</button></label>
     <div data-for="player"><label class="chk"><input type="checkbox" name="agHealth" required> [필수] 건강 정보(컨디션 · 통증 · 수면) 처리 동의 — 본인과 소속 팀 지도자만 봐요</label>
@@ -112,6 +121,7 @@ export function bindAgree(form) {
   const boxes = () => [...form.querySelectorAll('.agree input[type=checkbox]:not([data-agall])')].filter((c) => !c.disabled);
   form.querySelector('[data-agall]').onchange = (e) => boxes().forEach((c) => { c.checked = e.target.checked; });
   form.querySelectorAll('[data-policy]').forEach((b) => (b.onclick = showPolicy));
+  form.querySelectorAll('[data-terms]').forEach((b) => (b.onclick = showTerms));
   const note = form.querySelector('[data-agenote]');
   form.querySelector('[name=birth]').oninput = (e) => {
     const v = e.target.value;
@@ -123,8 +133,8 @@ export function agreeData(d) {
   const player = d.role === 'player';
   const under14 = player && d.birth ? ageOf(d.birth) < 14 : false;
   const out = { ...d };
-  ['agPrivacy', 'agOverseas', 'agHealth', 'agAdult'].forEach((k) => delete out[k]);
-  out.agree = { ver: POLICY_VER, privacy: true, overseas: true, health: player, at: new Date().toISOString() };
+  ['agTerms', 'agPrivacy', 'agOverseas', 'agHealth', 'agAdult'].forEach((k) => delete out[k]);
+  out.agree = { ver: POLICY_VER, terms: TERMS_VER, privacy: true, overseas: true, health: player, at: new Date().toISOString() };
   out.under14 = under14;
   if (player && d.birth && !d.birthYear) out.birthYear = d.birth.slice(0, 4);
   if (under14) { out.guardianOk = false; out.consentToken = token(); }
@@ -135,29 +145,35 @@ export const consentUrl = (tk) => `${location.origin}${location.pathname}#/conse
 export const needGuardian = () => !!state.profile?.under14 && !state.profile?.guardianOk;
 
 // ───────── 동의 받기 (처리방침이 생기기 전에 가입한 회원 — 한 번만) ─────────
-export const needAgree = () => !!state.profile && !state.profile.agree;
+export const needAgree = () => !!state.profile && (!state.profile.agree || !state.profile.agree.terms); // 이용약관이 생기기 전 가입자도 한 번
 export function agreeGate(el) {
   const player = state.profile.role === 'player';
+  const termsOnly = !!state.profile.agree; // 처리방침은 이미 동의 — 새로 생긴 이용약관만
   el.innerHTML = `${brand}<form class="card auth-card wide">
-    <h2>개인정보 처리 동의</h2>
-    <p class="muted">싸카매니저에 <b>개인정보 처리방침</b>이 새로 생겼어요. 계속 쓰려면 아래 내용에 한 번 동의해 주세요.</p>
+    <h2>${termsOnly ? '이용약관 동의' : '이용약관 · 개인정보 처리 동의'}</h2>
+    <p class="muted">${termsOnly ? '싸카매니저에 <b>이용약관</b>이 새로 생겼어요. 계속 쓰려면 한 번 동의해 주세요. 개인정보 처리방침도 실제 서비스에 맞게 고쳤어요.' : '싸카매니저에 <b>이용약관</b>과 <b>개인정보 처리방침</b>이 있어요. 계속 쓰려면 아래 내용에 한 번 동의해 주세요.'}</p>
     <fieldset class="agree"><legend>동의</legend>
       <label class="chk all"><input type="checkbox" data-agall> <b>모두 동의합니다</b></label>
-      <label class="chk"><input type="checkbox" required> [필수] 개인정보 수집 · 이용 동의 <button type="button" class="link-btn small" data-policy>보기</button></label>
+      <label class="chk"><input type="checkbox" required> [필수] 이용약관 동의 <button type="button" class="link-btn small" data-terms>보기</button></label>
+      ${termsOnly ? '' : `<label class="chk"><input type="checkbox" required> [필수] 개인정보 수집 · 이용 동의 <button type="button" class="link-btn small" data-policy>보기</button></label>
       <label class="chk"><input type="checkbox" required> [필수] 개인정보 국외 이전 동의 (Google · Vercel, 미국) <button type="button" class="link-btn small" data-policy>보기</button></label>
-      ${player ? '<label class="chk"><input type="checkbox" required> [필수] 건강 정보(컨디션 · 통증 · 수면) 처리 동의</label>' : '<label class="chk"><input type="checkbox" required> [필수] 만 14세 이상입니다</label>'}
+      ${player ? '<label class="chk"><input type="checkbox" required> [필수] 건강 정보(컨디션 · 통증 · 수면) 처리 동의</label>' : '<label class="chk"><input type="checkbox" required> [필수] 만 14세 이상입니다</label>'}`}
     </fieldset>
     <button class="btn full">동의하고 계속하기</button>
-    <div class="row between small"><a href="#/privacy">개인정보 처리방침</a><button type="button" class="link-btn" data-out>로그아웃 (동의하지 않으면 탈퇴를 요청할 수 있어요)</button></div>
+    <div class="row between small"><span><a href="#/terms">이용약관</a> · <a href="#/privacy">개인정보 처리방침</a></span><button type="button" class="link-btn" data-out>로그아웃 (동의하지 않으면 탈퇴를 요청할 수 있어요)</button></div>
   </form>`;
   const form = el.querySelector('form');
   form.querySelector('[data-agall]').onchange = (e) => form.querySelectorAll('.agree input:not([data-agall])').forEach((c) => { c.checked = e.target.checked; });
   form.querySelectorAll('[data-policy]').forEach((b) => (b.onclick = showPolicy));
+  form.querySelectorAll('[data-terms]').forEach((b) => (b.onclick = showTerms));
   el.querySelector('[data-out]').onclick = () => signOut(auth);
   form.onsubmit = async (e) => {
     e.preventDefault();
+    const at = new Date().toISOString();
     try {
-      await updateDoc(doc(db, 'users', state.user.uid), { agree: { ver: POLICY_VER, privacy: true, overseas: true, health: player, at: new Date().toISOString(), late: true } });
+      const agree = termsOnly ? { ...state.profile.agree, terms: TERMS_VER, termsAt: at }
+        : { ver: POLICY_VER, terms: TERMS_VER, privacy: true, overseas: true, health: player, at, late: true };
+      await updateDoc(doc(db, 'users', state.user.uid), { agree });
       await loadContext();
       toast('동의해 주셔서 감사합니다.');
       go(location.hash.slice(1) || '/');

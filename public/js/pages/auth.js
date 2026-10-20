@@ -8,6 +8,7 @@ import { state, loadContext, go, hooks } from '../store.js';
 import { FREE_MODE, EMAIL_VERIFY_FROM } from '../config.js';
 import { agreeFields, bindAgree, agreeData } from './privacy.js';
 import { installButton, bindInstall } from '../install.js';
+import { socialButtons, bindSocial } from '../social.js';
 
 // 회원가입 안내: 계정 유형 · 팀이 만들어지는 방식 · 역할별 권한
 const Y = '<span class="ok">✔</span>', N = '<span class="no">—</span>';
@@ -54,6 +55,7 @@ export function login(el) {
   el.innerHTML = `${brand}
   <form class="card auth-card">
     <h2>로그인</h2>
+    ${socialButtons('login')}
     ${auth.demo ? '<p class="muted small">데모 계정: 코치 <b>c@x.com</b> / <b>coach123</b> · 선수 <b>p@x.com</b> / <b>player123</b> — 직접 가입한 계정도 됩니다.</p>' : ''}
     <label>이메일 (아이디)<input name="email" type="email" required autocomplete="email"></label>
     <label>비밀번호<input name="password" type="password" required autocomplete="current-password"></label>
@@ -63,11 +65,12 @@ export function login(el) {
       <button type="button" class="link-btn" data-reset>비밀번호 찾기</button>
       <a href="#/signup">회원가입 →</a>
     </div>
-    <p class="center small"><a href="#/privacy" class="muted">개인정보 처리방침</a></p>
+    <p class="center small"><a href="#/terms" class="muted">이용약관</a> <span class="muted">·</span> <a href="#/privacy" class="muted">개인정보 처리방침</a></p>
   </form>
   ${tryDemo()}
   <p class="center install-line">${installButton('btn ghost sm')}</p>`;
   bindInstall(el);
+  bindSocial(el);
   const form = el.querySelector('form');
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -108,6 +111,7 @@ export function signup(el) {
     <div class="signup-rule"><b>가입 전에 꼭 확인해 주세요</b>
       <ul><li><b>성명</b>은 실명(성과 이름)으로 정확하게</li><li><b>팀 이름</b>은 실제 팀 이름 그대로 (예: 블랙 FC U15, 한빛초 축구부)</li></ul>
       <p>별명 · 줄임말 · 알아볼 수 없는 이름으로 가입하면 운영자 확인 뒤 <b>이용이 제한될 수 있어요.</b></p></div>
+    ${socialButtons('signup')}
     <label>이메일 <small class="muted">(로그인 아이디로 쓰여요)</small><input name="email" type="email" required autocomplete="email" placeholder="example@naver.com"></label>
     <p class="muted small field-hint">이메일이 없는 선수는 부모님 이메일로 가입해도 돼요. 비밀번호를 잊으면 이 이메일로 재설정 링크가 갑니다.</p>
     <div class="field-error" data-dup hidden>이미 가입된 이메일이에요. 이 이메일로 로그인하거나, 비밀번호가 기억나지 않으면 재설정 메일을 받으세요.
@@ -116,11 +120,12 @@ export function signup(el) {
     <label>비밀번호 확인<input name="password2" type="password" minlength="6" required autocomplete="new-password"></label>
     <button class="btn full">다음 — 개인계정 만들기</button>
     <div class="row between small"><button type="button" class="link-btn" data-guide>계정 유형 · 권한 안내</button><a href="#/login">이미 계정이 있어요</a></div>
-    <p class="center small"><a href="#/privacy" class="muted">개인정보 처리방침</a></p>
+    <p class="center small"><a href="#/terms" class="muted">이용약관</a> <span class="muted">·</span> <a href="#/privacy" class="muted">개인정보 처리방침</a></p>
   </form>
   ${tryDemo()}
   <p class="center install-line">${installButton('btn ghost sm')}</p>`;
   bindInstall(el);
+  bindSocial(el);
   const form = el.querySelector('form');
   el.querySelector('[data-guide]').onclick = accountGuide;
   form.onsubmit = async (e) => {
@@ -246,7 +251,7 @@ export function completeProfile(el) {
   <form class="card auth-card wide">
     <h2>개인계정 만들기</h2>
     <p class="muted small">${esc(state.user.email)}</p>
-    ${profileFields({}, { withRole: true })}
+    ${profileFields({ name: state.user.displayName || '' }, { withRole: true })}
     ${agreeFields()}
     <button class="btn full">시작하기</button>
     <button type="button" class="link-btn small" data-out>다른 계정으로 로그인</button>

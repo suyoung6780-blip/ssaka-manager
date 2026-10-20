@@ -14,12 +14,12 @@ const seed = (p, d) => store.set(p, d);
 const later = Timestamp.fromMillis(Date.now() + 20 * 864e5);
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const today = ymd(new Date());
-seed(`users/${U}`, { name: '김코치', role: 'coach', agree: { ver: 'demo' }, email: 'c@x.com', teamId: 'T1', position: '', photo: '', coachTitle: '수석코치', duty: 'U15 담당', licenses: 'KFA B급, GK 3급', school: '성남중 - 풍생고 - 용인대', career: '2019~2022 FC 블랙 U12 코치\n2023~ FC 블랙 U15 수석코치' });
+seed(`users/${U}`, { name: '김코치', role: 'coach', agree: { ver: 'demo', terms: 'demo' }, email: 'c@x.com', teamId: 'T1', position: '', photo: '', coachTitle: '수석코치', duty: 'U15 담당', licenses: 'KFA B급, GK 3급', school: '성남중 - 풍생고 - 용인대', career: '2019~2022 FC 블랙 U12 코치\n2023~ FC 블랙 U15 수석코치' });
 seed('teams/T1', { name: 'FC 블랙', category: 'U15', isPublic: true, ownerUid: U, ownerName: '김코치', createdAt: Timestamp.fromMillis(Date.now() - 30 * 864e5), status: 'active', paidUntil: later, intro: '테스트 팀' });
 seed('teams/T2', { name: '화이트 유나이티드', category: 'K7', isPublic: false, ownerUid: 'x', ownerName: '백감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 12 * 864e5), status: 'active', paidUntil: later });
 seed('teams/T3', { name: '그레이 FC', category: 'U15', isPublic: true, ownerUid: 'y', ownerName: '최감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 5 * 864e5), status: 'active', paidUntil: later });
 seed(`teams/T1/members/${U}`, { name: '김코치', role: 'coach', coachTitle: '수석코치', duty: 'U15 담당', licenses: 'KFA B급, GK 3급', school: '성남중 - 풍생고 - 용인대', career: '2019~2022 FC 블랙 U12 코치\n2023~ FC 블랙 U15 수석코치' });
-seed('users/p1', { name: '박선수', role: 'player', agree: { ver: 'demo' }, email: 'p@x.com', teamId: 'T1', position: 'ST', number: '9', height: '175', weight: '65', affiliation: '블랙중 3학년' });
+seed('users/p1', { name: '박선수', role: 'player', agree: { ver: 'demo', terms: 'demo' }, email: 'p@x.com', teamId: 'T1', position: 'ST', number: '9', height: '175', weight: '65', affiliation: '블랙중 3학년' });
 seed('teams/T1/members/c2', { name: '최코치', role: 'coach', coachTitle: 'GK 코치' });
 seed('teams/T1/members/p1', { name: '박선수', role: 'player', affiliation: '블랙중 3학년', position: 'ST', number: '9', height: '175', weight: '65' });
 seed('teams/T1/members/p2', { name: '이선수', role: 'player', position: 'GK', number: '1' });
@@ -344,6 +344,10 @@ export const createUserWithEmailAndPassword = async (_a, email, pw) => {
   saveAcc();
   setUser(mkUser(accounts[email].uid, email));
 };
+// 소셜 로그인: 체험 모드에서는 쓰지 않음
+export class GoogleAuthProvider { setCustomParameters() {} }
+const noSocial = async () => { const e = new Error('체험 모드에서는 구글 · 카카오 로그인을 쓸 수 없어요. 아래 데모 계정으로 들어가 보세요.'); e.code = 'demo/social'; throw e; };
+export const signInWithPopup = noSocial; export const signInWithRedirect = noSocial; export const signInWithCustomToken = noSocial;
 export const signInWithEmailAndPassword = async (_a, email, pw) => {
   const acc = accounts[email.trim().toLowerCase()];
   if (!acc || acc.pw !== pw) throw authErr('auth/invalid-credential');
