@@ -112,7 +112,7 @@ function planCard(p, progMap) {
     <header class="plan-head">
       <div>
         <h3>${esc(p.title || '훈련')}</h3>
-        <div class="plan-meta">${[p.time && `⏰ ${p.time}`, p.place && `📍 ${p.place}`, total && `총 ${total}분`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}</div>
+        <div class="plan-meta">${[p.time && `시간 ${p.time}`, p.place && `장소 ${p.place}`, total && `총 ${total}분`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}</div>
       </div>
       ${isCoach() ? '<div class="row"><button class="btn ghost sm" data-edit>수정</button><button class="btn ghost sm" data-del>삭제</button></div>' : ''}
     </header>

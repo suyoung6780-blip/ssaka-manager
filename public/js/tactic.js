@@ -578,7 +578,7 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
 const TOOLS = [
   ['select', '선택·이동', '⬚'],
   ['player', '선수', '●'],
-  ['ball', '공', '⚽'],
+  ['ball', '공', '◉'],
   ['pass', '패스', '→'],
   ['run', '이동', '⇢'],
   ['dribble', '드리블', '↝'],
@@ -614,7 +614,7 @@ const TOOL_GROUPS = [
   ['선택', '⬚', ['select']],
   ['선수', '●', ['player']],
   ['역할', 'N', ['role-n', 'role-s', 'role-t', 'role-c']],
-  ['공', '⚽', ['ball']],
+  ['공', '◉', ['ball']],
   ['화살표', '→', ['pass', 'run', 'dribble']],
   ['연결', '⟋', ['link']],
   ['시야', '∨', ['vision']],
@@ -1367,7 +1367,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     container.classList.toggle('pad-full', on);
     container.classList.toggle('pad-phone', phone);
     document.documentElement.classList.toggle('pad-locked', !!document.querySelector('.pad.pad-full'));
-    container.querySelector('[data-flabel]').textContent = on ? (phone ? '완료' : '작게') : '크게';
+    container.querySelector('[data-flabel]').textContent = on ? '작게' : '크게'; // 휴대폰도 '작게' — '완료'는 확인 버튼처럼 보여서
     if (on && !phone && container.requestFullscreen && !document.fullscreenElement) container.requestFullscreen().catch(() => {});
     if (!on && document.fullscreenElement === container) document.exitFullscreen().catch(() => {});
     if (!on) { view = null; closeNotes(); }
@@ -1618,7 +1618,7 @@ export function createPad(container, initial, { editable = true, motion = false,
     e.stopPropagation(); const p = container.querySelector(q); const open = p.hidden; closePops(); p.hidden = !open;
     // [크게] 화면(컴퓨터): 설정 줄 안에 갇히지 않게 화면 위에 띄움
     p.style.position = p.style.left = p.style.top = '';
-    if (open && container.classList.contains('pad-full') && !container.classList.contains('pad-phone')) {
+    if (open && !container.classList.contains('pad-phone')) { // 설정 줄이 가로 스크롤이라 그 안에 갇히지 않게 화면 위에 띄움
       const r = e.currentTarget.getBoundingClientRect();
       p.style.position = 'fixed';
       p.style.left = `${Math.max(8, Math.min(r.left, innerWidth - p.offsetWidth - 8))}px`;
@@ -1778,11 +1778,14 @@ export function createPad(container, initial, { editable = true, motion = false,
   if (editable) {
     svg.addEventListener('pointerdown', (e) => {
       if (e.pointerType !== 'touch') return;
+      // 첫 손가락이면 예전 손가락 기록은 지움 — 화면을 다시 그리면서 '손 뗌' 신호를 못 받은 손가락이 남아
+      // 한 손가락도 두 손가락(확대)으로 잘못 처리되던 문제 (도구가 안 먹고 위아래로 끌면 확대되던 것)
+      if (e.isPrimary) { touches.clear(); pinch = null; }
       touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
       // 휴대폰: 그리는 도구일 때 빈 곳 · 그림을 빠르게 두 번 톡톡 → 첫 번째 톡으로 생긴 것은 취소하고 [선택]으로
       if (touches.size === 1 && tool !== 'select') {
         const now = performance.now(); const dt = dblTap;
-        if (dt && now - dt.t < 330 && Math.hypot(e.clientX - dt.x, e.clientY - dt.y) < 34) {
+        if (dt && now - dt.t < 420 && Math.hypot(e.clientX - dt.x, e.clientY - dt.y) < 44) {
           dblTap = null;
           e.stopImmediatePropagation(); e.preventDefault();
           touches.delete(e.pointerId);
@@ -1811,6 +1814,10 @@ export function createPad(container, initial, { editable = true, motion = false,
     };
     svg.addEventListener('pointerup', lift);
     svg.addEventListener('pointercancel', lift);
+    // 손가락 아래 그림이 다시 그려져 사라져도 '손 뗌'을 놓치지 않게 창 전체에서도 받음
+    const liftAny = (e) => { if (!svg.isConnected) { window.removeEventListener('pointerup', liftAny, true); window.removeEventListener('pointercancel', liftAny, true); return; } if (touches.has(e.pointerId)) lift(e); };
+    window.addEventListener('pointerup', liftAny, true);
+    window.addEventListener('pointercancel', liftAny, true);
   }
 
   // ───────── 돋보기: 손가락으로 끄는 동안 가려진 곳을 손가락 위에 크게 ─────────

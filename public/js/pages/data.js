@@ -274,6 +274,33 @@ function bindAi(box) {
 }
 
 // ───────── 선수별 ─────────
+// 선수별 보기: 그래프 / 숫자(날짜별 실제 값 표)
+const PV_KEY = 'ssaka.dr.pview';
+let pview = (() => { try { return localStorage.getItem(PV_KEY) || 'chart'; } catch { return 'chart'; } })();
+const fmtVal = (k, v) => (v == null ? '' : k === 'sleep' || k === 'load' || k === 'trainMin' ? Math.round(v) : Math.round(v * 10) / 10);
+function numTable(dates, mine, mets, logs, coach) {
+  const rows = dates.map((d, i) => [d, mine[i]]).filter(([, l]) => l).reverse(); // 최근 날짜부터, 기록한 날만
+  if (!rows.length) return '<p class="muted">이 기간에는 기록이 없어요.</p>';
+  const teamAvg = (k) => avg(logs.map((x) => val(x, k)).filter((v) => v != null));
+  const mineAvg = (k) => avg(rows.map(([, l]) => val(l, k)).filter((v) => v != null));
+  return `<div class="dr-num-wrap"><table class="dr-num">
+    <thead><tr><th>날짜</th>${mets.map(([, l, , , u]) => `<th>${esc(l)}${u ? `<small>${esc(u)}</small>` : ''}</th>`).join('')}<th>메모</th></tr></thead>
+    <tbody>${rows.map(([d, l]) => `<tr>
+      <td>${md(d)}</td>
+      ${mets.map(([k, , , tone]) => {
+        if (k === 'rpe' && l.hurt) return '<td class="hot">부상</td>';
+        if (k === 'rpe' && l.absent) return '<td class="muted">불참</td>';
+        const v = val(l, k);
+        const bad = (tone === 'bad' && v >= 5) || (k === 'condition' && v != null && v <= 2) || (k === 'sleep' && v != null && v < 360);
+        return `<td class="${bad ? 'hot' : ''}">${v == null ? '<span class="muted">-</span>' : fmtVal(k, v)}</td>`;
+      }).join('')}
+      <td class="dr-num-note">${esc([l.hurt ? `${l.hurt === 'match' ? '경기' : '훈련'} 중 부상${l.hurtWhen ? ` (${l.hurtWhen})` : ''}` : '', l.injuryPart, l.absent ? `불참${l.absentReason ? ` · ${l.absentReason}` : ''}` : ''].filter(Boolean).join(' · '))}</td>
+    </tr>`).join('')}</tbody>
+    <tfoot><tr><th>평균</th>${mets.map(([k]) => `<th>${fmtVal(k, mineAvg(k)) || '-'}</th>`).join('')}<th></th></tr>
+      ${coach ? `<tr class="team"><th>팀 평균</th>${mets.map(([k]) => `<th>${fmtVal(k, teamAvg(k)) || '-'}</th>`).join('')}<th></th></tr>` : ''}</tfoot>
+  </table></div>`;
+}
+
 function playerView(box, ctx) {
   const { players, logs, dates, byKey, mets, coach, report, to } = ctx;
   const p = players.find((x) => x.id === who) || players[0];
@@ -284,21 +311,23 @@ function playerView(box, ctx) {
   const grp = (g) => GROUPS.find(([k]) => k === g);
   box.innerHTML = `
     ${coach ? `<div class="dr-who"><select data-who>${players.map((x) => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${x.number ? `${esc(x.number)}. ` : ''}${esc(x.name)}${x.position ? ` · ${esc(x.position)}` : ''}</option>`).join('')}</select>
-      <span class="muted small">기록 ${mine.filter(Boolean).length}일 / ${dates.length}일 · 그래프 점선 = 팀 평균</span></div>` : `<p class="muted small">기록 ${mine.filter(Boolean).length}일 / ${dates.length}일</p>`}
+      <span class="muted small">기록 ${mine.filter(Boolean).length}일 / ${dates.length}일${pview === 'chart' ? ' · 그래프 점선 = 팀 평균' : ''}</span></div>` : `<p class="muted small">기록 ${mine.filter(Boolean).length}일 / ${dates.length}일</p>`}
     <section class="card dr-ai one" style="--c:${LEVEL[lv][1]}"><span class="eyebrow">AI CONDITION REPORT · ${md(to)} 기준</span>
       <h3>${coach ? `${esc(p.name)} 분석` : '내 컨디션 분석'} <span class="dr-badge">${LEVEL[lv][0]}</span></h3>
       ${items.length ? `<ul class="dr-ai-list">${items.map((x) => `<li class="${grp(x.g)[2]}"><span>${grp(x.g)[1]}</span><div>${x.text}<em>→ ${coach ? x.tip : ME_TIP[x.tip] || x.tip}</em></div></li>`).join('')}</ul>`
         : '<p>최근 7일 데이터에서 특별한 위험 신호가 없어요. 지금처럼 꾸준히!</p>'}</section>
-    <div class="dr-grid">${mets.map(([k, l, max, , unit]) => {
+    <div class="dr-pv"><h3 class="dr-h">항목별 기록</h3><div class="seg" data-pview>${[['chart', '그래프'], ['num', '숫자']].map(([k, l]) => `<button type="button" class="${pview === k ? 'on' : ''}" data-pv="${k}">${l}</button>`).join('')}</div></div>
+    ${pview === 'num' ? numTable(dates, mine, mets, logs, coach) : `<div class="dr-grid">${mets.map(([k, l, max, , unit]) => {
       const pts = mine.map((x) => val(x, k));
       const a = avg(pts.filter((v) => v != null));
       const series = [{ pts, color: k === 'injury' ? '#ff453a' : '#4ea1ff', fill: true }];
       if (coach) series.push({ pts: dates.map((d) => avg(logs.filter((x) => x.date === d).map((x) => val(x, k)).filter((v) => v != null))), color: 'rgba(160,160,160,.9)', dash: true });
       return `<section class="card"><div class="card-head"><h4>${l}</h4><b class="dr-avg">${a == null ? '-' : k === 'sleep' || k === 'load' || k === 'trainMin' ? Math.round(a) : a}<i>${unit}</i></b></div>${lineChart(dates, series, max, true)}</section>`;
-    }).join('')}</div>
+    }).join('')}</div>`}
     <section class="card"><h3>부상 · 통증 기록</h3>
       ${hurts.length ? `<ul class="list">${hurts.reverse().map((l) => `<li><span>${esc(l.date)}</span><strong class="${l.injury >= 5 ? 'hot' : ''}">부상도 ${l.injury}</strong><span>${esc(l.injuryPart || '')}</span></li>`).join('')}</ul>` : '<p class="muted">이 기간에는 부상 · 통증 기록이 없어요.</p>'}</section>`;
   box.querySelector('[data-who]')?.addEventListener('change', (e) => { who = e.target.value; playerView(box, ctx); });
+  box.querySelectorAll('[data-pv]').forEach((b) => (b.onclick = () => { pview = b.dataset.pv; try { localStorage.setItem(PV_KEY, pview); } catch { /* */ } playerView(box, ctx); }));
 }
 
 // ───────── 그래프 (SVG) ─────────

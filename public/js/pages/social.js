@@ -82,9 +82,9 @@ export async function scout(el) {
         <div class="scout-body">
           <div class="sc-top"><h3>${esc(m.name)} ${m.position ? `<small>${esc(m.position)}</small>` : ''}</h3><span class="sc-badge">${SC_LABEL[stOf(m)]}</span></div>
           <small class="muted">${[m.affiliation || m.teamName, m.birthYear && `${m.birthYear}년생`, m.height && `${m.height}cm`, m.weight && `${m.weight}kg`].filter(Boolean).map(esc).join(' · ') || '소속 미입력'}</small>
-          ${m.strengths ? `<p><b>👍 장점</b> ${text(m.strengths)}</p>` : ''}
-          ${m.weaknesses ? `<p><b>🔧 단점 · 보완점</b> ${text(m.weaknesses)}</p>` : ''}
-          ${m.note ? `<p><b>📝 메모</b> ${text(m.note)}</p>` : ''}
+          ${m.strengths ? `<p><b>장점</b> ${text(m.strengths)}</p>` : ''}
+          ${m.weaknesses ? `<p><b>단점 · 보완점</b> ${text(m.weaknesses)}</p>` : ''}
+          ${m.note ? `<p><b>메모</b> ${text(m.note)}</p>` : ''}
           <div class="sc-status" role="group" aria-label="상태">${SC_STATUS.map(([k, l]) => `<button type="button" class="chip ${stOf(m) === k ? 'active' : ''}" data-st="${k}">${l}</button>`).join('')}</div>
           <small class="muted">${esc(m.updatedBy || m.noteBy || m.by || '')} · ${fmtDate(m.updatedAt || m.noteAt || m.createdAt, true)}</small>
         </div>
@@ -120,9 +120,9 @@ function scoutForm(m, done) {
         <label>포지션<input name="position" maxlength="10" value="${esc(m.position || '')}" placeholder="예) LW"></label>
         <label>출생연도<input name="birthYear" inputmode="numeric" maxlength="4" value="${esc(m.birthYear || '')}" placeholder="예) 2014"></label>
       </div>
-      <label>👍 장점<textarea name="strengths" rows="3" maxlength="1000" placeholder="예) 왼발 드리블, 1v1 자신감, 스피드">${esc(m.strengths || '')}</textarea></label>
-      <label>🔧 단점 · 보완점<textarea name="weaknesses" rows="3" maxlength="1000" placeholder="예) 수비 가담 부족, 오른발 약함">${esc(m.weaknesses || '')}</textarea></label>
-      <label>📝 메모 <small class="muted">(본 경기 · 연락 계획 등)</small><textarea name="note" rows="2" maxlength="1000">${esc(m.note || '')}</textarea></label>
+      <label>장점<textarea name="strengths" rows="3" maxlength="1000" placeholder="예) 왼발 드리블, 1v1 자신감, 스피드">${esc(m.strengths || '')}</textarea></label>
+      <label>단점 · 보완점<textarea name="weaknesses" rows="3" maxlength="1000" placeholder="예) 수비 가담 부족, 오른발 약함">${esc(m.weaknesses || '')}</textarea></label>
+      <label>메모 <small class="muted">(본 경기 · 연락 계획 등)</small><textarea name="note" rows="2" maxlength="1000">${esc(m.note || '')}</textarea></label>
       <fieldset><legend>상태</legend><div class="pick-chips">${SC_STATUS.map(([k, l]) => `<label><input type="radio" name="status" value="${k}" ${(m.status || 'review') === k ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></fieldset>
       <div class="row end"><button class="btn">${m.id ? '저장' : '추가'}</button></div>
     </form>`);

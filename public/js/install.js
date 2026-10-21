@@ -16,7 +16,7 @@ const isSafariMac = /Macintosh/.test(ua) && /Safari/.test(ua) && !/Chrome|Chromi
 const isSamsung = /SamsungBrowser/.test(ua);
 
 export function installButton(cls = 'link-btn small') {
-  return isStandalone() ? '' : `<button type="button" class="${cls}" data-install>📲 앱으로 설치하기</button>`;
+  return isStandalone() ? '' : `<button type="button" class="${cls}" data-install>앱으로 설치하기</button>`;
 }
 export function bindInstall(root) {
   root.querySelectorAll('[data-install]').forEach((b) => (b.onclick = installApp));

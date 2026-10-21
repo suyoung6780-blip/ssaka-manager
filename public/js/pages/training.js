@@ -20,7 +20,7 @@ const lines = (s) => String(s || '').split('\n').map((l) => l.replace(/^\s*[-•
 function thumb(p) {
   if (p.image) return `<img src="${esc(p.image)}" alt="">`;
   if (p.pad) return '<div data-thumb-pad></div>';
-  return `<div class="thumb-link"><span>⚽</span><b>${esc(p.topics?.[0] || '훈련')}</b></div>`;
+  return `<div class="thumb-link"><span>◉</span><b>${esc(p.topics?.[0] || '훈련')}</b></div>`;
 }
 
 const meta = (p) => [

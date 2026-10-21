@@ -447,7 +447,7 @@ async function loadUsage(el) {
       <div class="usage-bar"><i style="width:${pct}%"></i></div></div>`;
   }).join('');
   const worst = Math.max(...Object.keys(USAGE_NAMES).map((k) => (d.used[k] || 0) / d.limits[k]));
-  box.innerHTML = `${worst >= 0.85 ? '<p class="usage-warn">⚠️ 곧 무료 한도가 다 차요 — 다 차면 모든 사용자가 불러오기 · 저장을 못 해요. 종량제(Blaze)로 바꾸는 걸 생각해 보세요.</p>' : ''}
+  box.innerHTML = `${worst >= 0.85 ? '<p class="usage-warn">곧 무료 한도가 다 차요 — 다 차면 모든 사용자가 불러오기 · 저장을 못 해요. 종량제(Blaze)로 바꾸는 걸 생각해 보세요.</p>' : ''}
     ${rows}
     <p class="muted small">한국 시간 <b>${kst(reset)}</b>에 다시 채워져요 (${hm} 남음) · ${kst(at)} 기준 · 숫자는 몇 분 늦게 반영돼요${d.demo ? ' · 데모 예시 숫자' : ''}</p>`;
 }

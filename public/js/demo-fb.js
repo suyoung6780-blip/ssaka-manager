@@ -222,7 +222,7 @@ seed(`teams/T1/logs/p1_${today}`, {
   kind: 'match', submitted: true, submittedAt: now(),
   sessions: {
     'dl1-0': { name: '웜업 · 동적 스트레칭', plan: '화요일 오후 훈련', focus: 4, good: '몸이 빨리 풀렸어요', hard: '', next: '' },
-    'dl1-1': { name: '써드맨 4v2 론도', plan: '화요일 오후 훈련', focus: 3, good: '2터치 안에 패스 성공이 많았어요', hard: '압박 오면 당황해서 뺏겼어요', next: '받기 전에 어깨 너머로 보기' },
+    'dl1-1': { name: '써드맨 4v2 론도', plan: '화요일 오후 훈련', focus: 3, good: '2터치 안에 패스 성공이 많았어요', hard: '압박 오면 당황해서 뺏겼어요', next: '받기 전에 어깨 너머로 보기', ask: '압박이 두 명 오면 뒤로 돌려야 하나요, 아니면 옆으로 빼야 하나요?' },
     'dl1-2': { name: '3v3v3 전환 게임', plan: '화요일 오후 훈련', focus: 5, good: '뺏고 바로 앞으로 패스', hard: '체력이 떨어졌어요', next: '전환할 때 소리 지르기' },
   },
   goalScore: 3, learned: '몸을 열고 받으면 시야가 넓어진다', tomorrow: '왼발 패스 50개',
@@ -233,12 +233,13 @@ seed(`teams/T1/logs/p1_${today}`, {
       { k: 'player', team: 'a', n: '9', x: 30, y: 30 }, { k: 'player', team: 'a', n: '8', x: 18, y: 44 },
       { k: 'player', team: 'b', n: '4', x: 38, y: 28 }, { k: 'player', team: 'b', n: '5', x: 38, y: 40 }, { k: 'player', team: 'j', n: 'GK', x: 50, y: 34 },
       { k: 'ball', x: 19, y: 43 }, { k: 'arrow', style: 'pass', x1: 19, y1: 43, x2: 44, y2: 30 }, { k: 'arrow', style: 'run', x1: 31, y1: 30, x2: 44, y2: 31 },
-    ] }, note: '8번이 공을 잡는 순간 수비 4번 뒤로 뛰어들어가서 골' }],
+    ] }, key: 'sc1', note: '8번이 공을 잡는 순간 수비 4번 뒤로 뛰어들어가서 골', ask: '이렇게 뒤로 뛸 때 오프사이드 안 걸리려면 언제 출발해야 해요?' }],
   },
 });
 { const d2 = (() => { const d = new Date(); d.setDate(d.getDate() - 2); return ymd(d); })();
   seed(`teams/T1/logs/p1_${d2}`, { uid: 'p1', name: '박선수', date: d2, kind: 'train', condition: 4, sleep: 8, rpe: 3, trainMin: 60, sleepQ: 4, injury: 0, submitted: true, submittedAt: now(), checked: true, coachComment: '회복 훈련도 성실하게 잘했어!',
-    sessions: { 'dl2-0': { name: '회복 조깅', focus: 4, good: '천천히 끝까지 뛰었어요', hard: '', next: '' }, 'dl2-1': { name: '스트레칭', focus: 3, good: '', hard: '햄스트링이 뻣뻣해요', next: '집에서도 스트레칭' } },
+    sessions: { 'dl2-0': { name: '회복 조깅', focus: 4, good: '천천히 끝까지 뛰었어요', hard: '', next: '' }, 'dl2-1': { name: '스트레칭', focus: 3, good: '', hard: '햄스트링이 뻣뻣해요', next: '집에서도 스트레칭', ask: '햄스트링 스트레칭은 몇 초씩 하면 돼요?' } },
+    answers: { 'dl2-1': { text: '한 번에 30초씩, 양쪽 3번! 반동 주지 말고 천천히 늘려 줘.', by: '김코치' } },
     learned: '회복도 훈련이다', tomorrow: '압박 탈출 연습' }); }
 seed(`teams/T1/logs/p2_${today}`, { uid: 'p2', name: '이선수', date: today, condition: 4, sleep: 8, rpe: 4, trainMin: 90, sleepQ: 4, injury: 0 }); // 작성 중(미제출) 예시
 // 데이터실 데모: 최근 30일 — 선수마다 다른 상황 (부상 · 피로 · 부하 급증 · 강도 약함 · 수면 불규칙 · 기록 부족)

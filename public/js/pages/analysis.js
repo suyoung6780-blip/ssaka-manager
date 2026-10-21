@@ -2477,7 +2477,7 @@ export async function studio(el, { id, mode }) {
     if (man) {
       const n = man.tr.path.length;
       box.hidden = false;
-      box.innerHTML = `<div class="ai-row"><b>✋ 수동 트래킹 · ${esc(man.tr.name)}</b><small>점 ${n}개</small><button class="btn sm" data-mdone>완료</button></div>
+      box.innerHTML = `<div class="ai-row"><b>수동 트래킹 · ${esc(man.tr.name)}</b><small>점 ${n}개</small><button class="btn sm" data-mdone>완료</button></div>
         <div class="ai-row man-ctl">
           <button class="chip" data-mjump="-1" title="이전 점">⇤ 점</button>
           <button class="chip" data-mstep="-1">◀ ${man.step}초</button>

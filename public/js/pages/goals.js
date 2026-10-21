@@ -209,7 +209,7 @@ function bindMyCards(box, goals, refresh) {
     const g = goals.find((x) => x.id === card.dataset.gid);
     const save = async (patch) => { try { await updateDoc(gdoc(g.id), patch); refresh(); } catch (e) { fail(e); } };
     card.querySelectorAll('[data-p]').forEach((b) => (b.onclick = () => save({ progress: Math.max(0, Math.min(100, (+g.progress || 0) + +b.dataset.p)) })));
-    card.querySelector('[data-done]')?.addEventListener('click', () => { save({ status: 'done', progress: 100 }); toast('목표 달성! 정말 잘했어요 👏'); });
+    card.querySelector('[data-done]')?.addEventListener('click', () => { save({ status: 'done', progress: 100 }); toast('목표 달성! 정말 잘했어요'); });
     card.querySelector('[data-edit]')?.addEventListener('click', () => myEditor(g, refresh));
   });
 }
@@ -219,13 +219,13 @@ function myEditor(g, refresh) {
   const m = modal(`
     <span class="eyebrow">MY GOAL</span><h2>${g.id ? '내 목표 고치기' : '내 목표 적기'}</h2>
     <form class="stack kid-form">
-      <label>🎯 무엇을 이룰까요?<input name="title" required maxlength="60" value="${esc(g.title || '')}" placeholder="예) 왼발로 정확하게 패스하기"></label>
+      <label>무엇을 이룰까요?<input name="title" required maxlength="60" value="${esc(g.title || '')}" placeholder="예) 왼발로 정확하게 패스하기"></label>
       <fieldset><legend>어떤 분야인가요?</legend>
         <div class="pick-chips">${MY_CATS.map((c) => `<label><input type="radio" name="category" value="${c}" ${(g.category || MY_CATS[0]) === c ? 'checked' : ''}><span>${c}</span></label>`).join('')}</div>
       </fieldset>
-      <label>💡 왜 이 목표를 정했나요?<textarea name="why" rows="2" maxlength="200" placeholder="예) 왼쪽에서 공을 받으면 자꾸 오른발로 바꿔서 늦어요">${esc(g.why || '')}</textarea></label>
-      <label>💪 어떻게 노력할까요?<textarea name="how" rows="2" maxlength="200" placeholder="예) 매일 벽 패스 왼발 50개">${esc(g.how || '')}</textarea></label>
-      <label>📅 언제까지 할까요?<input type="date" name="due" value="${esc(g.due || '')}"></label>
+      <label>왜 이 목표를 정했나요?<textarea name="why" rows="2" maxlength="200" placeholder="예) 왼쪽에서 공을 받으면 자꾸 오른발로 바꿔서 늦어요">${esc(g.why || '')}</textarea></label>
+      <label>어떻게 노력할까요?<textarea name="how" rows="2" maxlength="200" placeholder="예) 매일 벽 패스 왼발 50개">${esc(g.how || '')}</textarea></label>
+      <label>언제까지 할까요?<input type="date" name="due" value="${esc(g.due || '')}"></label>
       <div class="row end">${g.id ? '<button type="button" class="btn ghost" data-del>지우기</button>' : ''}<button class="btn">${g.id ? '저장' : '올리기'}</button></div>
     </form>`);
   m.el.querySelector('[data-del]')?.addEventListener('click', async () => {
@@ -240,7 +240,7 @@ function myEditor(g, refresh) {
       if (g.id) await updateDoc(gdoc(g.id), data);
       else await addDoc(gcol(), { ...data, status: 'doing', progress: 0, ownerUid: state.user.uid, ownerName: state.profile.name, createdAt: serverTimestamp() });
       m.close();
-      toast(g.id ? '저장했어요.' : '목표를 올렸어요! 화이팅 💪');
+      toast(g.id ? '저장했어요.' : '목표를 올렸어요! 화이팅');
       refresh();
     } catch (err) { fail(err); }
   };

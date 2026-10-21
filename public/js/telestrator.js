@@ -157,8 +157,12 @@ export class FrameAnalyzer {
     const d = this.img.data;
     const n = AW * AH;
     const g = new Uint8Array(n); // 잔디 픽셀
-    for (let i = 0, p = 0; i < n; i++, p += 4) g[i] = isGrass(d[p], d[p + 1], d[p + 2], key) ? 1 : 0;
-    this.grass = g;
+    const sh = new Uint8Array(n); // 잔디 위 그림자 (잔디처럼 보고 그림을 가리지 않음)
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      g[i] = isGrass(d[p], d[p + 1], d[p + 2], key) ? 1 : 0;
+      if (!g[i] && isShadow(d[p], d[p + 1], d[p + 2], key)) sh[i] = 1;
+    }
+    this.grass = g; this.shadow = sh;
     // 경기장 범위: 세로줄 · 가로줄마다 잔디가 몇 칸 이어지는 처음 ~ 끝. 그 밖(관중석 · 트랙 · 광고판)은
     // 선수가 아니니 그림을 가리지 않음 → 화살표가 경기장 밖으로 나가도 그대로 보임
     const R = Math.max(3, Math.round(AH * 0.015));
@@ -178,7 +182,7 @@ export class FrameAnalyzer {
       for (let x = 0; x < AW; x++, i++) {
         const [ct, cb] = colSpan[x];
         const onPitch = ct >= 0 && rl >= 0 && y >= ct && y <= cb && x >= rl && x <= rh;
-        cand[i] = onPitch && !g[i] ? 1 : 0;
+        cand[i] = onPitch && !g[i] && !sh[i] ? 1 : 0;
       }
     }
     // 그 중 '선수처럼 생긴 덩어리'만 그림을 가림 — 흰 라인 · 그림자 · 잔디 얼룩 · 작은 점은 무시 (화살표에 구멍이 나지 않게)
@@ -206,7 +210,9 @@ export class FrameAnalyzer {
     for (const b of boxes) {
       const x0 = Math.max(0, Math.floor(b.x0 * AW) - 1); const x1 = Math.min(AW - 1, Math.ceil(b.x1 * AW) + 1);
       const y0 = Math.max(0, Math.floor(b.y0 * AH) - 1); const y1 = Math.min(AH - 1, Math.ceil(b.y1 * AH) + 1);
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = y * AW + x; if (this.cand[i]) md[i * 4 + 3] = 0; }
+      // 몸통(네모 위쪽 82%)은 어두운 유니폼도 앞으로 · 발밑 아래쪽은 그림자라 가리지 않음
+      const yb = y0 + Math.round((y1 - y0) * 0.82);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = y * AW + x; if (this.cand[i] || (y <= yb && this.shadow?.[i])) md[i * 4 + 3] = 0; }
     }
     this.mctx.putImageData(this.maskImg, 0, 0);
   }
@@ -390,6 +396,17 @@ function hueOf(r, g, b) {
   else if (max === g) h = 60 * ((b - r) / c + 2);
   else h = 60 * ((r - g) / c + 4);
   return h < 0 ? h + 360 : h;
+}
+
+// 잔디 위 그림자: 어둡고, 색이 옅거나(회색빛) 잔디 쪽 색 — 선수 · 기둥 그림자가 그림을 가리지 않게
+export function isShadow(r, g, b, key) {
+  const v = r > g ? (r > b ? r : b) : (g > b ? g : b);
+  if (v > 125) return false; // 밝으면 그림자가 아님
+  const h = hueOf(r, g, b);
+  if (h < 0) return v >= 58; // 어둡고 회색빛 (아주 까만 건 검은 유니폼일 수 있어 그대로 선수로)
+  let dh = Math.abs(h - key.hue);
+  if (dh > 180) dh = 360 - dh;
+  return dh <= 34 + key.tol * 0.7; // 어두운 잔디색
 }
 
 export function isGrass(r, g, b, key) {

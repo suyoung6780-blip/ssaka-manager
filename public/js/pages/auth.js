@@ -376,7 +376,7 @@ async function checkVerified(show = true) {
 export function verifyGate(el) {
   const email = state.user?.email || '';
   el.innerHTML = `${brand}<div class="card auth-card center verify-card">
-    <div class="verify-ic">✉️</div>
+    <div class="verify-ic"><svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="m3.5 7 8.5 6.5L20.5 7"/></svg></div>
     <h2>이메일을 인증해 주세요</h2>
     <p><b>${esc(email)}</b> 로 인증 메일을 보냈어요.</p>
     <ol class="guide-steps left"><li>메일함에서 <b>싸카매니저 이메일 인증</b> 메일을 열어요 (안 보이면 <b>스팸함</b>도 확인)</li>

@@ -166,7 +166,10 @@ const lines = (str) => String(str || '').split('\n').map((x) => x.replace(/^\s*[
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
 const fmtDay = (d) => { const x = new Date(`${d}T00:00`); return `${x.getMonth() + 1}월 ${x.getDate()}일 (${DOW[x.getDay()]})`; };
 
-export async function daily(el, _p, date = todayStr()) {
+export async function daily(el, _p, date0) {
+  let date = date0;
+  try { const d = sessionStorage.getItem('ssaka.daily.date'); sessionStorage.removeItem('ssaka.daily.date'); if (d && !date) date = d; } catch { /* */ }
+  date ||= todayStr();
   await refreshFeatures();
   const tid = state.team.id;
   const base = ['teams', tid, 'logs'];
@@ -250,8 +253,8 @@ export async function daily(el, _p, date = todayStr()) {
     <section class="card journal">
       <div class="jstatus ${status[0]}"><span>${status[1]}</span>${l.submittedAt ? `<small>제출 ${fmtTime(l.submittedAt)}</small>` : ''}</div>
       <div class="kind-pick"><span>오늘은</span>
-        <label><input type="radio" name="kind" value="train" ${tabNow === 'train' ? 'checked' : ''} data-jtab="train"><b>🏃 훈련${hasPlan ? '<small>훈련 안내 있음</small>' : ''}</b></label>
-        <label><input type="radio" name="kind" value="match" ${tabNow === 'match' ? 'checked' : ''} data-jtab="match"><b>⚽ 경기${isMatchDay ? '<small>오늘 경기</small>' : ''}</b></label>
+        <label><input type="radio" name="kind" value="train" ${tabNow === 'train' ? 'checked' : ''} data-jtab="train"><b>훈련${hasPlan ? '<small>훈련 안내 있음</small>' : ''}</b></label>
+        <label><input type="radio" name="kind" value="match" ${tabNow === 'match' ? 'checked' : ''} data-jtab="match"><b>경기${isMatchDay ? '<small>오늘 경기</small>' : ''}</b></label>
         <em>고른 일지만 제출돼요</em></div>
       <div data-part="train" ${tabNow === 'train' ? '' : 'hidden'}>
       ${planRef(plans, progMap)}
@@ -315,7 +318,7 @@ export async function daily(el, _p, date = todayStr()) {
           <label class="ml-check" title="PDF로 저장할 일지 고르기"><input type="checkbox" data-pick="${x.date}"></label>
           <span class="date-badge">${esc(x.date.slice(5).replace('-', '.'))}</span>
           <div><strong>${k === 'match' ? `경기${x.match?.opponent ? ` vs ${esc(x.match.opponent)}` : ''}` : '훈련'}</strong>
-            <small>${st}${x.coachComment ? ` · 코치 한마디: ${esc(x.coachComment.slice(0, 40))}` : ''}</small></div>
+            <small class="${x.coachComment ? 'ml-cc' : ''}">${x.coachComment ? `코치 한마디: ${esc(x.coachComment.slice(0, 60))}` : st}</small></div>
           <span class="tag ${x.checked ? 'solid' : ''}">${st}</span></li>`;
       }).join('')}</ul>` : empty('아직 쓴 일지가 없어요.')}
     </section>
@@ -564,6 +567,25 @@ export function journalHtml(l, coachAns = false) {
     ${l.tomorrow ? `<h4>내일 목표</h4><div class="prose">${text(l.tomorrow)}</div>` : ''}`;
 }
 
+// 일지검사 상세: 선수가 오늘 기록에 적은 몸 상태 전부 (적은 것만)
+function bodyGrid(l) {
+  const t = (label, v, cls = '') => (v == null || v === '' ? '' : `<div class="jb ${cls}"><small>${label}</small><b>${v}</b></div>`);
+  const load = l.rpe && l.trainMin ? l.rpe * l.trainMin : null;
+  return `<div class="jb-grid">
+    ${t('컨디션', l.condition != null ? `${l.condition}<i>/5</i>` : '-')}
+    ${t('수면', sleepOf(l) != null ? sleepLong(sleepOf(l)) : '-')}
+    ${t('취침 · 기상', l.bedtime || l.wakeTime ? `${esc(l.bedtime || '-')} → ${esc(l.wakeTime || '-')}` : null)}
+    ${t('수면 질', l.sleepQ ? `${l.sleepQ}<i>/5</i> <em>${esc(SLEEP_Q[l.sleepQ] || '')}</em>` : null)}
+    ${l.hurt ? t('오늘 부상', `${HURT[l.hurt]}${l.hurtWhen ? ` <em>${esc(l.hurtWhen)}</em>` : ''}`, 'hot') : t('자각도 (RPE)', l.absent ? '불참' : l.rpe != null ? `${l.rpe}<i>/10</i>` : '-')}
+    ${t('훈련 시간', l.absent ? '0<i>분</i>' : l.trainMin != null ? `${l.trainMin}<i>분</i>` : null)}
+    ${t('훈련 부하', load != null && !l.hurt ? `${load}<i>RPE×분</i>` : null)}
+    ${t('부상도', `${l.injury ?? 0}<i>/10</i>${l.injuryPart ? ` <em>${esc(l.injuryPart)}</em>` : ''}`, (l.injury || 0) >= 5 ? 'hot' : '')}
+    ${l.absent ? t('운동 불참', esc(l.absentReason || '사유 없음'), 'hot') : ''}
+    ${t('키', l.height ? `${l.height}<i>cm</i>` : null)}
+    ${t('몸무게', l.weight ? `${l.weight}<i>kg</i>` : null)}
+  </div>`;
+}
+
 function trend(logs0) {
   const logs = logs0.map((l) => ({ ...l, sleepM: sleepOf(l) }));
   const row = (label, key, max, fmt = (v) => v) => `
@@ -582,7 +604,11 @@ const avg = (arr, k) => {
 // ───────── 일지검사 (코치) ─────────
 let jFilter = 'all'; // 일지검사 보기: all · sub · draft · none
 
-export async function journalCheck(el, _p, date = todayStr()) {
+export async function journalCheck(el, _p, date0) {
+  // 홈 '답 안 한 질문'에서 누르면 그 날짜 · 그 선수 일지를 바로 엶
+  let openUid = null;
+  try { const o = JSON.parse(sessionStorage.getItem('ssaka.jc.open') || 'null'); sessionStorage.removeItem('ssaka.jc.open'); if (o && !date0) { date0 = o.date; openUid = o.uid; } } catch { /* */ }
+  const date = date0 || todayStr();
   await refreshFeatures();
   const tid = state.team.id;
   const [ms, ls] = await Promise.all([
@@ -621,7 +647,7 @@ export async function journalCheck(el, _p, date = todayStr()) {
       const wrote = l?.sessions ? Object.values(l.sessions).filter((x) => x.good || x.hard || x.next || x.did).length : 0;
       const asks = [...Object.entries(l?.sessions || {}), ...(l?.match?.scenes || []).filter((sc) => sc.key).map((sc) => [`m_${sc.key}`, sc])].filter(([k, x]) => x.ask && !(l.answers || {})[k]?.text).length;
       const kind = l?.kind || (l?.match && (l.match.good || l.match.bad || (l.match.scenes || []).length) ? 'match' : 'train');
-      return `<article class="jcard ${st[0]} ${warn ? 'warn' : ''}" data-st="${!l ? 'none' : l.submitted ? 'sub' : 'draft'}" ${l?.submitted ? `data-uid="${p.id}"` : ''}>
+      return `<article class="jcard ${st[0]} ${warn ? 'warn' : ''}" data-st="${!l ? 'none' : l.submitted ? 'sub' : 'draft'}" ${l ? `data-uid="${p.id}"` : ''}>
         <header>${avatar(p.photo, p.name, 'lg')}<div><strong>${p.number ? `<span class="num">${esc(p.number)}</span> ` : ''}${esc(p.name)}</strong><small>${esc(p.position || '')}</small></div></header>
         ${l ? `<div class="jstats">
           <div><small>컨디션</small><b>${l.condition ?? '-'}<i>/5</i></b>${l.condition ? `<span class="dots">${'●'.repeat(l.condition)}${'○'.repeat(5 - l.condition)}</span>` : ''}</div>
@@ -630,7 +656,7 @@ export async function journalCheck(el, _p, date = todayStr()) {
           <div class="${l.injury >= 5 || l.hurt ? 'hot' : ''}"><small>부상</small><b>${l.injury ?? 0}</b>${l.injuryPart ? `<em>${esc(l.injuryPart)}</em>` : ''}</div>
         </div>
         <div class="jmeta"><span class="jbadge ${st[0]}">${st[1]}</span><p class="jwhat">${kind === 'match' ? `<span class="tag solid">경기 일지</span>${asks ? ` <span class="tag warn">질문 ${asks}</span>` : ''}` : `<span class="tag solid">훈련 일지</span>${l.sessions ? ` <span class="tag">세션 ${wrote}</span>` : ''}${asks ? ` <span class="tag warn">질문 ${asks}</span>` : ''}`}</p></div>` : `<p class="muted">아직 오늘 기록을 쓰지 않았어요.</p><div class="jmeta"><span class="jbadge ${st[0]}">${st[1]}</span></div>`}
-        ${l?.submitted ? `<button class="btn full ${l.checked ? 'ghost' : ''}" data-open>${l.checked ? '검사 완료 · 다시 보기' : '일지 검사하기'}</button>` : ''}
+        ${l?.submitted ? `<button class="btn full ${l.checked ? 'ghost' : ''}" data-open>${l.checked ? '검사 완료 · 다시 보기' : '일지 검사하기'}</button>` : l ? '<button class="btn ghost full" data-open>쓰는 중인 기록 보기</button>' : ''}
       </article>`;
     }).join('')}`).join('')}
   </div>
@@ -654,21 +680,20 @@ export async function journalCheck(el, _p, date = todayStr()) {
   el.querySelector('[data-date]').onchange = (e) => journalCheck(el, _p, e.target.value);
   bindSortBar(el, 'journal', () => journalCheck(el, _p, date));
   el.querySelector('[data-xlsx]')?.addEventListener('click', exportModal);
+  if (openUid) setTimeout(() => el.querySelector(`[data-uid="${openUid}"] [data-open]`)?.click(), 0);
   el.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => {
     const l = logs[b.closest('[data-uid]').dataset.uid];
     const m = modal(`<span class="eyebrow">JOURNAL · ${esc(l.date)}</span><h2>${esc(l.name)}</h2>
-      <div class="kv"><span>컨디션</span><strong>${l.condition ?? '-'} / 5</strong></div>
-      <div class="kv"><span>취침 · 기상 · 수면</span><strong>${esc(l.bedtime || '-')} · ${esc(l.wakeTime || '-')} · ${sleepLong(sleepOf(l))}</strong></div>
-      ${l.hurt ? `<div class="kv hot"><span>오늘 부상</span><strong>${HURT[l.hurt]}${l.hurtWhen ? ` · ${esc(l.hurtWhen)}` : ''} <small class="muted">(자각도 분석에서 빠짐)</small></strong></div>` : `<div class="kv"><span>자각도</span><strong>${l.rpe ?? '-'} / 10</strong></div>`}
-      <div class="kv"><span>부상도</span><strong>${l.injury ?? 0} / 10 ${esc(l.injuryPart || '')}</strong></div>
+      ${l.submitted ? '' : '<p class="jc-draft">아직 제출하지 않은 기록이에요 — 선수가 지금까지 적은 내용이 보여요.</p>'}
+      ${bodyGrid(l)}
       ${journalHtml(l) ? `<h4>훈련 일지</h4>${journalHtml(l, true)}` : ''}${matchHtml(l, true)}
       ${!journalHtml(l) && !matchHtml(l) ? '<p class="muted">일지 내용이 없습니다.</p>' : ''}
-      <form class="stack"><label>코치 코멘트<textarea name="coachComment" rows="3">${esc(l.coachComment || '')}</textarea></label>
-      <div class="row end"><button class="btn">검사 완료</button></div></form>`, { wide: !!(l.match?.scenes || []).length });
+      ${l.submitted ? `<form class="stack"><label>코치 코멘트<textarea name="coachComment" rows="3">${esc(l.coachComment || '')}</textarea></label>
+      <div class="row end"><button class="btn">검사 완료</button></div></form>` : ''}`, { wide: true });
     // 경기 장면 작전판 (읽기 전용)
     m.el.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = l.match.scenes[+box.dataset.viewPad]; if (sc?.pad) createPad(box, sc.pad, { editable: false }); });
     m.el.querySelectorAll('[data-view-spad]').forEach((box) => { const sp = l.sessions?.[box.dataset.viewSpad]?.pad; if (sp) createPad(box, sp, { editable: false }); });
-    m.el.querySelector('form').onsubmit = async (e) => {
+    if (m.el.querySelector('form')) m.el.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
       try {
         // 세션별 질문 답변 (적은 것만)
@@ -681,6 +706,7 @@ export async function journalCheck(el, _p, date = todayStr()) {
         await updateDoc(doc(db, 'teams', tid, 'logs', l.id), {
           checked: true, coachComment: e.target.coachComment.value, checkedBy: state.profile.name, checkedAt: serverTimestamp(), answers,
         });
+        (await import('./homeCoach.js')).dropHomeCache(); // 홈 '답 안 한 질문'을 새로
         m.close();
         journalCheck(el, _p, date);
       } catch (err) { fail(err); }

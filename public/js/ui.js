@@ -38,7 +38,7 @@ export function quotaNotice() {
   if (!quotaHooks.isAdmin() || document.querySelector('.quota-bar')) return;
   const bar = document.createElement('div');
   bar.className = 'quota-bar';
-  bar.innerHTML = '<b>⚠️ [운영자] Firebase 무료 사용량 초과</b><span>모든 팀이 함께 쓰는 하루 한도(읽기 5만 · 쓰기 2만)가 다 찼어요. 지금 모든 사용자가 불러오기 · 저장을 못 해요. 한국 시간 <b>오후 4~5시쯤</b> 자동으로 풀려요 — 바로 풀려면 Firebase 를 <b>종량제(Blaze)</b>로 바꾸세요.</span><button type="button" aria-label="닫기">✕</button>';
+  bar.innerHTML = '<b>[운영자] Firebase 무료 사용량 초과</b><span>모든 팀이 함께 쓰는 하루 한도(읽기 5만 · 쓰기 2만)가 다 찼어요. 지금 모든 사용자가 불러오기 · 저장을 못 해요. 한국 시간 <b>오후 4~5시쯤</b> 자동으로 풀려요 — 바로 풀려면 Firebase 를 <b>종량제(Blaze)</b>로 바꾸세요.</span><button type="button" aria-label="닫기">✕</button>';
   bar.querySelector('button').onclick = () => bar.remove();
   document.body.prepend(bar);
 }
