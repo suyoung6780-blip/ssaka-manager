@@ -740,6 +740,7 @@ export async function studio(el, { id, mode }) {
   function appear(it) {
     if (it.k === 'link') return 1; // 연결선은 그어지는 과정 없이 바로 보임
     const sec = animSec(it);
+    if (sec <= 0) return 1; // 0초 = 바로 보임
     if (it.k === 'arrow' && it.live) return video.paused && !recording && !freeze ? 1 : Math.min(1, Math.max(0, (t() - it.t0) / sec)); // 재생 · 내보내기 땐 영상 시간대로 그어짐, 멈춰서 고칠 땐 다 보임
     if (freeze && freeze.items.includes(it)) return Math.min(1, (clock() - freeze.start) / (sec * 1000));
     if (!video.paused || recording) return Math.min(1, Math.max(0, (t() - it.t0) / sec));
@@ -1496,7 +1497,8 @@ export async function studio(el, { id, mode }) {
     const sw = (attr, on, txt) => `<label class="mini-switch"><input type="checkbox" data-${attr} ${on ? 'checked' : ''}> ${txt}</label>`;
     // 꼭 필요한 것만 위에 · 나머지는 '자세히 설정' 안에
     const main = {
-      spot: () => `<label class="st-range">이름 <input data-pname value="${esc(it.name || '')}" maxlength="14" placeholder="예) 7 손흥민"></label>
+      spot: () => `<div class="seg sm st-wide"><button type="button" class="${it.still ? '' : 'on'}" data-tmode="live">▶ 재생하며 따라가기</button><button type="button" class="${it.still ? 'on' : ''}" data-tmode="hold">⏸ 멈추고 표시만</button></div>
+        <label class="st-range">이름 <input data-pname value="${esc(it.name || '')}" maxlength="14" placeholder="예) 7 손흥민"></label>
         <div class="st-crow">${teamCols('tout', it.color, 'toutc', '#ffd400', '바깥')}${teamCols('tin', it.fill, 'tinc', '#ffffff', '안쪽')}</div>
         ${trOf(it.p) ? `<ul class="st-items st-trs">${trRow(trOf(it.p), false)}</ul>${aiLine()}` : ''}`,
       arrow: () => `<div class="seg sm st-wide"><button type="button" class="${it.style === 'dash' ? '' : 'on'}" data-astyle="solid">━ 실선 · 패스</button><button type="button" class="${it.style === 'dash' ? 'on' : ''}" data-astyle="dash">┅ 점선 · 움직임</button></div>
@@ -1504,7 +1506,8 @@ export async function studio(el, { id, mode }) {
         <label class="st-range">화살표 크기 <b data-aszv>${Math.round((it.asz || 1) * 100)}%</b><input type="range" min="40" max="200" step="10" value="${Math.round((it.asz || 1) * 100)}" data-asz></label>`,
       link: () => {
         const trs = it.pts.map(trOf).filter(Boolean);
-        return `<div class="st-num"><span>모양</span><div class="seg sm"><button type="button" class="${it.closed ? '' : 'on'}" data-lshape="open">선</button><button type="button" class="${it.closed ? 'on' : ''}" data-lshape="closed" ${it.pts.length < 3 ? 'disabled title="선수 3명부터"' : 'title="마지막 선수와 첫 선수를 이어 도형으로"'}>도형</button></div></div>
+        return `<div class="seg sm st-wide"><button type="button" class="${it.still ? '' : 'on'}" data-tmode="live">▶ 재생하며 따라가기</button><button type="button" class="${it.still ? 'on' : ''}" data-tmode="hold">⏸ 멈추고 표시만</button></div>
+        <div class="st-num"><span>모양</span><div class="seg sm"><button type="button" class="${it.closed ? '' : 'on'}" data-lshape="open">선</button><button type="button" class="${it.closed ? 'on' : ''}" data-lshape="closed" ${it.pts.length < 3 ? 'disabled title="선수 3명부터"' : 'title="마지막 선수와 첫 선수를 이어 도형으로"'}>도형</button></div></div>
           <div class="st-num"><span>선</span><div class="seg sm"><button type="button" class="${it.lstyle !== 'dash' ? 'on' : ''}" data-lst="solid">실선</button><button type="button" class="${it.lstyle === 'dash' ? 'on' : ''}" data-lst="dash">점선</button></div></div>
           ${trs.length ? `<div class="st-lab">이은 선수 ${trs.length}명</div><ul class="st-items st-trs">${trs.map((tr) => trRow(tr, false)).join('')}</ul>${aiLine()}<button type="button" class="btn ghost sm full" data-linkprec>모두 AI 정밀 추적</button>` : ''}`;
       },
@@ -1522,9 +1525,9 @@ export async function studio(el, { id, mode }) {
     const adv = [
       `<div class="st-num"><span>시작</span><b>${fmtT1(it.t0)}</b><button class="chip" data-t0>지금으로</button></div>`,
       `<div class="st-num"><span>멈춰서 보여주기</span><input type="number" min="0" max="30" step="0.5" value="${it.hold ?? 4}" data-phold><i>초</i></div>`,
-      it.k === 'spot' || (it.k === 'light' && it.p?.tr) ? sw('pfollow', !it.still, '재생되면 선수 따라가기') : '',
-      isLive(it) ? `<div class="st-num"><span>보여주는 시간</span><input type="number" min="0.5" max="600" step="0.5" value="${it.t1 == null ? '' : +(it.t1 - it.t0).toFixed(1)}" placeholder="끝까지" data-pdur ${it.t1 == null ? 'disabled' : ''}><i>초</i><label class="mini-switch"><input type="checkbox" data-pend ${it.t1 == null ? 'checked' : ''}> 끝까지</label></div>` : '',
-      it.k === 'arrow' || it.k === 'spot' ? `<div class="st-num"><span>${it.k === 'spot' ? '나타나는 시간' : '그어지는 시간'}</span><input type="number" min="0.2" max="6" step="0.1" value="${animSec(it)}" data-panim><i>초</i></div>` : '',
+      it.k === 'light' && it.p?.tr ? sw('pfollow', !it.still, '재생되면 선수 따라가기') : '',
+      isLive(it) ? `<div class="st-num"><span>보여주는 시간</span><input type="number" min="0" max="600" step="0.5" value="${it.t1 == null ? '' : +(it.t1 - it.t0).toFixed(1)}" placeholder="끝까지" data-pdur ${it.t1 == null ? 'disabled' : ''}><i>초</i><label class="mini-switch"><input type="checkbox" data-pend ${it.t1 == null ? 'checked' : ''}> 끝까지</label></div>` : '',
+      it.k === 'arrow' || it.k === 'spot' ? `<div class="st-num"><span>${it.k === 'spot' ? '나타나는 시간' : '그어지는 시간'}</span><input type="number" min="0" max="6" step="0.1" value="${animSec(it)}" data-panim><i>초</i></div>` : '',
       it.k === 'arrow' ? sw('pbold', it.weight === 'bold', '굵게') : '',
       it.k === 'arrow' || it.k === 'measure' ? `<div class="st-num"><span>거리 표시</span><input type="number" min="0" max="200" step="0.1" value="${it.m ?? ''}" placeholder="${it.k === 'arrow' ? '없음' : '?'}" data-pm><i>m</i></div>` : '',
       it.k === 'spot' ? `${sw('ptrail', it.trail !== false, '이동 꼬리')}${sw('pmarker', it.marker !== false, '머리 위 ▼')}<label class="st-range">링 크기 <input type="range" min="50" max="220" value="${Math.round((it.scale || 1) * 100)}" data-pscale></label>` : '',
@@ -1552,17 +1555,22 @@ export async function studio(el, { id, mode }) {
       it.t0 = +t().toFixed(2);
       if (len != null) it.t1 = +(it.t0 + len).toFixed(2);
     });
-    box.querySelector('[data-pdur]')?.addEventListener('change', ch(() => { const v = +box.querySelector('[data-pdur]').value; if (v > 0) it.t1 = +(it.t0 + v).toFixed(2); }));
+    box.querySelector('[data-pdur]')?.addEventListener('change', ch(() => { const v0 = box.querySelector('[data-pdur]').value; const v = +v0; if (v0 !== '' && v >= 0) it.t1 = +(it.t0 + v).toFixed(2); }));
     box.querySelector('[data-pend]')?.addEventListener('change', ch(() => { it.t1 = box.querySelector('[data-pend]').checked ? null : +(it.t0 + (+tele.set.dur || 5)).toFixed(2); }));
-    box.querySelector('[data-panim]')?.addEventListener('change', ch(() => { it.anim = Math.max(0.2, Math.min(6, +box.querySelector('[data-panim]').value || 1.6)); if (it.live) it.t1 = +(it.t0 + it.anim + 1.5).toFixed(2); }));
+    box.querySelector('[data-panim]')?.addEventListener('change', ch(() => { const v0 = box.querySelector('[data-panim]').value; it.anim = Math.max(0, Math.min(6, v0 === '' ? 1.6 : +v0)); if (it.live) it.t1 = +(it.t0 + it.anim + 1.5).toFixed(2); }));
     box.querySelector('[data-phold]').onchange = ch(() => { const v = box.querySelector('[data-phold]').value; it.hold = Math.max(0, Math.min(30, v === '' ? 4 : +v)); });
     box.querySelector('[data-pdel]').onclick = ch(() => { tele.items = tele.items.filter((x) => x !== it); sel = null; });
     box.querySelector('[data-pdup]').onclick = () => dupItem(it);
     box.querySelectorAll('[data-vsp]').forEach((b) => (b.onclick = ch(() => { it.spread = +b.dataset.vsp; visionPref = it.spread; })));
     box.querySelector('[data-adeg]')?.addEventListener('change', ch(() => { const v = box.querySelector('[data-adeg]').value; if (v === '') delete it.deg; else it.deg = Math.max(0, Math.min(180, +v)); }));
+    box.querySelectorAll('[data-tmode]').forEach((b) => (b.onclick = ch(() => {
+      if (b.dataset.tmode === 'live') { delete it.still; if (it.t1 != null && it.t1 <= it.t0) it.t1 = +(it.t0 + (+tele.set.dur || 5)).toFixed(2); } else it.still = true;
+      if (it.k === 'spot') followPref = !it.still;
+    })));
     box.querySelector('[data-pfollow]')?.addEventListener('change', ch(() => {
-      followPref = box.querySelector('[data-pfollow]').checked;
-      if (followPref) { delete it.still; if (it.t1 != null && it.t1 <= it.t0) it.t1 = +(it.t0 + (+tele.set.dur || 5)).toFixed(2); } else it.still = true;
+      const on = box.querySelector('[data-pfollow]').checked;
+      if (it.k !== 'link') followPref = on;
+      if (on) { delete it.still; if (it.t1 != null && it.t1 <= it.t0) it.t1 = +(it.t0 + (+tele.set.dur || 5)).toFixed(2); } else it.still = true;
     }));
     box.querySelector('[data-lsize]')?.addEventListener('input', (e) => { if (it.p?.tr) it.scale = e.target.value / 100; else it.r = e.target.value / 1000; dirty = true; render(); });
     box.querySelector('[data-ldim]')?.addEventListener('input', (e) => { it.dim = e.target.value / 100; dirty = true; render(); });

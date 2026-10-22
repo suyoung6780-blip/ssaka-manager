@@ -185,8 +185,23 @@ export class FrameAnalyzer {
         cand[i] = onPitch && !g[i] && !sh[i] ? 1 : 0;
       }
     }
+    // 경기장 흰 라인은 빼기: 밝고 색이 옅으면서 가는 것(세로 두께 3칸 이하 · 가로 두께 2칸 이하)
+    // — 라인이 선수 발과 붙어서 '선수 덩어리'로 잡히면 그 위를 지나는 선 · 면이 끊겨 보임
+    {
+      const vr = new Uint8Array(n); const hr = new Uint8Array(n);
+      for (let x = 0; x < AW; x++) { let y = 0; while (y < AH) { if (!cand[y * AW + x]) { y++; continue; } let e = y; while (e < AH && cand[e * AW + x]) e++; const L = Math.min(255, e - y); for (let k = y; k < e; k++) vr[k * AW + x] = L; y = e; } }
+      for (let y = 0; y < AH; y++) { let x = 0; while (x < AW) { if (!cand[y * AW + x]) { x++; continue; } let e = x; while (e < AW && cand[y * AW + e]) e++; const L = Math.min(255, e - x); for (let k = x; k < e; k++) hr[y * AW + k] = L; x = e; } }
+      for (let i = 0, p = 0; i < n; i++, p += 4) {
+        if (!cand[i] || (vr[i] > 3 && hr[i] > 2)) continue;
+        const r = d[p]; const g2 = d[p + 1]; const b = d[p + 2];
+        const mx = Math.max(r, g2, b); const mn = Math.min(r, g2, b);
+        if (mx > 140 && mx - mn < 70) cand[i] = 0;
+      }
+    }
     // 그 중 '선수처럼 생긴 덩어리'만 그림을 가림 — 흰 라인 · 그림자 · 잔디 얼룩 · 작은 점은 무시 (화살표에 구멍이 나지 않게)
     const occ = playerBlobs(cand, AW, AH);
+    // 선수 모양을 꽉 채움: 몸 안의 작은 틈(잔디색으로 보인 반바지 · 팔 사이 등)을 메워서 면 · 선 위에 선수가 구멍처럼 보이지 않고 통째로 앞에 서게
+    closeGaps(occ, AW, AH, 3, 5);
     this.cand = cand;
     const m = this.mctx.createImageData(AW, AH);
     this.maskImg = m;
@@ -340,6 +355,27 @@ function looksPlayer(b, H) {
   const minH = Math.max(5, H * 0.016);
   return bh >= minH && b.px.length >= minH * 1.5 && bh >= bw * 0.45 && fill >= 0.15 && bh < H * 0.75 && bw < H * 0.5;
 }
+function closeGaps(m, W, H, gx, gy) {
+  for (let y = 0; y < H; y++) {
+    let last = -1;
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (!m[i]) continue;
+      if (last >= 0 && x - last > 1 && x - last - 1 <= gx) for (let k = last + 1; k < x; k++) m[y * W + k] = 2;
+      last = x;
+    }
+  }
+  for (let x = 0; x < W; x++) {
+    let last = -1;
+    for (let y = 0; y < H; y++) {
+      const i = y * W + x;
+      if (!m[i]) continue;
+      if (last >= 0 && y - last > 1 && y - last - 1 <= gy) for (let k = last + 1; k < y; k++) m[k * W + x] = 2;
+      last = y;
+    }
+  }
+}
+
 function playerBlobs(cand0, W, H) {
   const n = W * H;
   const keep = new Uint8Array(n);
@@ -1277,7 +1313,8 @@ export function drawItem(ctx, it, P, W, items, resolve) {
     case 'poly':
     case 'link': {
       // 도형으로 잇기: 마지막 선수 → 첫 선수까지 닫음 (삼각형 · 사각형 …)
-      const lp = it.k === 'link' && it.closed && it.pts.length >= 3 ? [...it.pts, it.pts[0]] : it.pts;
+      // 면 채우기를 켜면 테두리 선도 마지막 선수 → 첫 선수까지 이어서 닫음
+      const lp = it.k === 'link' && (it.closed || it.area) && it.pts.length >= 3 ? [...it.pts, it.pts[0]] : it.pts;
       let pts = lp.map(P);
       if (pts.length < 2) break;
       const fade = it.k === 'poly' ? easeOut(prog) : 1;
