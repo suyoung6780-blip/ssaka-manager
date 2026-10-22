@@ -225,6 +225,7 @@ export class FrameAnalyzer {
     const { AW, AH } = this;
     const md = this.maskImg.data;
     for (const b of boxes) {
+      if ((b.y1 - b.y0) < 0.05) continue; // 멀리 있는 작은 선수는 앞으로 안 보냄 (선이 끊겨 보이지 않게)
       const x0 = Math.max(0, Math.floor(b.x0 * AW) - 1); const x1 = Math.min(AW - 1, Math.ceil(b.x1 * AW) + 1);
       const y0 = Math.max(0, Math.floor(b.y0 * AH) - 1); const y1 = Math.min(AH - 1, Math.ceil(b.y1 * AH) + 1);
       // 몸통(네모 위쪽 82%)은 어두운 유니폼도 앞으로 · 발밑 아래쪽은 그림자라 가리지 않음
@@ -372,7 +373,8 @@ function keepRealPlayers(occ, d, g, sh, W, H) {
   for (let y = 0; y < H; y += 2) { let n = 0; for (let x = 0; x < W; x += 4) if (g[y * W + x]) n++; if (n > (W / 4) * 0.55) { top = y; break; } }
   for (const b of blobsOf(occ, W, H)) {
     const bw = b.x1 - b.x0 + 1; const bh = b.y1 - b.y0 + 1;
-    let bad = bh > bw * 7 || bw > bh * 2.6; // 라인 · 그물처럼 너무 길쭉하거나 옆으로 넓음
+    // 멀리 있는 작은 선수는 선보다 가늘어서, 앞으로 보내면 선이 뚝 끊겨 보임 → 그림 위로 그냥 지나가게
+    let bad = bh < Math.max(10, H * 0.05) || bh > bw * 7 || bw > bh * 2.6; // 작음 · 라인 · 그물처럼 너무 길쭉하거나 옆으로 넓음
     if (!bad) { // 거의 하얗고 속이 빈 덩어리 = 라인 조각
       let wt = 0;
       for (const i of b.px) { const p = i * 4; const mx = Math.max(d[p], d[p + 1], d[p + 2]); const mn = Math.min(d[p], d[p + 1], d[p + 2]); if (mx > 135 && mx - mn < 60) wt++; }
