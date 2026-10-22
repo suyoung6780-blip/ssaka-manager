@@ -243,6 +243,8 @@ const TOOLS = [
   ['zoom', '돋보기', '◯'],
   ['light', '스포트라이트', '◐'],
   ['offside', '오프사이드', '⫼'],
+  ['freeze', '화면 멈춤', '❚❚'], // 누르면 지금 장면에 '멈춤'을 넣음 (그림 없이)
+  ['slow', '천천히', '½'], // 누르면 지금부터 몇 초를 느리게
 ];
 const HINT = {
   link: '다 누르면 Enter · 첫 선수를 다시 누르면 도형',
@@ -426,7 +428,7 @@ export async function studio(el, { id, mode }) {
   };
   // 트래킹 · 연결선은 재생 중에도 보이고, 나머지 그림은 그 장면에서 멈춰 있을 때만 보임
   // 재생되면 선수를 따라가는 그림. still = 따라가지 않고 그 장면에서 멈춤 동안만 보여줌
-  const isLive = (it) => (it.k === 'arrow' && it.live) || (!it.still && (it.k === 'spot' || it.k === 'link' || ((it.k === 'light' || it.k === 'offside') && !!it.p?.tr)));
+  const isLive = (it) => it.k === 'slow' || (it.k === 'arrow' && it.live) || (!it.still && (it.k === 'spot' || it.k === 'link' || ((it.k === 'light' || it.k === 'offside') && !!it.p?.tr)));
   let followPref = true;
   let arrowLivePref = true;
   let arrowBold = (() => { try { return localStorage.getItem('ssaka.st.abold') !== '0'; } catch { return true; } })(); // 새 화살표 굵게 (기본)
@@ -1191,6 +1193,7 @@ export async function studio(el, { id, mode }) {
   const onFrame = () => {
     if (recording?.hq) return; // 영상 만드는 중엔 만들기 쪽에서 직접 그림
     if (!video.paused && checkHold()) return;
+    if (!video.paused) { const r0 = baseRate * speedAt(t()); if (Math.abs(video.playbackRate - r0) > 1e-3) video.playbackRate = r0; } // 천천히 구간
     processFrame(!video.paused);
     render();
     if (!video.paused) schedule();
@@ -1205,7 +1208,14 @@ export async function studio(el, { id, mode }) {
     if (recording) recording.stop();
   });
   video.addEventListener('seeking', () => { if (!freeze) prevPlayT = null; });
-  video.addEventListener('seeked', () => { if (busy) return; processFrame(false); render(); });
+  video.addEventListener('seeked', () => {
+    if (busy) return;
+    processFrame(false); render();
+    // 브라우저가 새 장면을 실제로 그린 뒤에 한 번 더 읽음 — 예전 장면의 선수 자리가 구멍처럼 남지 않게
+    const again = () => { if (busy || !video.paused) return; lastProcessed = -1; processFrame(false); render(); };
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(again);
+    setTimeout(again, 180);
+  });
   video.addEventListener('loadeddata', () => {
     fa.resize(video.videoWidth, video.videoHeight);
     fit();
@@ -1249,14 +1259,15 @@ export async function studio(el, { id, mode }) {
     playSmart();
   };
   el.querySelectorAll('[data-step]').forEach((b) => (b.onclick = () => { video.pause(); video.currentTime = Math.max(0, Math.min(video.duration || 0, t() + +b.dataset.step)); }));
-  el.querySelector('[data-rate]').onchange = (e) => { video.playbackRate = +e.target.value; };
+  let baseRate = 1;
+  el.querySelector('[data-rate]').onchange = (e) => { baseRate = +e.target.value; video.playbackRate = baseRate * speedAt(t()); };
   el.querySelectorAll('[data-scene]').forEach((b) => (b.onclick = () => jumpScene(+b.dataset.scene)));
   video.addEventListener('seeked', () => markHere());
   video.addEventListener('pause', () => markHere());
   video.addEventListener('play', () => markHere());
 
   // ── 그림 목록 · 속성 ──
-  const NAMES = { vision: '시야', angle: '각도', zoom: '돋보기', move: '선수 옮기기', shape: '영역', arrow: '화살표', spot: '선수 표시', poly: '영역', link: '선수 연결', grid: '그리드', measure: '거리', text: '글자', light: '스포트라이트', offside: '오프사이드 라인' };
+  const NAMES = { vision: '시야', angle: '각도', zoom: '돋보기', move: '선수 옮기기', shape: '영역', arrow: '화살표', spot: '선수 표시', poly: '영역', link: '선수 연결', grid: '그리드', measure: '거리', text: '글자', light: '스포트라이트', offside: '오프사이드 라인', freeze: '화면 멈춤', slow: '천천히' };
   const ICONS = { ...Object.fromEntries(TOOLS.map(([k, , ic]) => [k, ic])), spot: '◎', poly: '⬠' };
   // 같은 순간(0.06초 안)에 나타나는 그림끼리 한 장면으로
   function scenes() {
@@ -1340,7 +1351,7 @@ export async function studio(el, { id, mode }) {
       }
     }
   }
-  const clipText = (it) => (isLive(it) ? `⏸${it.hold ?? 0} · 따라감 ${it.t1 == null ? '끝까지' : `${+(it.t1 - it.t0).toFixed(1)}초`}` : `⏸ 멈춤 ${it.hold ?? 0}초`);
+  const clipText = (it) => (it.k === 'slow' ? `천천히 ×${it.speed || 0.5} · ${+((it.t1 ?? it.t0 + 3) - it.t0).toFixed(1)}초` : it.k === 'freeze' ? `❚❚ 멈춤 ${it.hold ?? 0}초` : isLive(it) ? `⏸${it.hold ?? 0} · 따라감 ${it.t1 == null ? '끝까지' : `${+(it.t1 - it.t0).toFixed(1)}초`}` : `⏸ 멈춤 ${it.hold ?? 0}초`);
   const STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
   function drawTimeline() {
     if (!pps) { tlFit(); return; }
@@ -1545,6 +1556,25 @@ export async function studio(el, { id, mode }) {
         <label>실제 가로(m)<input type="number" min="1" max="120" value="${it.wM}" data-pwm></label><label>실제 세로(m)<input type="number" min="1" max="90" value="${it.hM}" data-phm></label></div>` : '',
       it.k === 'angle' ? `<div class="st-num"><span>각도</span><b>${Math.round(angleDeg(P(it.a), P(it.b), P(it.c)))}°</b><input type="number" min="0" max="180" step="1" value="${it.deg ?? ''}" placeholder="직접" data-adeg><i>°</i></div>` : '',
     ].filter(Boolean).join('');
+    if (it.k === 'freeze' || it.k === 'slow') {
+      const len = +((it.t1 ?? it.t0 + 3) - it.t0).toFixed(1);
+      box.innerHTML = `<h4 class="st-ptitle">${ICONS[it.k]} ${NAMES[it.k]}</h4>
+        <div class="st-num"><span>시작</span><b>${fmtT1(it.t0)}</b><button class="chip" data-t0>지금으로</button></div>
+        ${it.k === 'freeze' ? `<div class="st-num"><span>멈추는 시간</span><input type="number" min="0.5" max="30" step="0.5" value="${it.hold ?? 3}" data-phold><i>초</i></div>
+          <p class="muted small st-note">재생하다 이 장면에서 멈췄다가 다시 재생해요 (영상으로 내보낼 때도 그대로).</p>`
+        : `<div class="st-num"><span>속도</span><div class="seg sm">${[[0.5, '×0.5'], [0.25, '×0.25']].map(([v, l]) => `<button type="button" class="${(it.speed || 0.5) === v ? 'on' : ''}" data-sp="${v}">${l}</button>`).join('')}</div></div>
+          <div class="st-num"><span>길이</span><input type="number" min="0.5" max="60" step="0.5" value="${len}" data-slen><i>초</i></div>
+          <p class="muted small st-note">이 구간만 느리게 재생해요 (영상으로 내보낼 때도 느리게 들어가요).</p>`}
+        <div class="row st-btnrow"><button class="btn ghost sm" data-pdup>⧉ 복제</button><button class="btn ghost sm" data-pdel>삭제</button></div>`;
+      const ch2 = (fn) => () => { snapshot(); fn(); drawSide(); render(); };
+      box.querySelector('[data-t0]').onclick = ch2(() => { const l = (it.t1 ?? it.t0) - it.t0; it.t0 = +t().toFixed(2); if (it.k === 'slow') it.t1 = +(it.t0 + l).toFixed(2); });
+      box.querySelector('[data-phold]')?.addEventListener('change', ch2(() => { it.hold = Math.max(0.5, Math.min(30, +box.querySelector('[data-phold]').value || 3)); }));
+      box.querySelector('[data-slen]')?.addEventListener('change', ch2(() => { it.t1 = +(it.t0 + Math.max(0.5, Math.min(60, +box.querySelector('[data-slen]').value || 3))).toFixed(2); }));
+      box.querySelectorAll('[data-sp]').forEach((b) => (b.onclick = ch2(() => { it.speed = +b.dataset.sp; })));
+      box.querySelector('[data-pdel]').onclick = ch2(() => { tele.items = tele.items.filter((x) => x !== it); sel = null; });
+      box.querySelector('[data-pdup]').onclick = () => dupItem(it);
+      return;
+    }
     box.innerHTML = `<h4 class="st-ptitle">${ICONS[it.k] || ''} ${NAMES[it.k]}</h4>
       ${it.k === 'spot' ? '' : `<div class="st-crow">${colorPick([...PALETTE, '#ff9f0a', '#af52de', '#1e4fd8', '#111111'], 'pcolor', it.color || PALETTE[0], 'pcolorc', '#ffd400', '색')}</div>`}
       ${main ? main() : ''}
@@ -1666,7 +1696,7 @@ export async function studio(el, { id, mode }) {
     setMore(more0);
     el.querySelector('[data-moretg]').onclick = () => setMore(moreBox.hidden);
     // 같은 도구를 다시 누르면 해제 → 마우스로 바로 옮기기 상태
-    el.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = () => setTool(tool === b.dataset.tool ? 'select' : b.dataset.tool)));
+    el.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = () => { if (b.dataset.tool === 'freeze' || b.dataset.tool === 'slow') { addTimeItem(b.dataset.tool); return; } setTool(tool === b.dataset.tool ? 'select' : b.dataset.tool); }));
   }
 
 
@@ -1698,6 +1728,16 @@ export async function studio(el, { id, mode }) {
     // 모든 그림: 나타나는 장면에서 4초 멈춤 (그림마다 수정 가능). 트래킹 · 연결선은 멈춘 뒤 따라가는 시간 동안 따라감
     return { id: uid(), k, color, t0, t1: tele.set.durEnd ? null : +(t0 + dur).toFixed(2), hold: 4, ...((k === 'spot' || k === 'light') && !followPref ? { still: true } : {}), ...extra };
   };
+  // 화면 멈춤 · 천천히: 그림 없이 시간만 — 지금 장면에서 시작
+  function addTimeItem(k) {
+    const t0 = +t().toFixed(2);
+    const it = k === 'freeze' ? { id: uid(), k, t0, hold: 3, color: '#ffffff' } : { id: uid(), k, t0, t1: +Math.min(dur() || t0 + 3, t0 + 3).toFixed(2), speed: 0.5, hold: 0, color: '#4ea1ff' };
+    commit(it);
+    openSide?.();
+    toast(k === 'freeze' ? '지금 장면에서 3초 멈춰요 — 오른쪽에서 시간을 바꿀 수 있어요' : '지금부터 3초를 천천히(×0.5) 재생해요 — 오른쪽에서 길이 · 속도를 바꿀 수 있어요');
+  }
+  // 지금 영상 시각의 재생 속도 (천천히 구간이면 ×0.5 · ×0.25)
+  const speedAt = (m) => { let sp = 1; for (const it of tele.items) if (it.k === 'slow' && m >= it.t0 - 1e-3 && m < (it.t1 ?? it.t0 + 3)) sp = Math.min(sp, it.speed || 0.5); return sp; };
   // 만든 뒤에는 바로 '선택'으로 돌아가서 끌어 옮길 수 있게
   const commit = (it) => { snapshot(); tele.items.push(it); draft = null; sel = it; setTool('select'); sel = it; drawSide(); render(); };
 
@@ -2897,7 +2937,7 @@ export async function studio(el, { id, mode }) {
           else if (it.k === 'spot') it.p = s;
           else if ((it.k === 'light' || it.k === 'offside') && h === 0) it.p = s;
           else if ((it.k === 'vision' || it.k === 'angle') && h === 0) it.a = s;
-          else if (it.k === 'poly' || it.k === 'link') it.pts[h] = s;
+          else if (it.k === 'link') it.pts[h] = s; // 영역(poly)은 바닥에 고정 — 선수에 붙지 않음
         }
         render();
       }
@@ -3096,6 +3136,7 @@ export async function studio(el, { id, mode }) {
     let lastM = from - 1e-3; let ticks = 0; let flushed = false; let finished = false;
     const t0w = performance.now();
     const pf = { proc: 0, render: 0, emit: 0, n: 0, held: 0 }; // 프레임당 시간 (느릴 때 원인 찾기용)
+    let outT = 0; let prevM = from; // 만든 영상의 시간 (천천히 구간은 영상 시간보다 길게)
     const frameAt = async (m) => {
       vtime = m;
       const hits = tele.items.filter((it) => it.hold > 0 && !done.has(it) && it.t0 > lastM && it.t0 <= m + 1e-3);
@@ -3112,7 +3153,8 @@ export async function studio(el, { id, mode }) {
       pf.proc += performance.now() - q; q = performance.now();
       render();
       pf.render += performance.now() - q; q = performance.now();
-      while (from + ticks / fps <= m + 1e-4 && from + ticks / fps <= to + 1e-4) { await emit(); ticks++; }
+      outT += Math.max(0, m - prevM) / speedAt((m + prevM) / 2); prevM = m;
+      while (ticks / fps <= outT + 1e-4 && m <= to + 1e-4) { await emit(); ticks++; }
       pf.emit += performance.now() - q; pf.n++;
       lastM = m;
       busy.p = (m - from) / Math.max(0.01, to - from);
@@ -3140,7 +3182,7 @@ export async function studio(el, { id, mode }) {
       if (ticks === 0) return 'none';
       console.info('[영상 만들기] 빠른 방식', `${ticks}프레임 · ${((performance.now() - t0w) / 1000).toFixed(1)}초 · 시각 보정 ${tShift.toFixed(3)}초 · 마지막 ${lastM.toFixed(2)}`, JSON.stringify({ held: pf.held, proc: +(pf.proc / Math.max(1, pf.n)).toFixed(1), render: +(pf.render / Math.max(1, pf.n + pf.held)).toFixed(1), emit: +(pf.emit / Math.max(1, pf.n + pf.held)).toFixed(1) }));
       // 끝까지 못 갔으면(파일을 다 못 읽음 등) 남은 부분은 재생 방식으로 이어서
-      if (!busy.stop && lastM < to - 0.2) return { partial: true, lastM, ticks, done };
+      if (!busy.stop && lastM < to - 0.2) return { partial: true, lastM, ticks, done, outT };
       return 'done';
     } finally {
       queue.forEach((f) => f.close());
@@ -3240,6 +3282,7 @@ export async function studio(el, { id, mode }) {
       const done = cont ? cont.done : new Set();
       let lastM = cont ? cont.lastM : from - 1e-3;
       let ticks = cont ? cont.ticks : 0; // 영상 시간 기준으로 낸 프레임 수 (멈춤 프레임 제외)
+      let outT2 = cont ? cont.outT : 0; let prevM2 = cont ? cont.lastM : from; // 만든 영상의 시간 (천천히 구간은 더 길게)
       let lastCb = performance.now();
       let lastFrameAt = cont ? cont.lastM : from;
       let fixes = 0;
@@ -3294,7 +3337,8 @@ export async function studio(el, { id, mode }) {
             render();
             q0 = performance.now(); prf.render += q0 - q1;
             // 영상 시간에 맞춰 프레임 내기 (원본이 30fps 이고 60fps 로 만들면 같은 장면을 두 번)
-            while (from + ticks / fps <= m + 1e-4 && from + ticks / fps <= to + 1e-4) { await emit(); ticks++; }
+            outT2 += Math.max(0, m - prevM2) / speedAt((m + prevM2) / 2); prevM2 = m;
+            while (ticks / fps <= outT2 + 1e-4 && m <= to + 1e-4) { await emit(); ticks++; }
             prf.emit += performance.now() - q0; prf.n++;
             lastM = m; lastFrameAt = m;
             busy.p = (m - from) / Math.max(0.01, to - from);
@@ -3379,7 +3423,6 @@ export async function studio(el, { id, mode }) {
       m.close();
       try {
         await exportHQ({ from, to: Math.min(dur(), to), maxH, fps, fileHandle });
-        if (canEdit && post.video.local) setTimeout(() => shareModal(post), 600);
       } catch (err) { toast(`영상을 만들 수 없어요: ${err.message || err}`); }
     };
   }

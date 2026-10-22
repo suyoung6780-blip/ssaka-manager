@@ -200,6 +200,8 @@ export class FrameAnalyzer {
     }
     // 그 중 '선수처럼 생긴 덩어리'만 그림을 가림 — 흰 라인 · 그림자 · 잔디 얼룩 · 작은 점은 무시 (화살표에 구멍이 나지 않게)
     const occ = playerBlobs(cand, AW, AH);
+    // 진짜 선수만 남김: 발밑에 잔디가 있어야 하고(나무 · 펜스 · 관중석 빼기), 라인처럼 가늘고 길거나 하얗고 속이 빈 것은 빼기
+    keepRealPlayers(occ, d, g, sh, AW, AH);
     // 선수 모양을 꽉 채움: 몸 안의 작은 틈(잔디색으로 보인 반바지 · 팔 사이 등)을 메워서 면 · 선 위에 선수가 구멍처럼 보이지 않고 통째로 앞에 서게
     closeGaps(occ, AW, AH, 3, 5);
     this.cand = cand;
@@ -364,6 +366,28 @@ function looksPlayer(b, H) {
   const minH = Math.max(5, H * 0.016);
   return bh >= minH && b.px.length >= minH * 1.5 && bh >= bw * 0.45 && fill >= 0.15 && bh < H * 0.75 && bw < H * 0.5;
 }
+function keepRealPlayers(occ, d, g, sh, W, H) {
+  // 경기장이 시작되는 줄 (잔디가 절반 넘게 깔린 첫 줄) — 발이 그보다 위면 선수가 아님 (나무 · 펜스 · 둑)
+  let top = 0;
+  for (let y = 0; y < H; y += 2) { let n = 0; for (let x = 0; x < W; x += 4) if (g[y * W + x]) n++; if (n > (W / 4) * 0.55) { top = y; break; } }
+  for (const b of blobsOf(occ, W, H)) {
+    const bw = b.x1 - b.x0 + 1; const bh = b.y1 - b.y0 + 1;
+    let bad = bh > bw * 7 || bw > bh * 2.6; // 라인 · 그물처럼 너무 길쭉하거나 옆으로 넓음
+    if (!bad) { // 거의 하얗고 속이 빈 덩어리 = 라인 조각
+      let wt = 0;
+      for (const i of b.px) { const p = i * 4; const mx = Math.max(d[p], d[p + 1], d[p + 2]); const mn = Math.min(d[p], d[p + 1], d[p + 2]); if (mx > 135 && mx - mn < 60) wt++; }
+      if (wt / b.px.length > 0.55 && (b.px.length / (bw * bh) < 0.5 || bh < 12)) bad = true;
+    }
+    if (!bad && b.y1 < top - 2) bad = true;
+    if (!bad && b.y1 < H - 3) { // 발밑(바로 아래 4줄)에 잔디나 그림자가 있어야 선수 — 나무 · 펜스 · 벽 위는 아님
+      let gr = 0; let tot = 0;
+      for (let y = b.y1 + 1; y <= Math.min(H - 1, b.y1 + 4); y++) for (let x = b.x0; x <= b.x1; x++) { tot++; if (g[y * W + x] || sh[y * W + x]) gr++; }
+      if (tot && gr / tot < 0.25) bad = true;
+    }
+    if (bad) for (const i of b.px) occ[i] = 0;
+  }
+}
+
 function closeGaps(m, W, H, gx, gy) {
   for (let y = 0; y < H; y++) {
     let last = -1;
