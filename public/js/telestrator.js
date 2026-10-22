@@ -226,8 +226,17 @@ export class FrameAnalyzer {
       const x0 = Math.max(0, Math.floor(b.x0 * AW) - 1); const x1 = Math.min(AW - 1, Math.ceil(b.x1 * AW) + 1);
       const y0 = Math.max(0, Math.floor(b.y0 * AH) - 1); const y1 = Math.min(AH - 1, Math.ceil(b.y1 * AH) + 1);
       // 몸통(네모 위쪽 82%)은 어두운 유니폼도 앞으로 · 발밑 아래쪽은 그림자라 가리지 않음
+      // 단, 어두운 색은 그 줄에서 선수 몸(잔디 아닌 색)이 실제로 있는 폭 안에서만 — 어두운 잔디 줄무늬가 그림을 가리지 않게
       const yb = y0 + Math.round((y1 - y0) * 0.82);
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = y * AW + x; if (this.cand[i] || (y <= yb && this.shadow?.[i])) md[i * 4 + 3] = 0; }
+      const bw = x1 - x0 + 1; const pad = Math.max(1, Math.round(bw * 0.08));
+      let pl = -1; let pr = -1; // 바로 윗줄의 몸 폭 (반바지처럼 줄 전체가 어두운 경우 이어 쓰기)
+      for (let y = y0; y <= y1; y++) {
+        let l = -1; let r = -1;
+        for (let x = x0; x <= x1; x++) { const i = y * AW + x; if (this.cand[i]) { md[i * 4 + 3] = 0; if (l < 0) l = x; r = x; } }
+        if (l < 0 && pl >= 0) { l = pl; r = pr; }
+        if (y <= yb && l >= 0 && this.shadow) for (let x = Math.max(x0, l - pad); x <= Math.min(x1, r + pad); x++) { const i = y * AW + x; if (this.shadow[i]) md[i * 4 + 3] = 0; }
+        if (l >= 0) { pl = l; pr = r; }
+      }
     }
     this.mctx.putImageData(this.maskImg, 0, 0);
   }
@@ -1134,6 +1143,59 @@ function quadPts(a, c, b, prog, n = 40) {
 }
 
 // 꺾은선을 길이 기준으로 0~prog 만큼
+// 면 채우기 바닥 색: 영상의 잔디를 그대로 다시 그리고 색만 입힘 (잔디 결 · 그림자가 살아 있어 바닥에 칠한 느낌)
+// 영상 픽셀을 읽을 수 없으면(유튜브 등) 예전처럼 반투명 색
+let TEX = null;
+export const setGroundTex = (v) => { TEX = v; };
+let tintCv = null;
+function groundTint(ctx, poly, col, k) {
+  const W = ctx.canvas.width; const H = ctx.canvas.height;
+  if (!TEX || !(TEX.videoWidth || TEX.width)) { ctx.save(); ctx.globalAlpha = 0.9 * k; ctx.fillStyle = rgba(col, 0.34); gpath(ctx, poly); ctx.fill(); ctx.restore(); return; }
+  if (!tintCv) tintCv = document.createElement('canvas');
+  if (tintCv.width !== W || tintCv.height !== H) { tintCv.width = W; tintCv.height = H; }
+  const t = tintCv.getContext('2d');
+  t.save(); t.clearRect(0, 0, W, H);
+  gpath(t, poly); t.clip();
+  t.drawImage(TEX, 0, 0, W, H);
+  t.globalCompositeOperation = 'color'; t.fillStyle = col; t.fillRect(0, 0, W, H); // 밝기(잔디 결)는 그대로, 색만 팀 색
+  t.globalCompositeOperation = 'soft-light'; t.globalAlpha = 0.5; t.fillRect(0, 0, W, H); // 살짝 더 선명하게
+  t.globalCompositeOperation = 'screen'; t.globalAlpha = 0.18; t.fillRect(0, 0, W, H); // 조금 밝게
+  t.restore();
+  ctx.save();
+  ctx.globalAlpha = 0.72 * k; ctx.drawImage(tintCv, 0, 0);
+  // 가장자리는 조금 진하게 (칠한 경계가 보이게)
+  ctx.globalAlpha = 0.5 * k; ctx.strokeStyle = rgba(col, 0.55); ctx.lineWidth = Math.max(3, W / 160); ctx.lineJoin = 'round';
+  gpath(ctx, poly); ctx.clip(); gpath(ctx, poly); ctx.stroke();
+  ctx.restore();
+}
+
+// 선을 따라 움직이는 빛 한 줄기 (t: 초 · 1.8초에 한 바퀴)
+function flowLight(ctx, pts, t, wdt, col) {
+  const L = []; let tot = 0;
+  for (let i = 0; i < pts.length - 1; i++) { const d = Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y); L.push(d); tot += d; }
+  if (tot < 4) return;
+  const len = Math.max(wdt * 14, tot * 0.24);
+  const head = (((t / 1.8) % 1) + 1) % 1 * (tot + len);
+  const at = (d) => { let x = Math.max(0, Math.min(tot, d)); for (let i = 0; i < L.length; i++) { if (x <= L[i] || i === L.length - 1) { const k = L[i] ? x / L[i] : 0; return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * k, y: pts[i].y + (pts[i + 1].y - pts[i].y) * k }; } x -= L[i]; } return pts[pts.length - 1]; };
+  const n = 14;
+  ctx.save(); ctx.lineCap = 'round'; ctx.globalCompositeOperation = 'lighter';
+  const pass = (wMul, alpha, style, blur) => {
+    ctx.shadowColor = style; ctx.shadowBlur = blur;
+    for (let j = 0; j < n; j++) {
+      const d0 = head - len + (len * j) / n; const d1 = head - len + (len * (j + 1)) / n;
+      if (d1 < 0 || d0 > tot) continue;
+      const a = at(d0); const b = at(d1); const k = (j + 1) / n;
+      ctx.strokeStyle = style.replace('A', (alpha * k * k).toFixed(3)); ctx.lineWidth = wdt * wMul * (0.6 + 0.8 * k);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+  };
+  pass(3.2, 0.35, 'rgba(255,245,200,A)', wdt * 3); // 바깥 번짐
+  pass(1.4, 0.95, 'rgba(255,255,255,A)', 0); // 가운데 밝은 줄
+  ctx.shadowColor = col; ctx.shadowBlur = wdt * 6; ctx.fillStyle = 'rgba(255,255,255,.95)';
+  if (head >= 0 && head <= tot) { const h = at(head); ctx.beginPath(); ctx.arc(h.x, h.y, wdt * 1.5, 0, Math.PI * 2); ctx.fill(); }
+  ctx.restore();
+}
+
 function partialLine(pts, prog) {
   if (prog >= 1) return pts;
   const seg = [];
@@ -1360,15 +1422,18 @@ export function drawItem(ctx, it, P, W, items, resolve) {
         solid(ctx, build, { col, width: wdt, depth: wdt * 0.9, closed: true });
       } else {
         // 면 채우기: 이은 선수들이 만드는 모양 (라인 · 블록)
-        if (it.area && pts.length >= 3) { ctx.save(); ctx.globalAlpha = 0.9 * easeOut(prog); ctx.fillStyle = rgba(col, 0.34); gpath(ctx, it.pts.map(P)); ctx.fill(); ctx.restore(); }
+        if (it.area && pts.length >= 3 && prog > 0.55) groundTint(ctx, it.pts.map(P), col, easeOut(Math.min(1, (prog - 0.55) / 0.45)));
         // 잔디에 깔린 팀 색 선 — 기본 실선 (선택: 점선)
         const dashOn = it.lstyle === 'dash'; // 기본은 실선
         if (CAL) {
           const g = lp.map(P).map((q) => CAL.S(q));
           const segs = [];
+          // 선수 → 선수 순서로 그어짐 (한꺼번에 자라지 않고 앞 선이 다 그어지면 다음 선)
+          const lens = []; for (let i3 = 0; i3 < g.length - 1; i3++) lens.push(Math.hypot(g[i3 + 1].x - g[i3].x, g[i3 + 1].y - g[i3].y));
+          let left = lens.reduce((x, y) => x + y, 0) * easeOut(prog);
           for (let i3 = 0; i3 < g.length - 1; i3++) {
-            const a = g[i3]; const b = g[i3 + 1]; const L = Math.hypot(b.x - a.x, b.y - a.y) * easeOut(prog); if (L < 0.05) continue;
-            const ux = (b.x - a.x) / (L / easeOut(prog) || 1); const uy = (b.y - a.y) / (L / easeOut(prog) || 1); const nx = -uy * 0.15; const ny = ux * 0.15;
+            const a = g[i3]; const b = g[i3 + 1]; const L0 = lens[i3]; const L = Math.max(0, Math.min(L0, left)); left -= L0; if (L < 0.05) continue;
+            const ux = (b.x - a.x) / (L0 || 1); const uy = (b.y - a.y) / (L0 || 1); const nx = -uy * 0.15; const ny = ux * 0.15;
             const step = dashOn ? 1.5 : L; const on = dashOn ? 0.9 : L;
             for (let d = 0.6; d < L - 0.6; d += step) { const e = Math.min(L - 0.6, d + on); segs.push([[a.x + ux * d + nx, a.y + uy * d + ny], [a.x + ux * e + nx, a.y + uy * e + ny], [a.x + ux * e - nx, a.y + uy * e - ny], [a.x + ux * d - nx, a.y + uy * d - ny]].map(([X, Y]) => CAL.G(X, Y))); }
           }
@@ -1382,6 +1447,8 @@ export function drawItem(ctx, it, P, W, items, resolve) {
           ctx.beginPath(); build(ctx); ctx.stroke();
           ctx.restore();
         }
+        // 흐르는 빛: 다 그어진 뒤 이은 선을 따라 밝은 빛이 계속 지나감 (선수끼리 이어진 느낌)
+        if (it._flow != null && it.flow !== false && prog >= 1) flowLight(ctx, lp.map(P), it._flow, wdt, col);
       }
       break;
     }

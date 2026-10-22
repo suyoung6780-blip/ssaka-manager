@@ -3464,3 +3464,4 @@ html.pad-locked, html.pad-locked body { overflow: hidden; overscroll-behavior: n
 .pad-phone .pad-topbar .pad-motion { flex: none; flex-wrap: nowrap; margin-top: 0; }
 .pad-phone .pad-topbar .pad-motion > * { flex: none; white-space: nowrap; }
 @media (orientation: portrait) { .pad-phone .pad-topbar .pad-motion .pm-lab { display: none; } }
+.st-note { margin: 2px 0 8px; font-size: 11.5px; line-height: 1.4; }

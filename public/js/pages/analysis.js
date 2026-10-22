@@ -8,7 +8,7 @@ import {
 } from '../ui.js';
 import { state, isCoach, go } from '../store.js';
 import {
-  PALETTE, uid, FrameAnalyzer, PlayerTracker, trackerPos, setTrackerAt, setKeyAt, delKeyAt, thinPath, stampH, GROUND, itemPoints, offsideGeom, drawItem, drawMeasureLabel, drawAngleLabel, nameTag, steadyPos, TEAM_COLORS, CAL_TPL, calFrom, setCal, getCal, drawCalGuide, angleDeg, cutPlayer, cutBox, meters, label,
+  PALETTE, uid, FrameAnalyzer, PlayerTracker, trackerPos, setTrackerAt, setKeyAt, delKeyAt, thinPath, stampH, GROUND, itemPoints, offsideGeom, drawItem, drawMeasureLabel, drawAngleLabel, nameTag, setGroundTex, steadyPos, TEAM_COLORS, CAL_TPL, calFrom, setCal, getCal, drawCalGuide, angleDeg, cutPlayer, cutBox, meters, label,
 } from '../telestrator.js';
 import { ai, loadAI, detectAround, scanFrame, pickNear } from '../detector.js';
 import { STORAGE_ENABLED } from '../config.js';
@@ -736,13 +736,16 @@ export async function studio(el, { id, mode }) {
 
   // 나타나는 효과 진행도: 강조 멈춤 중이면 멈춘 뒤 흐른 시간, 재생 중이면 영상 시간 기준 (0.7초에 걸쳐)
   // 화살표 · 연결선은 1.6초에 걸쳐 그어지고, 나머지는 0.8초에 걸쳐 나타남 (그림마다 바꿀 수 있음)
-  const animSec = (it) => it.anim ?? (it.k === 'arrow' || it.k === 'move' ? 1.6 : it.k === 'spot' ? 1.1 : 0.8);
+  const animSec = (it) => it.anim ?? (it.k === 'arrow' || it.k === 'move' ? 1.6 : it.k === 'spot' ? 1.1 : it.k === 'link' ? 1.2 : 0.8);
+  // 흐르는 빛 시계: 강조 멈춤 중엔 멈춘 뒤 흐른 시간, 그 밖엔 영상 시간 (내보내기에서도 똑같이)
+  const flowT = () => (freeze ? clock() / 1000 : video.paused && !recording ? undefined : t()); // 멈춰서 고칠 땐 빛 없이
   function appear(it) {
-    if (it.k === 'link') return 1; // 연결선은 그어지는 과정 없이 바로 보임
     const sec = animSec(it);
     if (sec <= 0) return 1; // 0초 = 바로 보임
     if (it.k === 'arrow' && it.live) return video.paused && !recording && !freeze ? 1 : Math.min(1, Math.max(0, (t() - it.t0) / sec)); // 재생 · 내보내기 땐 영상 시간대로 그어짐, 멈춰서 고칠 땐 다 보임
     if (freeze && freeze.items.includes(it)) return Math.min(1, (clock() - freeze.start) / (sec * 1000));
+    // 강조 멈춤이 있는 그림은 멈춤 동안 이미 다 나타났으니, 다시 재생될 때 처음부터 다시 그리지 않음 (툭 끊기는 느낌 없이 이어짐)
+    if (it.hold > 0 && !it.live && t() >= it.t0 - 0.02) return 1;
     if (!video.paused || recording) return Math.min(1, Math.max(0, (t() - it.t0) / sec));
     return 1;
   }
@@ -937,14 +940,16 @@ export async function studio(el, { id, mode }) {
     const vis = tele.items.filter(visible).filter((it) => !(it.k === 'spot' && it.p?.tr && trHid(it.p.tr))).map((it0) => {
       const it = it0.k === 'link' ? { ...it0, pts: it0.pts.filter((q) => !q?.tr || !trHid(q.tr)) } : it0; // 화면 밖 선수는 빼고 잇기
       return it;
-    }).map((it) => ({ ...withSpotSize(it), _prog: it.k === 'spot' && it.p?.tr ? Math.min(appear(it), backIn(it.p.tr, animSec(it))) : appear(it), _src: it, _hz: fa.hz, _ph: it.k === 'arrow' ? phAt(it.a) : undefined, _fade: it.k === 'move' ? fadeOut : 1, _phs: it.k === 'link' ? it.pts.map(phOf) : undefined, _trail: it.k === 'spot' ? trailOf(it) : undefined, ...liveArrow(it) }));
+    }).map((it) => ({ ...withSpotSize(it), _prog: it.k === 'spot' && it.p?.tr ? Math.min(appear(it), backIn(it.p.tr, animSec(it))) : appear(it), _src: it, _hz: fa.hz, _ph: it.k === 'arrow' ? phAt(it.a) : undefined, _fade: it.k === 'move' ? fadeOut : 1, _phs: it.k === 'link' ? it.pts.map(phOf) : undefined, _flow: it.k === 'link' ? flowT() : undefined, _trail: it.k === 'spot' ? trailOf(it) : undefined, ...liveArrow(it) }));
     // 바닥 레이어 (크로마키 대상)
+    setGroundTex(fa.ok ? SRC() : null); // 면 채우기가 잔디 결을 살려 물들 수 있게 (영상 픽셀을 읽을 수 있을 때만)
     gctx.clearRect(0, 0, w, h);
     vis.filter((it) => GROUND.has(it.k)).forEach((it) => drawItem(gctx, it, P, w, tele.items, resolve));
     // 연결선으로 이은 선수 발밑에도 원
     [...vis.filter((it) => it.k === 'link'), ...(draft?.k === 'link' ? [draft] : [])].forEach((it) => it.pts.forEach((p) => {
       if (!p.tr || trHid(p.tr)) return;
-      drawItem(gctx, { ...withSpotSize({ k: 'spot', p, scale: 0.9 }), color: it.color, _prog: it._prog ?? 1 }, P, w, tele.items, resolve);
+      const pulse = it._flow != null && it.flow !== false && (it._prog ?? 1) >= 1 ? 1 + 0.07 * Math.sin(it._flow * 4.2) : 1; // 발밑 원이 숨 쉬듯
+      drawItem(gctx, { ...withSpotSize({ k: 'spot', p, scale: 0.9 * pulse }), color: it.color, _prog: it._prog ?? 1 }, P, w, tele.items, resolve);
     }));
     if (draft && GROUND.has(draft.k)) drawItem(gctx, { ...withSpotSize(draft), _hz: fa.hz }, P, w, tele.items, resolve);
     if (tele.set.chroma && fa.ok) {
@@ -1527,11 +1532,12 @@ export async function studio(el, { id, mode }) {
       `<div class="st-num"><span>멈춰서 보여주기</span><input type="number" min="0" max="30" step="0.5" value="${it.hold ?? 4}" data-phold><i>초</i></div>`,
       it.k === 'light' && it.p?.tr ? sw('pfollow', !it.still, '재생되면 선수 따라가기') : '',
       isLive(it) ? `<div class="st-num"><span>보여주는 시간</span><input type="number" min="0" max="600" step="0.5" value="${it.t1 == null ? '' : +(it.t1 - it.t0).toFixed(1)}" placeholder="끝까지" data-pdur ${it.t1 == null ? 'disabled' : ''}><i>초</i><label class="mini-switch"><input type="checkbox" data-pend ${it.t1 == null ? 'checked' : ''}> 끝까지</label></div>` : '',
-      it.k === 'arrow' || it.k === 'spot' ? `<div class="st-num"><span>${it.k === 'spot' ? '나타나는 시간' : '그어지는 시간'}</span><input type="number" min="0" max="6" step="0.1" value="${animSec(it)}" data-panim><i>초</i></div>` : '',
+      it.k === 'arrow' || it.k === 'spot' || it.k === 'link' ? `<div class="st-num"><span>${it.k === 'spot' ? '나타나는 시간' : '그어지는 시간'}</span><input type="number" min="0" max="6" step="0.1" value="${animSec(it)}" data-panim><i>초</i></div>` : '',
       it.k === 'arrow' ? sw('pbold', it.weight === 'bold', '굵게') : '',
       it.k === 'arrow' || it.k === 'measure' ? `<div class="st-num"><span>거리 표시</span><input type="number" min="0" max="200" step="0.1" value="${it.m ?? ''}" placeholder="${it.k === 'arrow' ? '없음' : '?'}" data-pm><i>m</i></div>` : '',
       it.k === 'spot' ? `${sw('ptrail', it.trail !== false, '이동 꼬리')}${sw('pmarker', it.marker !== false, '머리 위 ▼')}<label class="st-range">링 크기 <input type="range" min="50" max="220" value="${Math.round((it.scale || 1) * 100)}" data-pscale></label>` : '',
-      it.k === 'link' ? `${sw('parea', it.area, '면 채우기')}${sw('pwall', it.wall, '수비 라인 벽')}` : '',
+      it.k === 'link' ? `${sw('parea', it.area, '면 채우기')}${sw('pwall', it.wall, '수비 라인 벽')}${sw('pflow', it.flow !== false, '흐르는 빛')}` : '',
+      GROUND.has(it.k) ? `${sw('pchroma', tele.set.chroma !== false, '선수를 그림 앞으로')}<p class="muted small st-note">그림이 끊겨 보이면 끄세요 (이 영상의 모든 바닥 그림에 적용)</p>` : '',
       it.k === 'zoom' ? `<label class="st-range">돋보기 크기 <input type="range" min="40" max="220" value="${Math.round((it.r || 0.1) * 1000)}" data-zr></label>` : '',
       it.k === 'light' ? sw('lring', it.ring !== false, '테두리 빛') : '',
       it.k === 'offside' ? `<label class="st-range">밝기 차이 <input type="range" min="0" max="100" value="${Math.round((it.dim ?? 0.5) * 100)}" data-odim></label><button type="button" class="btn ghost sm" data-overt>┃ 세로로</button>` : '',
@@ -1558,6 +1564,8 @@ export async function studio(el, { id, mode }) {
     box.querySelector('[data-pdur]')?.addEventListener('change', ch(() => { const v0 = box.querySelector('[data-pdur]').value; const v = +v0; if (v0 !== '' && v >= 0) it.t1 = +(it.t0 + v).toFixed(2); }));
     box.querySelector('[data-pend]')?.addEventListener('change', ch(() => { it.t1 = box.querySelector('[data-pend]').checked ? null : +(it.t0 + (+tele.set.dur || 5)).toFixed(2); }));
     box.querySelector('[data-panim]')?.addEventListener('change', ch(() => { const v0 = box.querySelector('[data-panim]').value; it.anim = Math.max(0, Math.min(6, v0 === '' ? 1.6 : +v0)); if (it.live) it.t1 = +(it.t0 + it.anim + 1.5).toFixed(2); }));
+    box.querySelector('[data-pflow]')?.addEventListener('change', ch(() => { if (box.querySelector('[data-pflow]').checked) delete it.flow; else it.flow = false; }));
+    box.querySelector('[data-pchroma]')?.addEventListener('change', ch(() => { tele.set.chroma = box.querySelector('[data-pchroma]').checked; }));
     box.querySelector('[data-phold]').onchange = ch(() => { const v = box.querySelector('[data-phold]').value; it.hold = Math.max(0, Math.min(30, v === '' ? 4 : +v)); });
     box.querySelector('[data-pdel]').onclick = ch(() => { tele.items = tele.items.filter((x) => x !== it); sel = null; });
     box.querySelector('[data-pdup]').onclick = () => dupItem(it);
@@ -2998,9 +3006,12 @@ export async function studio(el, { id, mode }) {
     return [Math.max(0, a - 2), Math.min(D, b + 2)];
   }
   async function pickCodec(w, h, fps, bitrate) {
-    for (const codec of ['avc1.640033', 'avc1.640028', 'avc1.4d0033', 'avc1.42003e', 'avc1.42001f']) {
-      const cfg = { codec, width: w, height: h, bitrate, framerate: fps, latencyMode: 'quality', avc: { format: 'avc' } };
-      try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch { /* 다음 */ }
+    // 컴퓨터의 영상 압축 칩(하드웨어)을 먼저 — 몇 배 빠름. 안 되면 소프트웨어로
+    for (const hw of ['prefer-hardware', null]) {
+      for (const codec of ['avc1.640033', 'avc1.640028', 'avc1.4d0033', 'avc1.42003e', 'avc1.42001f']) {
+        const cfg = { codec, width: w, height: h, bitrate, bitrateMode: 'variable', framerate: fps, latencyMode: 'quality', avc: { format: 'avc' }, ...(hw ? { hardwareAcceleration: hw } : {}) };
+        try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch { /* 다음 */ }
+      }
     }
     return null;
   }
@@ -3084,6 +3095,7 @@ export async function studio(el, { id, mode }) {
     const done = new Set();
     let lastM = from - 1e-3; let ticks = 0; let flushed = false; let finished = false;
     const t0w = performance.now();
+    const pf = { proc: 0, render: 0, emit: 0, n: 0, held: 0 }; // 프레임당 시간 (느릴 때 원인 찾기용)
     const frameAt = async (m) => {
       vtime = m;
       const hits = tele.items.filter((it) => it.hold > 0 && !done.has(it) && it.t0 > lastM && it.t0 <= m + 1e-3);
@@ -3092,12 +3104,16 @@ export async function studio(el, { id, mode }) {
         processFrameInner(true, m);
         const hold = Math.max(...hits.map((it) => it.hold));
         freeze = { start: 0, items: hits, until: hold * 1000 };
-        for (let f = 0; f < Math.round(hold * fps) && !busy.stop; f++) { vclock = (f * 1000) / fps; render(); await emit(); }
+        for (let f = 0; f < Math.round(hold * fps) && !busy.stop; f++) { vclock = (f * 1000) / fps; let q = performance.now(); render(); pf.render += performance.now() - q; q = performance.now(); await emit(); pf.emit += performance.now() - q; pf.held++; }
         freeze = null; vclock = null;
       }
+      let q = performance.now();
       processFrameInner(true, m);
+      pf.proc += performance.now() - q; q = performance.now();
       render();
+      pf.render += performance.now() - q; q = performance.now();
       while (from + ticks / fps <= m + 1e-4 && from + ticks / fps <= to + 1e-4) { await emit(); ticks++; }
+      pf.emit += performance.now() - q; pf.n++;
       lastM = m;
       busy.p = (m - from) / Math.max(0.01, to - from);
       if (ticks % 10 === 0) drawPanel();
@@ -3122,7 +3138,7 @@ export async function studio(el, { id, mode }) {
         await feed();
       }
       if (ticks === 0) return 'none';
-      console.info('[영상 만들기] 빠른 방식', `${ticks}프레임 · ${((performance.now() - t0w) / 1000).toFixed(1)}초 · 시각 보정 ${tShift.toFixed(3)}초 · 마지막 ${lastM.toFixed(2)}`);
+      console.info('[영상 만들기] 빠른 방식', `${ticks}프레임 · ${((performance.now() - t0w) / 1000).toFixed(1)}초 · 시각 보정 ${tShift.toFixed(3)}초 · 마지막 ${lastM.toFixed(2)}`, JSON.stringify({ held: pf.held, proc: +(pf.proc / Math.max(1, pf.n)).toFixed(1), render: +(pf.render / Math.max(1, pf.n + pf.held)).toFixed(1), emit: +(pf.emit / Math.max(1, pf.n + pf.held)).toFixed(1) }));
       // 끝까지 못 갔으면(파일을 다 못 읽음 등) 남은 부분은 재생 방식으로 이어서
       if (!busy.stop && lastM < to - 0.2) return { partial: true, lastM, ticks, done };
       return 'done';
@@ -3157,7 +3173,7 @@ export async function studio(el, { id, mode }) {
     const VW = video.videoWidth; const VH = video.videoHeight;
     const k = Math.min(1, maxH / VH);
     const outW = Math.round((VW * k) / 2) * 2; const outH = Math.round((VH * k) / 2) * 2; // H.264 는 짝수 크기
-    const bitrate = Math.min(60e6, Math.round(outW * outH * fps * 0.32)); // 1080p30 ≈ 20Mbps
+    const bitrate = Math.min(80e6, Math.round(outW * outH * fps * 0.45)); // 1080p30 ≈ 28Mbps (잔디 결이 뭉개지지 않게)
     const cfg = await pickCodec(outW, outH, fps, bitrate);
     if (!cfg) throw new Error('이 브라우저는 고화질 mp4 를 만들 수 없어요');
     // 고른 파일에 바로 써 내려감 → 긴 영상도 메모리가 쌓이지 않음 (못 고르는 브라우저는 메모리에 모았다가 저장)
