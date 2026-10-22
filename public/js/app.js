@@ -6,7 +6,7 @@ import { startNews, stopNews, markSeen, paint } from './news.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
 import { $, $$, esc, avatar, ROLES, pageHead, toast, modal, isQuota, quotaNotice, quotaHooks } from './ui.js';
 import {
-  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, waitApproval, teamRestricted,
+  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, freeMode, waitApproval, teamRestricted,
 } from './store.js';
 import * as authPages from './pages/auth.js';
 import * as admin from './pages/admin.js';
@@ -26,11 +26,14 @@ import * as personal from './pages/personal.js';
 import * as social from './pages/social.js';
 import * as notes from './pages/notes.js';
 import * as terms from './pages/terms.js';
+import * as refund from './pages/refund.js';
 import { kakaoReturn } from './social.js';
 
 const app = $('#app');
 const PLAYER_DEMO = /[?&]as=player/.test(location.search); // 체험 모드: 선수로 보는 중
-const RESTRICT_OK = ['/', '/settings', '/support', '/support/qna', '/me', '/privacy', '/terms', '/pay'];
+const RESTRICT_OK = ['/', '/settings', '/support', '/support/qna', '/me', '/privacy', '/terms', '/pay', '/pricing', '/refund'];
+// 결제 전 · 이용기간이 끝난 팀에서도 열 수 있는 곳
+const PAY_OK = ['/settings', '/support', '/support/qna', '/me', '/privacy', '/terms', '/pay', '/pricing', '/refund'];
 
 // guard: auth(기본) / squad(팀원: 코치·선수) / coach / member / owner
 const routes = [
@@ -74,6 +77,8 @@ const routes = [
   ['/admin/inbox/:id', support.inbox, 'admin'],
   ['/privacy', privacy.page, 'any'],
   ['/terms', terms.page, 'any'],
+  ['/refund', refund.page, 'any'],
+  ['/pricing', onboard.pricing, 'any'],
   ['/consent/:token', privacy.consentPage, 'any'],
   ['/community', (el) => community.page(el, { cat: 'training' }), 'coach'],
   ['/community/:cat', community.page, 'coach'],
@@ -115,7 +120,9 @@ const FOOTER = `
       <span>축구팀을 위한 매니지먼트 플랫폼</span>
     </div>
     <nav class="sf-links">
+      <a href="#/pricing">요금 안내</a>
       <a href="#/terms">이용약관</a>
+      <a href="#/refund">환불정책</a>
       <a href="#/privacy"><b>개인정보처리방침</b></a>
       <a href="#/support">운영자 문의</a>
     </nav>
@@ -189,6 +196,15 @@ async function route() {
     window.scrollTo(0, 0);
     return;
   }
+  // 결제 전 · 이용기간이 끝난 팀: 결제 · 설정 · 문의 · 내 프로필만 (기록은 그대로 남아 있음)
+  if (!freeMode() && state.team && state.member && state.member.approved !== false && !teamActive() && !isAdmin() && !PAY_OK.includes(path)) {
+    view.innerHTML = `${pageHead('PAYMENT', '이용기간이 끝났어요')}<section class="card pay-gate">
+      <p><b>${esc(state.team.name)}</b>의 ${state.team.trial ? '무료 체험' : state.team.free ? '무료 기간' : '이용기간'}이 끝났어요. ${isOwner() ? '요금제를 골라 결제하면 바로 다시 쓸 수 있어요.' : '팀 대표 지도자가 결제하면 다시 쓸 수 있어요.'}</p>
+      <p class="muted small">팀 기록(일지 · 분석 · 작전판 등)은 지워지지 않고 그대로 남아 있어요.</p>
+      <div class="row">${isOwner() ? '<a class="btn" href="#/pay">요금제 고르기 · 결제</a>' : ''}<a class="btn ghost" href="#/pricing">요금 안내</a><a class="btn ghost" href="#/support">운영자 문의</a></div></section>`;
+    window.scrollTo(0, 0);
+    return;
+  }
   view.innerHTML = '<div class="loading">LOADING</div>';
   $('.shell').classList.remove('nav-open', 'search-open');
   try {
@@ -220,7 +236,7 @@ function navItems() {
   sec('NETWORK', [...(isCoach() ? [['/scout', '스카웃 노트']] : []), ['/support', '운영자 문의']]);
   if (isAdmin()) sec('운영자', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '소통']]);
   else if (isAdminEmail()) sec('운영자', [['/admin/verify', '운영자 인증']]);
-  if (isOwner()) sec('ADMIN', [['/settings', FREE_MODE ? '팀 설정' : '팀 설정 · 결제']]);
+  if (isOwner()) sec('ADMIN', [['/settings', freeMode() ? '팀 설정' : '팀 설정 · 결제']]);
   return items;
 }
 
@@ -319,9 +335,10 @@ if (!isConfigured) {
     state.user = u;
     if (!u) stopNews();
     await loadContext();
-    if (first && u) { first = false; await handlePaymentReturn(); }
     app.innerHTML = '';
-    route();
+    await route();
+    // 결제창에서 돌아왔으면: 화면을 그린 뒤에 승인 (화면이 바뀔 때 창이 닫히지 않게)
+    if (first && u) { first = false; await handlePaymentReturn(); }
   });
   quotaHooks.isAdmin = isAdmin;
   // 어디서 났든 무료 사용량 초과 오류면 위에 안내 (운영자에게만)

@@ -3465,3 +3465,88 @@ html.pad-locked, html.pad-locked body { overflow: hidden; overscroll-behavior: n
 .pad-phone .pad-topbar .pad-motion > * { flex: none; white-space: nowrap; }
 @media (orientation: portrait) { .pad-phone .pad-topbar .pad-motion .pm-lab { display: none; } }
 .st-note { margin: 2px 0 8px; font-size: 11.5px; line-height: 1.4; }
+/* ───────── 요금제 · 결제 ───────── */
+.plan-cycle { margin: 4px 0 14px; width: fit-content; }
+.plan-cycle small { font-size: 11px; color: var(--pri, #39e75f); margin-left: 4px; }
+.plan-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 0 0 16px; }
+.plan-card { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 18px 16px; border-radius: 14px; border: 1px solid var(--line2); background: var(--surface); cursor: pointer; min-width: 0; }
+.plan-card input[type=radio] { position: absolute; top: 14px; right: 14px; width: 18px; height: 18px; accent-color: var(--pri, #39e75f); }
+.plan-card:has(input:checked) { border-color: var(--pri, #39e75f); box-shadow: 0 0 0 1px var(--pri, #39e75f) inset; }
+.plan-card.best { border-color: color-mix(in srgb, var(--pri, #39e75f) 55%, var(--line2)); }
+.plan-card.small-fit { opacity: .5; cursor: not-allowed; }
+.plan-card.legend { cursor: default; background: var(--surface2, var(--surface)); }
+.plan-badge { position: absolute; top: -9px; left: 14px; padding: 2px 8px; border-radius: 999px; background: var(--pri, #39e75f); color: #0b0d0c; font-size: 11px; font-weight: 800; }
+.plan-name { font-size: 18px; font-weight: 900; }
+.plan-sub { color: var(--muted); font-size: 12px; }
+.plan-price { font-size: 24px; font-weight: 900; margin-top: 8px; letter-spacing: -0.02em; }
+.plan-price i { font-style: normal; font-size: 13px; color: var(--muted); font-weight: 600; margin-left: 2px; }
+.plan-price.sm { font-size: 15px; }
+.plan-save { color: var(--muted); font-size: 12px; }
+.plan-card ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.plan-card ul li::before { content: '· '; color: var(--muted); }
+.plan-warn { color: #ff9f0a; font-size: 12px; font-weight: 700; margin-top: 6px; }
+.plan-card .btn { margin-top: 10px; align-self: flex-start; }
+.plan-now .kv, .pay-sum .kv { gap: 12px; }
+.plan-alert { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: rgba(255,159,10,.12); color: #ffb340; font-size: 13.5px; }
+.pay-sum { max-width: 560px; margin: 0 auto 12px; }
+.pay-sum .pay-agree { display: flex !important; flex-direction: row; gap: 8px; align-items: flex-start; font-size: 13.5px; margin: 14px 0 6px; line-height: 1.5; }
+.pay-sum .pay-agree input { margin-top: 3px; flex: none; width: 18px; height: 18px; accent-color: var(--pri, #39e75f); }
+.pay-sum .pay-agree span { flex: 1; min-width: 0; }
+.pricing-faq ul { margin: 0 0 14px; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; }
+.pay-gate .row { flex-wrap: wrap; }
+.plan-banner { display: block; text-decoration: none; }
+@media (max-width: 520px) { .plan-grid { grid-template-columns: minmax(0, 1fr); } .plan-price { font-size: 22px; } }
+@media (max-width: 1280px) { .plan-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .plan-grid { grid-template-columns: minmax(0, 1fr); } }
+.pay-sum .kv > span, .plan-now .kv > span { white-space: nowrap; flex: none; }
+.pay-sum .kv > strong, .plan-now .kv > strong { text-align: right; min-width: 0; }
+.plan-price { white-space: nowrap; font-size: clamp(18px, 1.55vw, 24px); }
+.plan-card.legend { text-align: left; align-items: flex-start; }
+.plan-card.legend .plan-price.sm { font-size: 14px; white-space: normal; }
+.plan-price { white-space: normal; overflow-wrap: anywhere; }
+.plan-price i { white-space: nowrap; display: inline-block; }
+.plan-cycle button.on small { color: #128a34; }
+/* 우리 팀 요금 계산 */
+.plan-calc h3 { margin: 0 0 4px; }
+.calc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: center; margin-top: 10px; }
+.calc-in { display: grid; gap: 14px; }
+.calc-in label { display: grid; gap: 8px; font-size: 14px; }
+.calc-in label b { font-size: 20px; }
+.calc-in input[type=range] { width: 100%; accent-color: var(--pri, #39e75f); }
+.plan-result { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; border-radius: 14px; background: color-mix(in srgb, var(--pri, #39e75f) 10%, var(--surface2, #151917)); border: 1px solid color-mix(in srgb, var(--pri, #39e75f) 35%, transparent); }
+.plan-result b { font-size: 22px; font-weight: 900; }
+.plan-result strong { font-size: 26px; font-weight: 900; }
+.plan-result strong i { font-style: normal; font-size: 13px; color: var(--muted); margin-left: 2px; }
+.plan-result small { color: var(--muted); font-size: 12.5px; }
+.plan-per { margin: 6px 0 0; font-size: 14px; }
+.plan-per b { color: var(--pri, #39e75f); }
+.tbl-wrap { overflow-x: auto; }
+.per-tbl { min-width: 640px; font-size: 13px; }
+.per-tbl td, .per-tbl th { white-space: nowrap; }
+.plan-rules { margin: 0 0 14px; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; }
+@media (max-width: 640px) { .calc-grid { grid-template-columns: minmax(0, 1fr); } }
+.plan-price { font-size: clamp(17px, 1.3vw, 22px); }
+.plan-calc { margin-bottom: 16px; }
+.plan-calc + .plan-grid, .plan-calc + form .plan-grid { margin-top: 4px; }
+.plan-grid.six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+@media (max-width: 1280px) { .plan-grid.six { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .plan-grid.six { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .plan-grid.six { grid-template-columns: minmax(0, 1fr); } }
+.plan-card.demo { cursor: default; border-color: color-mix(in srgb, var(--pri, #39e75f) 55%, var(--line2)); background: color-mix(in srgb, var(--pri, #39e75f) 8%, var(--surface)); }
+.plan-card.demo .plan-badge { background: var(--pri, #39e75f); }
+.plan-free-note { margin: 0 0 12px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--pri, #39e75f) 12%, transparent); border: 1px solid color-mix(in srgb, var(--pri, #39e75f) 35%, transparent); font-size: 14px; line-height: 1.55; }
+.plan-grid.six { grid-template-columns: repeat(3, minmax(0, 1fr)); } @media (max-width: 760px) { .plan-grid.six { grid-template-columns: repeat(2, minmax(0, 1fr)); } } @media (max-width: 520px) { .plan-grid.six { grid-template-columns: minmax(0, 1fr); } }
+/* 요금제 색 — 데모 초록 · 가퍼 청록 · 라이징 파랑 · 프로 보라 · 챔피언 금색 · 레전드 빨강 */
+.t-demo { --tc: #39e75f; } .t-gaffer { --tc: #2ec5d3; } .t-rising { --tc: #4ea1ff; } .t-pro { --tc: #a78bfa; } .t-champion { --tc: #f5b70a; } .t-legend { --tc: #ff5a5f; }
+.plan-card[class*="t-"] { border-top: 4px solid var(--tc); background: linear-gradient(180deg, color-mix(in srgb, var(--tc) 12%, var(--surface)) 0%, var(--surface) 55%); }
+.plan-card[class*="t-"] .plan-name { color: var(--tc); }
+.plan-card[class*="t-"] .plan-badge { background: var(--tc); color: #0b0d0c; }
+.plan-card[class*="t-"] ul li::before { color: var(--tc); }
+.plan-card[class*="t-"]:has(input:checked) { border-color: var(--tc); box-shadow: 0 0 0 2px var(--tc) inset, 0 6px 24px color-mix(in srgb, var(--tc) 22%, transparent); }
+.plan-card[class*="t-"] input[type=radio] { accent-color: var(--tc); }
+.plan-card.small-fit { filter: saturate(.4); }
+.plan-result[class*="t-"] { background: color-mix(in srgb, var(--tc) 12%, var(--surface2, #151917)); border-color: color-mix(in srgb, var(--tc) 45%, transparent); }
+.plan-result[class*="t-"] b, .plan-result[class*="t-"] .plan-per b { color: var(--tc); }
+.per-tbl td:first-child b { color: var(--tc, inherit); }
+.team-chip em { background: #ff9f0a; color: #1a1100; }

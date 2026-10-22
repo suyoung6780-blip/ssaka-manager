@@ -30,6 +30,7 @@ export function policyHtml() {
     <tr><th>건강 정보 (민감정보, 선수 필수 · 별도 동의)</th><td>컨디션, 통증 · 부상 정도와 부위, 훈련 · 경기 중 부상 여부와 다친 때, 수면 시간 · 수면 질, 운동 강도(RPE) · 운동 시간, 키 · 몸무게(선택)</td></tr>
     <tr><th>서비스 이용 중 생성</th><td>훈련 · 경기 일지, 목표, 상담 내용, 대화 내용, 분석실 영상 · 그림, 작전판 · 훈련 프로그램, 경기 기록, 스카웃 노트(지도자가 적은 선수 메모), 코치 노트(지도자 본인 메모), 문의 · 개선 제안</td></tr>
     <tr><th>소셜 로그인 (선택)</th><td>Google: 이메일 주소, 이름(가입 화면에 미리 채우는 데만 씀) · 카카오: 카카오 회원번호, 이메일 주소 — 각 서비스에서 이용자가 동의한 항목만 받으며, 비밀번호는 받지 않습니다</td></tr>
+    <tr><th>결제 (팀 대표 지도자)</th><td>주문번호, 요금제 · 이용기간, 결제 금액, 결제 수단 종류(카드 · 간편결제), 승인 일시, 영수증 주소 — 카드 번호 등 결제 정보는 토스페이먼츠가 직접 처리하며 서비스는 받거나 보관하지 않습니다</td></tr>
     <tr><th>만 14세 미만 회원의 보호자</th><td>보호자 이름, 관계, 휴대폰 번호, 동의 일시</td></tr>
     <tr><th>자동 수집</th><td>접속 기록(IP 주소, 접속 시각, 브라우저 정보)</td></tr>
   </tbody></table>
@@ -43,6 +44,7 @@ export function policyHtml() {
 
   <h3>3. 보유 및 이용 기간</h3>
   <p>회원 탈퇴 시까지 보유하며, 탈퇴하면 지체 없이 파기합니다. 다만 관련 법령에 따라 보존이 필요한 경우(예: 「통신비밀보호법」에 따른 접속 기록 3개월)에는 그 기간 동안 보관합니다.</p>
+  <p>유료 이용권을 결제한 경우 「전자상거래 등에서의 소비자보호에 관한 법률」에 따라 <b>계약 · 청약철회 기록과 대금 결제 기록은 5년</b>, <b>소비자 불만 · 분쟁 처리 기록은 3년</b> 보관하며, 탈퇴하더라도 이 기간 동안은 결제 기록만 따로 보관한 뒤 파기합니다.</p>
 
   <h3>4. 개인정보의 제3자 제공</h3>
   <p>서비스는 이용자의 개인정보를 외부에 제공하지 않습니다. 다만 서비스 기능상 다음 범위에서 다른 이용자에게 보입니다.</p>
@@ -53,6 +55,7 @@ export function policyHtml() {
     <li>커뮤니티(훈련 공유 · 지도자 게시판): 지도자가 직접 올린 글 · 훈련 프로그램과 작성자 이름이 서비스의 다른 지도자에게 보입니다.</li></ul>
 
   <h3>5. 개인정보 처리 위탁 및 국외 이전</h3>
+  <p><b>국내 위탁</b>: 토스페이먼츠(주) — 유료 이용권 결제 처리 · 결제 도용 방지 (위탁 계약 종료 또는 법정 보관 기간까지)</p>
   <p>서비스는 원활한 운영을 위해 아래와 같이 개인정보 처리를 위탁하며, 이 과정에서 개인정보가 국외로 이전됩니다. 이전은 서비스 이용 시 네트워크를 통해 수시로 이루어지며, 보유 기간은 회원 탈퇴 시 또는 위탁 계약 종료 시까지입니다.</p>
   <table class="tbl"><thead><tr><th>이전받는 자</th><th>국가</th><th>이전 항목</th><th>목적</th></tr></thead><tbody>
     ${OVERSEAS.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}
@@ -88,7 +91,7 @@ export function policyHtml() {
 
   <h3>14. 시행일 · 변경 이력</h3>
   <p>이 처리방침은 ${esc(PRIVACY.effective)}부터 적용됩니다.</p>
-  <ul class="muted small"><li>2026-10-07 제정</li><li>2026-10-20 개정: 다른 팀에 보이는 범위를 실제와 같게 정정, 커뮤니티 · 운영자 접근 · 쿠키 등 항목 추가, 부상 기록 · 작전판 · 코치 노트 반영, 보호책임자 표시, 소셜 로그인(Google · 카카오) 수집 항목 추가</li></ul>
+  <ul class="muted small"><li>2026-10-07 제정</li><li>2026-10-20 개정: 다른 팀에 보이는 범위를 실제와 같게 정정, 커뮤니티 · 운영자 접근 · 쿠키 등 항목 추가, 부상 기록 · 작전판 · 코치 노트 반영, 보호책임자 표시, 소셜 로그인(Google · 카카오) 수집 항목 추가</li><li>2026-10-23 개정: 유료 이용권 결제 기록 항목 · 보관 기간(5년 · 3년) · 결제 처리 위탁(토스페이먼츠) 추가</li></ul>
   </div>`;
 }
 
@@ -145,13 +148,13 @@ export const consentUrl = (tk) => `${location.origin}${location.pathname}#/conse
 export const needGuardian = () => !!state.profile?.under14 && !state.profile?.guardianOk;
 
 // ───────── 동의 받기 (처리방침이 생기기 전에 가입한 회원 — 한 번만) ─────────
-export const needAgree = () => !!state.profile && (!state.profile.agree || !state.profile.agree.terms); // 이용약관이 생기기 전 가입자도 한 번
+export const needAgree = () => !!state.profile && (!state.profile.agree || (state.profile.agree.terms !== TERMS_VER && state.profile.agree.terms !== 'demo')); // 이용약관이 생기기 전 가입자 · 약관이 바뀐 뒤 한 번
 export function agreeGate(el) {
   const player = state.profile.role === 'player';
   const termsOnly = !!state.profile.agree; // 처리방침은 이미 동의 — 새로 생긴 이용약관만
   el.innerHTML = `${brand}<form class="card auth-card wide">
-    <h2>${termsOnly ? '이용약관 동의' : '이용약관 · 개인정보 처리 동의'}</h2>
-    <p class="muted">${termsOnly ? '싸카매니저에 <b>이용약관</b>이 새로 생겼어요. 계속 쓰려면 한 번 동의해 주세요. 개인정보 처리방침도 실제 서비스에 맞게 고쳤어요.' : '싸카매니저에 <b>이용약관</b>과 <b>개인정보 처리방침</b>이 있어요. 계속 쓰려면 아래 내용에 한 번 동의해 주세요.'}</p>
+    <h2>${termsOnly ? (state.profile.agree.terms ? '바뀐 이용약관 동의' : '이용약관 동의') : '이용약관 · 개인정보 처리 동의'}</h2>
+    <p class="muted">${termsOnly ? (state.profile.agree.terms ? '<b>이용약관</b>이 바뀌었어요 — <b>유료 이용권 · 결제 · 환불</b>(제15조)이 추가됐어요. 계속 쓰려면 한 번 동의해 주세요. 지금은 베타 기간이라 모든 팀이 무료이고, 유료로 바뀌기 30일 전에 알려 드려요.' : '싸카매니저에 <b>이용약관</b>이 새로 생겼어요. 계속 쓰려면 한 번 동의해 주세요. 개인정보 처리방침도 실제 서비스에 맞게 고쳤어요.') : '싸카매니저에 <b>이용약관</b>과 <b>개인정보 처리방침</b>이 있어요. 계속 쓰려면 아래 내용에 한 번 동의해 주세요.'}</p>
     <fieldset class="agree"><legend>동의</legend>
       <label class="chk all"><input type="checkbox" data-agall> <b>모두 동의합니다</b></label>
       <label class="chk"><input type="checkbox" required> [필수] 이용약관 동의 <button type="button" class="link-btn small" data-terms>보기</button></label>

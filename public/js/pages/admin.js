@@ -147,7 +147,7 @@ export async function teams(el) {
     el.querySelector('[data-rows]').innerHTML = rows.map((t) => {
       const [u, cls] = usage(t);
       return `<tr>
-        <td data-l="팀"><a href="#/teams/${t.id}"><strong>${esc(t.name)}</strong></a>${t.restricted ? '<br><span class="tag danger">기능 제한</span>' : ''}${t.nameWarn ? '<br><span class="tag warn">팀명 주의 중</span>' : ''}</td>
+        <td data-l="팀"><a href="#/teams/${t.id}"><strong>${esc(t.name)}</strong></a>${t.restricted ? '<br><span class="tag danger">기능 제한</span>' : ''}${t.hidden ? '<br><span class="tag">목록에서 숨김</span>' : ''}${t.nameWarn ? '<br><span class="tag warn">팀명 주의 중</span>' : ''}</td>
         <td data-l="구분">${esc(t.category || '')}</td>
         <td data-l="대표">${esc(t.ownerName || '-')}</td>
         <td data-l="지도자 · 선수">${t.coaches == null ? '-' : `${t.coaches} · ${t.players}`}</td>
@@ -157,12 +157,13 @@ export async function teams(el) {
         <td data-l=""><div class="acts"><button class="btn ghost sm" data-feat="${t.id}">기능${Object.values(feats[t.id] || {}).filter(Boolean).length ? ` <b class="dot-n">${Object.values(feats[t.id]).filter(Boolean).length}</b>` : ''}</button>
           <button class="btn ${t.comp ? 'ghost' : ''} sm" data-comp="${t.id}">${t.comp ? '무료 제공 변경' : '무료 제공'}</button>
           <button class="btn ${t.nameWarn ? '' : 'ghost'} sm" data-nwarn="${t.id}">${t.nameWarn ? '팀명 주의 풀기' : '팀명 주의'}</button>
-          <button class="btn ${t.restricted ? '' : 'ghost'} sm" data-restrict="${t.id}">${t.restricted ? '제한 풀기' : '기능 제한'}</button></div></td></tr>`;
+          <button class="btn ${t.restricted ? '' : 'ghost'} sm" data-restrict="${t.id}">${t.restricted ? '제한 풀기' : '기능 제한'}</button><button class="btn ${t.hidden ? '' : 'ghost'} sm" data-hide="${t.id}">${t.hidden ? '목록에 보이기' : '목록에서 숨기기'}</button></div></td></tr>`;
     }).join('') || '<tr><td colspan="9" class="muted center">조건에 맞는 팀이 없습니다.</td></tr>';
     el.querySelectorAll('[data-comp]').forEach((b) => (b.onclick = () => toggleComp(list.find((t) => t.id === b.dataset.comp))));
     el.querySelectorAll('[data-feat]').forEach((b) => (b.onclick = () => featModal(list.find((t) => t.id === b.dataset.feat))));
     el.querySelectorAll('[data-nwarn]').forEach((b) => (b.onclick = () => nameWarn(list.find((t) => t.id === b.dataset.nwarn))));
     el.querySelectorAll('[data-restrict]').forEach((b) => (b.onclick = () => restrict(list.find((t) => t.id === b.dataset.restrict))));
+    el.querySelectorAll('[data-hide]').forEach((b) => (b.onclick = () => hideTeam(list.find((t) => t.id === b.dataset.hide))));
   };
 
   // 팀 이름 주의: 팀 화면 위에 알림 띠 + 운영자 문의방에 메시지 (팀이 이름을 바꾸면 띠는 저절로 사라짐)
@@ -198,6 +199,17 @@ export async function teams(el) {
       await updateDoc(doc(db, 'teams', t.id), { restricted: on, restrictedAt: Timestamp.fromMillis(Date.now()) });
       t.restricted = on;
       toast(on ? `${t.name} 팀의 기능을 제한했어요.` : `${t.name} 팀의 제한을 풀었어요.`); draw();
+    } catch (err) { fail(err); }
+  }
+
+  // 목록에서 숨기기: 팀 검색 · 팀 대화 목록에 안 나옴 (심사 · 시험용 팀). 그 팀 사람은 평소처럼 씀
+  async function hideTeam(t) {
+    const on = !t.hidden;
+    if (!(await confirmBox(on ? `${t.name} 팀을 팀 검색 · 팀 대화 목록에서 숨길까요? 이 팀 사람들은 평소처럼 써요.` : `${t.name} 팀을 다시 목록에 보일까요?`))) return;
+    try {
+      await updateDoc(doc(db, 'teams', t.id), { hidden: on });
+      t.hidden = on;
+      toast(on ? `${t.name} 팀을 목록에서 숨겼어요.` : `${t.name} 팀을 다시 보이게 했어요.`); draw();
     } catch (err) { fail(err); }
   }
 

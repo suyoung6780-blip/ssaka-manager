@@ -33,7 +33,7 @@ export function searchPanel(el) {
   }));
 
   getDocs(query(collection(db, 'teams'), where('status', '==', 'active')))
-    .then((s) => { teamCache = s.docs.map((d) => ({ id: d.id, ...d.data() })); draw(); })
+    .then((s) => { teamCache = s.docs.map((d) => ({ id: d.id, ...d.data() })).filter((t) => !t.hidden || t.id === state.team?.id); draw(); }) // 숨긴 팀(심사 · 시험용)은 목록에 안 나옴
     .catch(fail);
 }
 
@@ -177,7 +177,7 @@ export async function chatList(el) {
   const me = state.user.uid;
   // 다른 팀과 대화 (팀 대표 지도자에게 연결) — 우리 팀 선수와의 대화는 없음
   const teams = (await getDocs(query(collection(db, 'teams'), where('status', '==', 'active')))).docs.map((d) => ({ id: d.id, ...d.data() }))
-    .filter((t) => t.id !== state.team?.id && t.ownerUid && t.ownerUid !== me).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    .filter((t) => t.id !== state.team?.id && !t.hidden && t.ownerUid && t.ownerUid !== me).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   el.innerHTML = `${pageHead('COMMUNITY', '팀 대화')}
     <p class="lead">다른 팀 지도자와 1:1로 대화해요. 팀을 고르면 그 팀 <b>대표 지도자</b>와 대화가 열려요. 오른쪽 <b>팀 검색</b>에서 팀을 눌러 <b>팀에 연락하기</b>로도 시작할 수 있어요.</p>
     <div class="cm-bar"><input type="search" placeholder="대화할 팀 이름 검색" data-tq></div>

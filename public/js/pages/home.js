@@ -3,7 +3,7 @@ import {
   db, collection, query, where, orderBy, limit, getDocs, doc, getDoc, addDoc, updateDoc, deleteDoc, serverTimestamp,
 } from '../fb.js';
 import { esc, fmtDate, todayStr, fail } from '../ui.js';
-import { state, inTeam, isSquad, isCoach, isOwner, teamActive, role } from '../store.js';
+import { state, inTeam, isSquad, isCoach, isOwner, teamActive, teamPlan, role, freeMode } from '../store.js';
 import { calcStats } from './team.js';
 import { coachDesk, answersCard, recentLogs, teamMembers, quickBar, deskSkeleton } from './homeCoach.js';
 import { sleepOf } from '../sleep.js';
@@ -157,6 +157,17 @@ const helloLines = (t) => { const i = t.indexOf(', '); return i > 0 && i < 16 ? 
 // 맨 위 사진: 시간대별 (아침 5~10시 · 낮 10~16시 · 노을 16~19시 · 밤)
 const timeOfDay = (d) => { const h = d.getHours(); return h >= 5 && h < 10 ? 'morning' : h < 16 && h >= 10 ? 'day' : h >= 16 && h < 19 ? 'dusk' : 'night'; };
 
+// 팀 대표에게: 체험 · 무료 기간 · 결제 기간이 곧 끝나면 알림 (7일 전부터)
+function planBanner() {
+  if (freeMode() || !isOwner()) return '';
+  const pl = teamPlan();
+  if (!['trial', 'free', 'paid'].includes(pl.kind) || pl.until === Infinity) return '';
+  const d = Math.ceil((pl.until - Date.now()) / 864e5);
+  if (d > 7) return '';
+  const what = pl.kind === 'trial' ? '무료 체험' : pl.kind === 'free' ? '무료 기간' : '이용기간';
+  return `<a class="banner plan-banner" href="#/pay">${what}이 <b>${d <= 0 ? '오늘' : `${d}일 뒤`}</b> 끝나요 — 요금제를 골라 ${pl.kind === 'paid' ? '연장' : '결제'}하면 계속 쓸 수 있어요 →</a>`;
+}
+
 function morningHead(stats = []) {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');
@@ -253,7 +264,7 @@ export async function render(el) {
     el.innerHTML = `${morningHead()}
       <div class="tiles">
         ${pending ? `<a class="tile" href="#/pay"><span class="eyebrow">PENDING</span><h3>${esc(t.name)} 결제하기</h3><p>결제가 완료되면 팀 코드가 발급되고 락커룸이 열립니다.</p></a>` : `
-        ${role() === 'coach' ? `<a class="tile" href="#/team/new"><span class="eyebrow">CREATE</span><h3>팀계정 만들기</h3><p>${FREE_MODE ? '팀 정보 입력 → 바로 팀 코드 발급 (무료)' : '팀 정보 입력 → 월 이용료 결제 → 팀 코드 발급'}</p></a>` : ''}
+        ${role() === 'coach' ? `<a class="tile" href="#/team/new"><span class="eyebrow">CREATE</span><h3>팀계정 만들기</h3><p>${FREE_MODE ? '팀 정보 입력 → 바로 팀 코드 발급 (무료)' : '팀 정보 입력 → 바로 팀 코드 발급 · 10일 무료 체험'}</p></a>` : ''}
         <a class="tile" href="#/team/join"><span class="eyebrow">JOIN</span><h3>팀 코드로 입장</h3><p>코치에게 받은 코드로 락커룸에 입장합니다.</p></a>`}
         <a class="tile" href="#/me"><span class="eyebrow">PROFILE</span><h3>내 프로필</h3><p>사진 · 키 · 몸무게 · 포지션</p></a>
       </div>
@@ -344,6 +355,7 @@ export async function render(el) {
 
   const head = `${morningHead(stats)}
   ${!teamActive() ? `<div class="banner">팀 이용기간이 만료되었습니다. ${isOwner() ? '<a href="#/pay">연장 결제 →</a>' : '팀 관리자에게 문의하세요.'}</div>` : ''}
+  ${planBanner()}
   ${waitingN ? `<a class="banner wait-banner" href="#/locker">입장 승인 대기 <b>${waitingN}명</b> — 락커룸에서 승인해 주세요 →</a>` : ''}`;
 
   if (coach) {

@@ -1,5 +1,5 @@
-import { db, doc, getDoc } from './fb.js';
-import { ADMIN_EMAILS } from './config.js';
+import { auth, db, doc, getDoc } from './fb.js';
+import { ADMIN_EMAILS, FREE_MODE, FREE_UNTIL, TRIAL_DAYS } from './config.js';
 
 // 전역 상태: 로그인 사용자, 내 프로필, 소속 팀, 팀 내 내 멤버 문서
 export const state = { user: null, profile: null, team: null, member: null, features: {}, cleanup: [] };
@@ -18,8 +18,27 @@ export const isOwner = () => !!(state.team && state.user && state.team.ownerUid 
 // 운영자가 기능을 막은 팀 (운영자가 풀 때까지)
 export const teamRestricted = () => state.team?.restricted === true;
 export const compActive = (t) => t?.comp === true && (!t.compUntil || t.compUntil.toMillis() > Date.now());
-// 이용 가능: 무료(시범) · 운영자 무료 제공(홍보) · 결제 기간 안
-export const teamActive = () => !!state.team && (state.team.free === true || compActive(state.team) || (!!state.team.paidUntil && state.team.paidUntil.toMillis() > Date.now()));
+// 체험 모드에서 주소 끝에 ?expired=1 → '이용기간이 끝난 팀'으로 미리 보기 (실제 사이트엔 영향 없음)
+export const previewExpired = () => !!auth.demo && /[?&]expired=1/.test(location.search);
+// 지금 결제 없이 모두 무료인지 (미리 보기 중엔 아님)
+export const freeMode = () => FREE_MODE && !previewExpired();
+const ms = (v) => (v?.toMillis ? v.toMillis() : v?.seconds ? v.seconds * 1000 : v ? +new Date(v) : 0);
+// 이 팀이 지금 무엇으로 쓰는지 · 언제까지 (until: 밀리초, 평생이면 Infinity)
+//  paid 결제 · comp 운영자 무료 제공 · trial 새 팀 무료 체험 · free 유료 전환 전에 만든 팀 · none 결제 필요
+export function teamPlan(t = state.team) {
+  if (!t) return { kind: 'none', until: 0 };
+  if (previewExpired()) return { kind: 'none', until: Date.now() - 3 * 864e5, plan: 'rising' };
+  const now = Date.now();
+  const paid = ms(t.paidUntil);
+  if (paid > now) return { kind: 'paid', until: paid, plan: t.plan || '', cycle: t.planCycle || '' };
+  if (compActive(t)) return { kind: 'comp', until: t.compUntil ? ms(t.compUntil) : Infinity };
+  if (freeMode()) return { kind: 'free', until: Infinity }; // 베타: 모든 팀 무료
+  if (t.free === true) { const u = +new Date(FREE_UNTIL); if (u > now) return { kind: 'free', until: u }; }
+  if (t.trial === true) { const u = ms(t.createdAt) + TRIAL_DAYS * 864e5; if (u > now || !t.createdAt) return { kind: 'trial', until: t.createdAt ? u : now + TRIAL_DAYS * 864e5 }; }
+  return { kind: 'none', until: paid || 0, plan: t.plan || '' };
+}
+// 이용 가능: 결제 기간 안 · 운영자 무료 제공 · 새 팀 체험 10일 · 예전 팀 무료 기간
+export const teamActive = () => !!state.team && teamPlan().kind !== 'none';
 export const teamPath = (...p) => ['teams', state.team.id, ...p].join('/');
 
 // app.js 가 채워 넣는 훅 (순환 import 방지)

@@ -282,7 +282,7 @@ export async function locker(el) {
       if (!q) { box.innerHTML = ''; return; }
       if (!teams) {
         box.innerHTML = '<li class="muted small">불러오는 중…</li>';
-        try { teams = (await getDocs(query(collection(db, 'teams'), where('status', '==', 'active')))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((t) => t.id !== state.team.id); } catch (err) { box.innerHTML = `<li class="muted small">${esc(err.message || err)}</li>`; return; }
+        try { teams = (await getDocs(query(collection(db, 'teams'), where('status', '==', 'active')))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((t) => t.id !== state.team.id && !t.hidden); } catch (err) { box.innerHTML = `<li class="muted small">${esc(err.message || err)}</li>`; return; }
       }
       const hit = teams.filter((t) => `${t.name || ''} ${t.ownerName || ''}`.toLowerCase().includes(q)).slice(0, 8);
       box.innerHTML = hit.length ? hit.map((t) => `<li class="talk"><a href="javascript:void 0"><span class="cat">${esc(t.category || '')}</span><strong>${esc(t.name)}</strong><span class="lock">${esc(t.ownerName || '')}</span></a><button type="button" class="btn sm" data-to="${t.id}">이적 보내기</button></li>`).join('') : '<li class="muted small">검색 결과가 없어요.</li>';

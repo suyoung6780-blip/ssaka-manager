@@ -15,7 +15,7 @@ const later = Timestamp.fromMillis(Date.now() + 20 * 864e5);
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const today = ymd(new Date());
 seed(`users/${U}`, { name: '김코치', role: 'coach', agree: { ver: 'demo', terms: 'demo' }, email: 'c@x.com', teamId: 'T1', position: '', photo: '', coachTitle: '수석코치', duty: 'U15 담당', licenses: 'KFA B급, GK 3급', school: '성남중 - 풍생고 - 용인대', career: '2019~2022 FC 블랙 U12 코치\n2023~ FC 블랙 U15 수석코치' });
-seed('teams/T1', { name: 'FC 블랙', category: 'U15', isPublic: true, ownerUid: U, ownerName: '김코치', createdAt: Timestamp.fromMillis(Date.now() - 30 * 864e5), status: 'active', paidUntil: later, intro: '테스트 팀' });
+seed('teams/T1', { name: 'FC 블랙', category: 'U15', isPublic: true, ownerUid: U, ownerName: '김코치', createdAt: Timestamp.fromMillis(Date.now() - 30 * 864e5), status: 'active', free: true, intro: '테스트 팀' });
 seed('teams/T2', { name: '화이트 유나이티드', category: 'K7', isPublic: false, ownerUid: 'x', ownerName: '백감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 12 * 864e5), status: 'active', paidUntil: later });
 seed('teams/T3', { name: '그레이 FC', category: 'U15', isPublic: true, ownerUid: 'y', ownerName: '최감독', free: true, createdAt: Timestamp.fromMillis(Date.now() - 5 * 864e5), status: 'active', paidUntil: later });
 seed(`teams/T1/members/${U}`, { name: '김코치', role: 'coach', coachTitle: '수석코치', duty: 'U15 담당', licenses: 'KFA B급, GK 3급', school: '성남중 - 풍생고 - 용인대', career: '2019~2022 FC 블랙 U12 코치\n2023~ FC 블랙 U15 수석코치' });

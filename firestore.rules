@@ -25,10 +25,13 @@ service cloud.firestore {
     function teamPathOf(t) { return /databases/$(database)/documents/teams/$(t); }
     // 팀을 '지금 이 배치에서' 새로 만드는 대표 지도자인지
     function creatingTeam(t) { return !exists(teamPathOf(t)) && getAfter(teamPathOf(t)).data.ownerUid == uid(); }
-    // 이용 가능: 무료(시범) · 운영자 무료 제공(기간 안, compUntil 없으면 평생) · 결제 기간 안
+    // 이용 가능: 베타 기간 무료 팀(free) · 새 팀 10일 체험(trial) · 운영자 무료 제공(기간 안, compUntil 없으면 평생) ·
+    //           결제 기간 안(결제는 서버 /api/pay 만 기록)
+    // 유료로 바꿀 때: free 줄에 '&& request.time < timestamp.date(전환일)' 을 붙이고, 아래 팀 만들기에서 free 를 빼기
     function teamUsable(t) { return teamDoc(t).get('free', false) == true
+      || (teamDoc(t).get('trial', false) == true && request.time < teamDoc(t).createdAt + duration.value(10, 'd'))
       || (teamDoc(t).get('comp', false) == true && (teamDoc(t).get('compUntil', null) == null || teamDoc(t).compUntil > request.time))
-      || teamDoc(t).paidUntil > request.time; }
+      || teamDoc(t).get('paidUntil', timestamp.date(2000, 1, 1)) > request.time; }
     // 서비스 운영자 — public/js/config.js 의 ADMIN_EMAILS 와 같아야 함. 이메일 인증까지 마친 계정만
     function isAdmin() { return signedIn() && request.auth.token.email in ['suyoung6780@gmail.com']
       && request.auth.token.email_verified == true; }
@@ -78,6 +81,11 @@ service cloud.firestore {
         && (creatingTeam(request.resource.data.teamId) || isAdmin());
     }
 
+    // 결제 기록 — 서버(/api/pay)만 씀. 결제한 팀 대표 본인과 운영자만 읽음
+    match /payments/{orderId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.uid == uid());
+    }
+
     match /teams/{t} {
       allow read: if signedIn();
 
@@ -85,12 +93,13 @@ service cloud.firestore {
       match /scouts/{noteId} {
         allow read, create, update, delete: if isCoach(t);
       }
+      // 새 팀: 베타 기간엔 무료(free) · 유료 전환 뒤엔 10일 체험(trial). 만든 시각 = 서버 시각, 결제 · 무료 제공 표시는 스스로 못 넣음
       allow create: if signedIn()
         && request.resource.data.ownerUid == uid()
-        && !request.resource.data.keys().hasAny(['paidUntil'])
+        && !request.resource.data.keys().hasAny(['paidUntil', 'comp', 'compUntil', 'plan', 'planCycle', 'lastPaidAt'])
+        && request.resource.data.createdAt == request.time
         && (request.resource.data.status == 'pending'
-          // 무료 모드
-          || (request.resource.data.status == 'active' && request.resource.data.free == true));
+          || (request.resource.data.status == 'active' && (request.resource.data.get('trial', false) == true || request.resource.data.get('free', false) == true)));
       allow update: if isOwner(t) && changed().hasOnly(['name', 'category', 'isPublic', 'intro']);
       // 대표 넘기기: 지금 대표가 우리 팀의 승인된 지도자에게만
       allow update: if isOwner(t) && changed().hasOnly(['ownerUid', 'ownerName'])
@@ -98,7 +107,7 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/teams/$(t)/members/$(request.resource.data.ownerUid)).data.get('approved', true) != false;
       // 운영자: 홍보용 무료 제공(comp) 지정 · 해제 — 결제와 상관없이 계속 이용
       // 운영자: 팀 구분 정리 · 팀 이름 주의 · 기능 제한
-      allow update: if isAdmin() && changed().hasOnly(['category', 'nameWarn', 'restricted', 'restrictedAt']);
+      allow update: if isAdmin() && changed().hasOnly(['category', 'nameWarn', 'restricted', 'restrictedAt', 'hidden']); // hidden: 목록에서 숨기기 (심사 · 시험용 팀)
       allow update: if isAdmin() && changed().hasOnly(['comp', 'compMonths', 'compUntil', 'compBy', 'compAt', 'status']);
 
       match /members/{m} {

@@ -18,6 +18,9 @@
     },
     "api/kakao.py": {
       "maxDuration": 15
+    },
+    "api/pay.py": {
+      "maxDuration": 30
     }
   },
   "headers": [
