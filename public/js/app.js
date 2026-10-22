@@ -54,7 +54,7 @@ const routes = [
   ['/training/library', () => go('/tactics/programs'), 'coach'], // 예전 주소 → 전술보드
   ['/tactics', training.board, 'coach'],
   ['/tactics/programs', training.library, 'coach'],
-  ['/notes', notes.page, 'coachRole'],
+  ['/notes', notes.page, 'coach'],
   ['/meeting', board.page('meeting'), 'squad'],
   ['/analysis', analysis.list, 'squad'],
   ['/analysis/:id', analysis.studio, 'squad'],
@@ -228,7 +228,7 @@ function navItems() {
   sec('MY', [
     ['/me', '프로필'],
     ...(isSquad() && !isCoach() ? [['/daily', '오늘 기록']] : []), // 오늘 기록은 선수만
-    ...(role() === 'coach' || isCoach() ? [['/notes', '코치 노트']] : []),
+    ...(isCoach() ? [['/notes', '코치 노트']] : []), // 팀이 생긴 뒤부터
     ...(isCoach() ? [['/journal-check', '일지검사']] : []),
   ]);
   sec('NOTICE', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄']] : []);
