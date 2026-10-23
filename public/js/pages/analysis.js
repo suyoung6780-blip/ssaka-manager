@@ -10,7 +10,8 @@ import { state, isCoach, go } from '../store.js';
 import {
   PALETTE, uid, FrameAnalyzer, PlayerTracker, trackerPos, setTrackerAt, setKeyAt, delKeyAt, thinPath, stampH, GROUND, itemPoints, offsideGeom, drawItem, drawMeasureLabel, drawAngleLabel, nameTag, setGroundTex, steadyPos, TEAM_COLORS, CAL_TPL, calFrom, setCal, getCal, drawCalGuide, angleDeg, cutPlayer, cutBox, meters, label,
 } from '../telestrator.js';
-import { ai, loadAI, detectAround, scanFrame, pickNear } from '../detector.js';
+import { ai, loadAI, detectAround, detectIn, scanFrame, pickNear } from '../detector.js';
+import { FollowAI } from '../follow.js';
 import { STORAGE_ENABLED } from '../config.js';
 import { matchStudio, sampleMatch, computeReport, TARGETS, linkOf, LINK_HELP, VEO_HELP } from './matchAnalysis.js';
 
@@ -337,8 +338,10 @@ export async function studio(el, { id, mode }) {
         <div class="st-aipanel" data-aipanel hidden></div>
         <div class="tl" data-tl>
           <div class="tl-bar"><b>타임라인</b><small data-count></small>
+            <span class="seg sm tl-mode"><button type="button" data-tlmode="scene">장면</button><button type="button" data-tlmode="detail">자세히</button></span>
             
             <span class="tl-zoom"><button type="button" class="chip" data-tz="-1" title="줄이기">−</button><button type="button" class="chip" data-tz="0" title="그림 있는 곳에 맞추기">맞춤</button><button type="button" class="chip" data-tz="1" title="늘리기">+</button></span></div>
+          <div class="tl-scenes" data-scenes></div>
           <div class="tl-body" data-tlbody>
             <div class="tl-heads"><div class="tl-corner"></div><div data-heads></div></div>
             <div class="tl-scroll" data-tls><div class="tl-inner" data-tli><div class="tl-ruler" data-ruler></div><div data-rows></div><div class="tl-play" data-playhead></div></div></div>
@@ -355,7 +358,37 @@ export async function studio(el, { id, mode }) {
   const ground = document.createElement('canvas');
   const gctx = ground.getContext('2d');
   const fa = new FrameAnalyzer(640);
+  // 그림 하나에서 오류가 나도 나머지 그림 · 재생 · 내보내기가 멈추지 않게
+  const drawSafe = (c, ...rest) => { c.save(); try { drawItem(c, ...rest); } catch (e) { console.warn('[분석실] 그림 오류', rest[0]?.k, e); } finally { c.restore(); } };
+  // 선수가 그림 앞에 서는지: 그림마다 고를 수 있고, 기본은 면(영역 · 면 채우기)만 — 선 · 화살표는 잘리지 않게
+  // 카메라 움직임 기록: 영상을 이어서 재생 · 내보내는 동안 화면이 얼마나 옆 · 위아래로 움직였는지 (정규화 좌표 누적)
+  // → 선수에 붙지 않은 그림도 카메라를 따라 잔디 위 같은 자리에 머물게
+  let camLog = []; // [t, x, y]
+  const camAt = (tt) => {
+    if (!camLog.length) return null;
+    if (tt <= camLog[0][0]) return camLog[0];
+    for (let i = camLog.length - 1; i >= 0; i--) if (camLog[i][0] <= tt) return camLog[i];
+    return camLog[0];
+  };
+  const camShift = (t0) => { const a = camAt(t0); const b = camAt(t()); return a && b ? { x: b[1] - a[1], y: b[2] - a[2] } : null; };
+  const shiftPt = (q, d) => (!q || q.tr ? q : { ...q, x: q.x + d.x, y: q.y + d.y });
+  function camFollow(it) {
+    if (!isLive(it) || it.k === 'slow') return it;
+    const d = camShift(it.t0);
+    if (!d || (Math.abs(d.x) < 1e-4 && Math.abs(d.y) < 1e-4)) return it;
+    const o = { ...it };
+    for (const k of ['a', 'b', 'c', 'p']) if (o[k]) o[k] = shiftPt(o[k], d);
+    if (o.pts) o.pts = o.pts.map((q) => shiftPt(q, d));
+    if (o.q) o.q = o.q.map((q) => shiftPt(q, d));
+    return o;
+  }
+  // 시야가 향하는 각도 (화면 기준, 0° = 오른쪽 · 90° = 아래/카메라 쪽)
+  const vDir = (it) => { const A = resolve(it.a); const B = resolve(it.b); const d = (Math.atan2((B.y - A.y) * H(), (B.x - A.x) * W()) * 180) / Math.PI; return (d + 360) % 360; };
+  const occDefault = (it) => it.k !== 'spot'; // 선수는 기본으로 그림 앞에 (발밑 동그라미 · 공중 화살표는 위에) — 자세히 설정에서 그림마다 바꿀 수 있음
+  // 지금 영상 시각의 재생 속도 (천천히 구간이면 ×0.5 · ×0.25)
+  const speedAt = (m) => { let sp = 1; for (const it of tele.items) if (it.k === 'slow' && m >= it.t0 - 1e-3 && m < (it.t1 ?? it.t0 + 3)) sp = Math.min(sp, it.speed || 0.5); return sp; };
   const pt = new PlayerTracker();
+  const follow = new FollowAI(pt, (src, r) => detectIn(src, r, 0.3)); // AI 정밀 추적: 고른 선수 + 주변 선수를 함께 따라가며 겹쳐도 안 헷갈리게
   const trk = new Map(); // tracker id → 추적 상태 (템플릿 · 속도, 메모리에만)
   let cands = null; // '다시 잡기': AI가 찾은 선수 후보들 { tr, boxes }
   let man = null; // 수동 트래킹 { tr, step, auto }
@@ -411,11 +444,65 @@ export async function studio(el, { id, mode }) {
   let frameSrc = null; // 그때 쓰는 프레임 (원본 크기 캔버스)
   const SRC = () => frameSrc || video;
   const t = () => (vtime != null ? vtime : video.currentTime || 0);
+  // 선수 표시를 실제 몸의 정중앙 · 발끝에 맞춤 (트래킹 점이 조금 어긋나도 동그라미 · 머리 위 표시가 선수 가운데로)
+  // 같은 장면에서는 한 번만 계산 · 갑자기 튀지 않게 조금씩 따라감
+  const ctrCache = new Map();
+  function centered(tr, q) {
+    const key = `${tr.id}@${t().toFixed(3)}`;
+    if (ctrCache.has(key)) return ctrCache.get(key);
+    const live = !video.paused || !!recording;
+    const fresh = fa.ok && !(fa.lastT != null && Math.abs(fa.lastT - t()) > 0.12); // 지금 장면을 분석했으면 몸 중앙 찾기
+    // 몸 중앙 보정은 '차이'만 아주 천천히 반영 (장면마다 몸 모양이 달라져도 표시가 떨리지 않게). 멈춰서 볼 땐 바로
+    if (fresh) {
+      const c = centerRaw(tr, q);
+      const d = { x: c.x - q.x, y: c.y - q.y };
+      tr._off = live && tr._off ? { x: tr._off.x + (d.x - tr._off.x) * 0.08, y: tr._off.y + (d.y - tr._off.y) * 0.08 } : d;
+      if (c.h) tr._hc = c.h;
+    }
+    const off = tr._off || { x: 0, y: 0 };
+    const r0 = { ...q, x: q.x + off.x, y: q.y + off.y, ...(tr._hc ? { h: tr._hc } : {}) };
+    const out = steady(tr, r0, live);
+    if (ctrCache.size > 400) ctrCache.clear();
+    ctrCache.set(key, out);
+    return out;
+  }
+  // 잔움직임 거르기 (트래킹을 따라가는 모든 효과 공통)
+  //  천천히 움직이거나 제자리에서 흔들릴 땐 강하게 눌러 주고, 빨리 뛰면 늦지 않게 바로 따라감 (One Euro 필터)
+  //  재생 · 영상 만들기 때만 (멈춰서 고칠 땐 실제 자리 그대로)
+  const lp = (cut, dt) => { const tau = 1 / (2 * Math.PI * cut); return 1 / (1 + tau / dt); };
+  function steady(tr, r, live) {
+    const hh = tr.h || r.h || 0.08; // 단위 (키) — 바뀌지 않는 값으로
+    const wx = r.x / hh; const wy = r.y / hh;
+    const f = tr._sw;
+    const dt = f ? t() - f.t : 0;
+    if (!live || !f || dt <= 0 || dt > 0.35) { tr._sw = { x: wx, y: wy, vx: 0, vy: 0, t: t() }; return r; }
+    const vx = (wx - f.x) / dt; const vy = (wy - f.y) / dt;
+    const ad = lp(1.0, dt);
+    const svx = f.vx + (vx - f.vx) * ad; const svy = f.vy + (vy - f.vy) * ad;
+    const cut = 0.35 + 0.45 * Math.hypot(svx, svy); // 느리면 0.6Hz(아주 부드럽게) · 빠르면 높게(바로 따라감)
+    const a = lp(cut, dt);
+    const nx = f.x + (wx - f.x) * a; const ny = f.y + (wy - f.y) * a;
+    tr._sw = { x: nx, y: ny, vx: svx, vy: svy, t: t() };
+    return { ...r, x: nx * hh, y: ny * hh };
+  }
+  function centerRaw(tr, q) {
+    const hh = q.h || tr.h || 0.08; // 그 순간의 키 (트래킹 길에 기록된 값이 더 정확)
+    const c = fa.centerAt(q.x, q.y, hh);
+    let out = q;
+    if (c && Math.abs(c.x - q.x) < hh * 0.4 && Math.abs(c.y - q.y) < hh * 0.22) {
+      // 발 높이: 아래로는 거의 안 내림 (그림자 · 잔디 결까지 발로 잡혀 동그라미가 발밑보다 내려가지 않게 — AI가 잰 발끝을 믿음)
+      const tx = c.x; const ty = c.y > q.y ? q.y + Math.min(c.y - q.y, hh * 0.04) : c.y;
+      const th = hh;
+      out = { ...q, x: tx, y: ty, ...(c.h > th * 0.9 && c.h < th * 1.3 ? { h: c.h } : {}) }; // 실제 키 (머리 위 표시 · 동그라미 크기)
+    }
+    return out;
+  }
   const resolve = (p) => {
     if (!p) return { x: 0, y: 0 };
     if (p.tr) {
       const tr = tele.trackers.find((x) => x.id === p.tr);
-      return (tr && (steadyPos(tr, t()) || trackerPos(tr, t()))) || { x: 0.5, y: 0.5 };
+      const q = (tr && (steadyPos(tr, t()) || trackerPos(tr, t()))) || { x: 0.5, y: 0.5 };
+      return tr ? centered(tr, q) : q;
     }
     return p;
   };
@@ -677,7 +764,11 @@ export async function studio(el, { id, mode }) {
     // 재생 중엔 필요할 때만 분석 (따라갈 선수 · 바닥 그림이 없으면 건너뛰어 영상이 끊기지 않게)
     if (playing && !needAnalysis(now)) return;
     if (!fa.grab(SRC(), tele.set)) return;
-    occludeTracked(now);
+    fa.lastT = now;
+    // 카메라 움직임 누적 (이어서 재생할 때만 · 장면 전환(컷)이나 건너뛰면 새로 시작)
+    if (!camLog.length || fa.cut || Math.abs(dt) > 0.6) camLog = [[now, 0, 0]];
+    else if (dt > 0) { const l = camLog[camLog.length - 1]; camLog.push([now, l[1] + fa.cam.dx, l[2] + fa.cam.dy]); if (camLog.length > 20000) camLog.splice(0, 5000); }
+    else { while (camLog.length > 1 && camLog[camLog.length - 1][0] > now + 1e-3) camLog.pop(); } // 한 칸 뒤로
     if (!fa.hz || performance.now() - hzAt > 500) { fa.hz = fa.horizon(); hzAt = performance.now(); }
     msctx.clearRect(0, 0, maskSoft.width, maskSoft.height);
     msctx.drawImage(fa.mask, 0, 0, maskSoft.width, maskSoft.height);
@@ -745,10 +836,11 @@ export async function studio(el, { id, mode }) {
     const sec = animSec(it);
     if (sec <= 0) return 1; // 0초 = 바로 보임
     if (it.k === 'arrow' && it.live) return video.paused && !recording && !freeze ? 1 : Math.min(1, Math.max(0, (t() - it.t0) / sec)); // 재생 · 내보내기 땐 영상 시간대로 그어짐, 멈춰서 고칠 땐 다 보임
-    if (freeze && freeze.items.includes(it)) return Math.min(1, (clock() - freeze.start) / (sec * 1000));
+    const dl = it.dl || 0; // 같은 장면 안에서 늦게 나오기 (초)
+    if (freeze && freeze.items.includes(it)) return Math.min(1, Math.max(0, ((clock() - freeze.start) / 1000 - dl) / sec));
     // 강조 멈춤이 있는 그림은 멈춤 동안 이미 다 나타났으니, 다시 재생될 때 처음부터 다시 그리지 않음 (툭 끊기는 느낌 없이 이어짐)
     if (it.hold > 0 && !it.live && t() >= it.t0 - 0.02) return 1;
-    if (!video.paused || recording) return Math.min(1, Math.max(0, (t() - it.t0) / sec));
+    if (!video.paused || recording) return Math.min(1, Math.max(0, (t() - it.t0 - dl) / sec));
     return 1;
   }
 
@@ -787,10 +879,12 @@ export async function studio(el, { id, mode }) {
     const plate = it.bg && imgOf(it.bg);
     const leave = Math.min(1, prog * 2.5) * fade;
     if (plate && plate.complete && plate.naturalWidth) {
+      // 잔디로 확실히 덮음: 조금 크게 · 가장자리는 흐리게 (원래 선수가 비쳐 보이지 않게) → 그 위에 옅은 '흔적'
       ctx.globalAlpha = leave;
-      ctx.drawImage(plate, a.x - iw / 2, a.y - ih + foot, iw, ih);
-      ctx.filter = 'brightness(2.2) grayscale(1)';
-      put({ ...a, s: 1 }, 0.18 * leave);
+      ctx.filter = 'blur(2px)'; ctx.drawImage(plate, a.x - iw * 0.62, a.y - ih * 1.08 + foot, iw * 1.24, ih * 1.14);
+      ctx.filter = 'none'; ctx.drawImage(plate, a.x - iw / 2, a.y - ih + foot, iw, ih);
+      ctx.filter = 'brightness(2.4) grayscale(1) blur(0.6px)';
+      put({ ...a, s: 1 }, (it.ghost ?? 0.28) * leave);
       ctx.filter = 'none';
     } else {
       ctx.filter = 'brightness(0.3) saturate(0.3)';
@@ -939,28 +1033,42 @@ export async function studio(el, { id, mode }) {
     setCal(cNow ? calFrom(cNow, w, h) : null);
     // 멈춤이 끝나기 0.4초 전부터 선수 이동은 서서히 사라짐 (영상으로 돌아갈 때 툭 끊기지 않게)
     const fadeOut = freeze && freeze.until ? Math.min(1, Math.max(0, (freeze.until - clock()) / 400)) : 1;
-    const vis = tele.items.filter(visible).filter((it) => !(it.k === 'spot' && it.p?.tr && trHid(it.p.tr))).map((it0) => {
+    const vis = tele.items.filter(visible).filter((it) => !(it.k === 'spot' && it.p?.tr && trHid(it.p.tr))).map(camFollow).map((it0) => {
       const it = it0.k === 'link' ? { ...it0, pts: it0.pts.filter((q) => !q?.tr || !trHid(q.tr)) } : it0; // 화면 밖 선수는 빼고 잇기
       return it;
-    }).map((it) => ({ ...withSpotSize(it), _prog: it.k === 'spot' && it.p?.tr ? Math.min(appear(it), backIn(it.p.tr, animSec(it))) : appear(it), _src: it, _hz: fa.hz, _ph: it.k === 'arrow' ? phAt(it.a) : undefined, _fade: it.k === 'move' ? fadeOut : 1, _phs: it.k === 'link' ? it.pts.map(phOf) : undefined, _flow: it.k === 'link' ? flowT() : undefined, _trail: it.k === 'spot' ? trailOf(it) : undefined, ...liveArrow(it) }));
+    }).map((it) => ({ ...withSpotSize(it), _prog: it.k === 'spot' && it.p?.tr ? Math.min(appear(it), backIn(it.p.tr, animSec(it))) : appear(it), _src: it, _hz: fa.hz, _ph: it.k === 'arrow' ? phAt(it.a) : undefined, _fade: it.k === 'move' ? fadeOut : 1, _phs: it.k === 'link' ? it.pts.map(phOf) : undefined, _flow: it.k === 'link' ? flowT() : undefined, _trail: it.k === 'spot' ? trailOf(it) : undefined, ...liveArrow(it) })).filter((it) => !(it._src?.dl > 0) || it._prog > 0); // 늦게 나오는 그림은 차례가 오기 전엔 안 보임
     // 바닥 레이어 (크로마키 대상)
     setGroundTex(fa.ok ? SRC() : null); // 면 채우기가 잔디 결을 살려 물들 수 있게 (영상 픽셀을 읽을 수 있을 때만)
     gctx.clearRect(0, 0, w, h);
-    vis.filter((it) => GROUND.has(it.k)).forEach((it) => drawItem(gctx, it, P, w, tele.items, resolve));
+    // 선수 뒤로 숨는 그림은 그림마다 켠 것만 (기본은 잘리지 않고 선수 위에 그대로). 휘어진(공중) 화살표는 항상 위에
+    const behind = (it) => !(it.k === 'arrow' && it.c) && (it.occ ?? occDefault(it));
+    vis.filter((it) => GROUND.has(it.k) && behind(it)).forEach((it) => drawSafe(gctx, it, P, w, tele.items, resolve));
+    // 발밑 동그라미(선수 표시 · 연결선): 먼 쪽 반 · 그림자 · 바닥 빛은 바닥 레이어(선수 다리 뒤로), 가까운 쪽 반은 발 앞 → 바닥에 깔린 입체 느낌
+    const front = [];
+    const footRing = (sp, inGround) => {
+      if (inGround) { drawSafe(gctx, sp, P, w, tele.items, resolve); return; }
+      if (!fa.ok) { front.push(sp); return; } // 선수 모양을 모를 때는 통째로 위에
+      drawSafe(gctx, { ...sp, _part: 'back' }, P, w, tele.items, resolve);
+      front.push({ ...sp, _part: 'front' });
+    };
+    vis.filter((it) => it.k === 'spot' && !behind(it)).forEach((it) => footRing(it, false));
     // 연결선으로 이은 선수 발밑에도 원
     [...vis.filter((it) => it.k === 'link'), ...(draft?.k === 'link' ? [draft] : [])].forEach((it) => it.pts.forEach((p) => {
       if (!p.tr || trHid(p.tr)) return;
       const pulse = it._flow != null && it.flow !== false && (it._prog ?? 1) >= 1 ? 1 + 0.07 * Math.sin(it._flow * 4.2) : 1; // 발밑 원이 숨 쉬듯
-      drawItem(gctx, { ...withSpotSize({ k: 'spot', p, scale: 0.9 * pulse }), color: it.color, _prog: it._prog ?? 1 }, P, w, tele.items, resolve);
+      footRing({ ...withSpotSize({ k: 'spot', p, scale: 0.9 * pulse }), color: it.color, _prog: it._prog ?? 1 }, behind(it));
     }));
-    if (draft && GROUND.has(draft.k)) drawItem(gctx, { ...withSpotSize(draft), _hz: fa.hz }, P, w, tele.items, resolve);
-    if (tele.set.chroma && fa.ok) {
+    if (fa.ok) {
       gctx.save();
       gctx.globalCompositeOperation = 'destination-in';
       gctx.drawImage(maskSoft, 0, 0, w, h);
       gctx.restore();
     }
     ctx.drawImage(ground, 0, 0);
+    // 선수 뒤로 숨기지 않는 바닥 그림 (기본) — 잘리거나 구멍 나지 않음
+    vis.filter((it) => GROUND.has(it.k) && !behind(it) && it.k !== 'spot').forEach((it) => drawSafe(ctx, it, P, w, tele.items, resolve));
+    front.forEach((sp) => drawSafe(ctx, sp, P, w, tele.items, resolve));
+    if (draft && GROUND.has(draft.k)) drawSafe(ctx, { ...withSpotSize(draft), _hz: fa.hz }, P, w, tele.items, resolve);
     // 위 레이어 (가려지지 않음)
     [...vis.filter((it) => it.k === 'move'), ...(draft?.k === 'move' ? [{ ...draft, _prog: 1 }] : [])].forEach((it) => drawMove(it, w, h));
     if (draft && (draft.k === 'trackbox' || draft.k === 'cutbox')) {
@@ -971,7 +1079,7 @@ export async function studio(el, { id, mode }) {
     vis.filter((it) => it.k === 'zoom').forEach((it) => drawZoom(it, w, h));
     drawLights([...vis.filter((it) => it.k === 'light'), ...(draft?.k === 'light' ? [{ ...draft, _prog: 1 }] : [])], w, h);
     vis.forEach((it) => {
-      if (it.k === 'text') drawItem(ctx, it, P, w, tele.items, resolve);
+      if (it.k === 'text') drawSafe(ctx, it, P, w, tele.items, resolve);
       if (it.k === 'measure') drawMeasureLabel(ctx, it, P, w, tele.items, resolve);
       if (it.k === 'angle') drawAngleLabel(ctx, it, P, w);
       if (it.k === 'spot') spotTop(it, w);
@@ -1008,9 +1116,11 @@ export async function studio(el, { id, mode }) {
       });
       const target = sel && tele.items.includes(sel) && visible(sel) ? sel : draft && draft.k !== 'trackbox' ? draft : null;
       if (target) {
-        itemPoints(target).filter(Boolean).forEach((pt) => {
+        itemPoints(target).forEach((pt, pi) => {
+          if (!pt) return;
           const p = P(pt);
           ctx.save();
+          if (target.k === 'vision' && pi === 1) { ctx.fillStyle = 'rgba(78,161,255,.9)'; ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(5 * (w / canvas.clientWidth), w / 240), 0, Math.PI * 2); ctx.fill(); } // 방향 · 길이 손잡이
           const dpr0 = w / canvas.clientWidth; const rr = Math.max(5 * dpr0, w / 240);
           ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 3.5 * dpr0;
           ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, Math.PI * 2); ctx.stroke();
@@ -1073,7 +1183,7 @@ export async function studio(el, { id, mode }) {
     lctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(lightC, 0, 0);
     list.forEach((it) => {
-      if (it.ring === false) return;
+      if (it.ring !== true) return; // 색 테두리는 켠 것만 (기본은 없음)
       const sh = lightShape(it);
       ctx.save(); ctx.globalAlpha = 0.65 * k; ctx.strokeStyle = it.color || PALETTE[0]; ctx.lineWidth = Math.max(1.5, w / 650);
       ctx.shadowColor = it.color || PALETTE[0]; ctx.shadowBlur = w / 120;
@@ -1117,7 +1227,7 @@ export async function studio(el, { id, mode }) {
   // 트래킹 선수의 실제 키에 맞춰 ▼ 표시 크기 결정 (멀리 있으면 작게, 가까우면 크게)
   function playerPx(it) {
     const tr = it.p?.tr && tele.trackers.find((x) => x.id === it.p.tr);
-    const h = tr && ((steadyPos(tr, t()) || trackerPos(tr, t()))?.h || tr.h);
+    const h = tr && (resolve(it.p).h || (steadyPos(tr, t()) || trackerPos(tr, t()))?.h || tr.h);
     return h ? h * H() : null;
   }
   function withSpotSize(it) {
@@ -1130,7 +1240,7 @@ export async function studio(el, { id, mode }) {
     const p = P(it.p);
     const r = (it.size || 0.025) * w;
     const ph = playerPx(it) || r / 0.48;
-    const head = p.y - ph * 1.08;
+    const head = p.y - ph * 1.02;
     const col = it.color || PALETTE[0];
     ctx.save();
     if (it.marker !== false) {
@@ -1149,6 +1259,17 @@ export async function studio(el, { id, mode }) {
     if (it.name && tagA > 0) ctx.restore();
   }
 
+  // 같은 장면(0.6초 안)에 나타나는 그림들은 한 번만 멈춤 — 멈춤 시간은 그중 가장 긴 것 (도구 수만큼 늘어나지 않게)
+  const HOLD_GROUP = 0.6;
+  // 같은 장면 안의 순서: 그림마다 순서 번호(ord, 같은 번호는 같이) · 장면마다 간격(gap 초) → 늦게 나오기(dl) = (순서-1) × 간격
+  const sceneGap = (items) => (items.find((x) => x.gap != null)?.gap ?? 0.8);
+  function applyOrder(items) {
+    const gap = sceneGap(items);
+    items.forEach((x) => { const o = x.ord || 1; if (o > 1) x.dl = +((o - 1) * gap).toFixed(2); else delete x.dl; x.gap = gap; });
+  }
+  // 멈춤 길이: 가장 긴 멈춤 · 늦게 나오는 그림이 다 그려지고 잠깐 보일 때까지
+  const holdLen = (hits) => Math.max(...hits.map((it) => it.hold || 0), ...hits.map((it) => (it.dl || 0) + (animSec(it) || 0) + 1));
+  const holdGroup = (hits, pool) => { const t0 = Math.min(...hits.map((x) => x.t0)); return pool.filter((x) => x.hold > 0 && !x.live && x.t0 >= t0 - 1e-3 && x.t0 <= t0 + HOLD_GROUP); };
   // ── 효과 강조 멈춤: 그림이 나타나는 순간 정해진 초만큼 멈췄다가 다시 재생 ──
   let freeze = null;
   let prevPlayT = null;
@@ -1158,19 +1279,20 @@ export async function studio(el, { id, mode }) {
     const hits = tele.items.filter((it) => it.hold > 0 && !it.live && prevPlayT < it.t0 - 0.001 && it.t0 <= now + 0.02);
     prevPlayT = now;
     if (!hits.length) return false;
-    holdAt(hits, Math.min(...hits.map((it) => it.t0)));
+    const grp = holdGroup(hits, tele.items);
+    holdAt(grp, Math.min(...grp.map((it) => it.t0)), Math.max(...grp.map((it) => it.t0)));
     return true;
   }
   // 그림이 나타나는 장면에서 영상을 멈추고, 멈춤 시간 동안 그림을 보여준 뒤 다시 재생
-  function holdAt(hits, at) {
-    freeze = { start: performance.now(), items: hits, until: performance.now() + Math.max(...hits.map((it) => it.hold)) * 1000 };
+  function holdAt(hits, at, last = at) {
+    freeze = { start: performance.now(), items: hits, until: performance.now() + holdLen(hits) * 1000 };
     el.querySelector('[data-play]').textContent = '❚❚';
     video.pause();
     if (Math.abs(video.currentTime - at) > 0.02) video.currentTime = at; // 그림이 나타나는 정확한 장면에서 멈춤
     const tick = () => {
       if (!freeze) return;
       render();
-      if (performance.now() >= freeze.until) { freeze = null; prevPlayT = at + 0.001; video.play(); return; }
+      if (performance.now() >= freeze.until) { freeze = null; prevPlayT = last + 0.001; video.play(); return; }
       requestAnimationFrame(tick); // 멈춘 동안에도 계속 그려야 녹화 영상에 멈춤이 들어감
     };
     requestAnimationFrame(tick);
@@ -1192,6 +1314,9 @@ export async function studio(el, { id, mode }) {
   // ── 재생 루프 ──
   const onFrame = () => {
     if (recording?.hq) return; // 영상 만드는 중엔 만들기 쪽에서 직접 그림
+    try { onFrameInner(); } catch (e) { console.error('[분석실] 화면 그리기 오류', e); if (!video.paused) schedule(); } // 한 번 오류가 나도 재생 · 타임라인이 멈추지 않게
+  };
+  const onFrameInner = () => {
     if (!video.paused && checkHold()) return;
     if (!video.paused) { const r0 = baseRate * speedAt(t()); if (Math.abs(video.playbackRate - r0) > 1e-3) video.playbackRate = r0; } // 천천히 구간
     processFrame(!video.paused);
@@ -1353,7 +1478,120 @@ export async function studio(el, { id, mode }) {
   }
   const clipText = (it) => (it.k === 'slow' ? `천천히 ×${it.speed || 0.5} · ${+((it.t1 ?? it.t0 + 3) - it.t0).toFixed(1)}초` : it.k === 'freeze' ? `❚❚ 멈춤 ${it.hold ?? 0}초` : isLive(it) ? `⏸${it.hold ?? 0} · 따라감 ${it.t1 == null ? '끝까지' : `${+(it.t1 - it.t0).toFixed(1)}초`}` : `⏸ 멈춤 ${it.hold ?? 0}초`);
   const STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
+  // ── 장면 카드: 같은 때(0.6초 안)에 나오는 그림을 한 장면으로 묶어 카드로 ──
+  let tlMode = 'scene';
+  try { tlMode = localStorage.getItem('ssaka.st.tlmode') || 'scene'; } catch { /* */ }
+  const thumbs = new Map(); // 장면 시각(0.1초 단위) → 작은 사진
+  const sceneKey = (t0) => Math.round(t0 * 10);
+  function grabThumb(t0) {
+    if (!video.videoWidth || Math.abs(t() - t0) > 0.08) return;
+    try {
+      const c = document.createElement('canvas'); c.width = 160; c.height = Math.round(160 * video.videoHeight / video.videoWidth);
+      const x = c.getContext('2d'); x.drawImage(video, 0, 0, c.width, c.height); x.drawImage(canvas, 0, 0, c.width, c.height);
+      thumbs.set(sceneKey(t0), c.toDataURL('image/jpeg', 0.6));
+    } catch { /* 영상 픽셀을 못 읽으면 사진 없이 */ }
+  }
+  function scenesOf() {
+    const list = [...tele.items].sort((a, b) => a.t0 - b.t0);
+    const out = [];
+    for (const it of list) {
+      const last = out[out.length - 1];
+      if (last && it.t0 - last.t0 <= HOLD_GROUP) last.items.push(it); else out.push({ t0: it.t0, items: [it] });
+    }
+    return out;
+  }
+  function drawScenes() {
+    const box = el.querySelector('[data-scenes]');
+    if (!box) return;
+    el.querySelector('[data-tl]').classList.toggle('scene-mode', tlMode === 'scene');
+    el.querySelectorAll('[data-tlmode]').forEach((b) => b.classList.toggle('on', b.dataset.tlmode === tlMode));
+    if (tlMode !== 'scene') { box.innerHTML = ''; return; }
+    const sc = scenesOf();
+    const now = t();
+    box.innerHTML = sc.map((g, i) => {
+      const hold = Math.max(0, ...g.items.filter((x) => !x.live && x.k !== 'slow').map((x) => x.hold || 0));
+      const slow = g.items.find((x) => x.k === 'slow');
+      const on = now >= g.t0 - 0.06 && now <= g.t0 + HOLD_GROUP;
+      const th = thumbs.get(sceneKey(g.t0));
+      const draws = g.items.filter((x) => x.k !== 'freeze' && x.k !== 'slow').sort((a, b) => (a.ord || 1) - (b.ord || 1));
+      const seq = draws.some((x) => (x.ord || 1) > 1);
+      const gap = sceneGap(draws);
+      const ics = draws.map((x) => `<span title="${NAMES[x.k]}${seq ? ` · ${x.ord || 1}번째 (${x.dl || 0}초 뒤) — 눌러서 순서 바꾸기` : ''}" style="--c:${x.color || PALETTE[0]}" data-ord="${tele.items.indexOf(x)}">${seq ? `<i>${x.ord || 1}</i>` : ''}${ICONS[x.k] || '•'}</span>`).join('');
+      return `<div class="sc-card ${on ? 'on' : ''}" data-sc="${i}">
+        <div class="sc-thumb">${th ? `<img src="${th}" alt="">` : `<b>${fmtT1(g.t0)}</b>`}<em>${fmtT1(g.t0)}</em></div>
+        <div class="sc-ics">${ics || '<small>그림 없음</small>'}</div>
+        <div class="sc-row">${edit ? `<button type="button" class="st-mini" data-hm title="멈춤 줄이기">−</button><span>${hold ? `❚❚ ${hold}초` : '멈춤 없음'}</span><button type="button" class="st-mini" data-hp title="멈춤 늘리기">+</button>` : `<span>${hold ? `❚❚ ${hold}초` : ''}</span>`}</div>
+        ${edit && draws.length > 1 ? `<div class="sc-row"><button type="button" class="chip sm ${seq ? 'on' : ''}" data-seq title="같이 나오기 / 차례로 나오기">${seq ? '차례로 나옴' : '같이 나옴'}</button></div>` : ''}
+        ${edit && seq ? `<div class="sc-row"><button type="button" class="st-mini" data-gm title="간격 줄이기">−</button><span>간격 ${gap}초</span><button type="button" class="st-mini" data-gp title="간격 늘리기">+</button></div>` : ''}
+        ${edit ? `<div class="sc-row"><button type="button" class="chip sm ${slow ? 'on' : ''}" data-slow>½ 천천히${slow ? ` ×${slow.speed || 0.5}` : ''}</button></div>` : ''}
+      </div>`;
+    }).join('') + (edit ? '<button type="button" class="sc-add" data-scadd title="지금 장면에 멈춤 넣기">＋<small>지금 장면</small></button>' : '') + (!sc.length ? '<p class="muted small sc-empty">그림을 그리면 장면 카드가 생겨요. 카드를 누르면 그 장면으로 가요.</p>' : '');
+    box.querySelectorAll('[data-sc]').forEach((card) => {
+      const g = sc[+card.dataset.sc];
+      const setHold = (d) => { snapshot(); const still = g.items.filter((x) => !x.live && x.k !== 'slow'); const cur = Math.max(0, ...still.map((x) => x.hold || 0)); const v = Math.max(0, Math.min(30, cur + d)); still.forEach((x) => { x.hold = v; }); if (!still.length && v > 0) tele.items.push({ id: uid(), k: 'freeze', t0: g.t0, hold: v, color: '#ffffff' }); dirty = true; drawSide(); render(); };
+      card.querySelector('[data-hm]')?.addEventListener('click', (e) => { e.stopPropagation(); setHold(-1); });
+      card.querySelector('[data-hp]')?.addEventListener('click', (e) => { e.stopPropagation(); setHold(+1); });
+      const draws = g.items.filter((x) => x.k !== 'freeze' && x.k !== 'slow').sort((a, b) => (a.ord || 1) - (b.ord || 1));
+      const done = () => { applyOrder(draws); dirty = true; drawSide(); render(); };
+      // 같이 ↔ 차례로 (지금 순서대로 1, 2, 3 …)
+      card.querySelector('[data-seq]')?.addEventListener('click', (e) => {
+        e.stopPropagation(); snapshot();
+        const seq = draws.some((x) => (x.ord || 1) > 1);
+        draws.forEach((x, n) => { if (seq) delete x.ord; else x.ord = n + 1; });
+        done();
+      });
+      // 간격 (0.2초 ~ 5초)
+      const setGap = (d) => { snapshot(); const g0 = sceneGap(draws); const v = +Math.max(0.2, Math.min(5, g0 + d)).toFixed(1); draws.forEach((x) => { x.gap = v; }); done(); };
+      card.querySelector('[data-gm]')?.addEventListener('click', (e) => { e.stopPropagation(); setGap(-0.2); });
+      card.querySelector('[data-gp]')?.addEventListener('click', (e) => { e.stopPropagation(); setGap(+0.2); });
+      // 차례로일 때 아이콘을 누르면 그 그림의 순서 번호가 1 → 2 → … → (그림 수) → 1 로 바뀜 (같은 번호는 같이 나옴)
+      card.querySelectorAll('[data-ord]').forEach((ic) => ic.addEventListener('click', (e) => {
+        if (!draws.some((x) => (x.ord || 1) > 1)) return;
+        e.stopPropagation(); snapshot();
+        const it0 = tele.items[+ic.dataset.ord];
+        it0.ord = ((it0.ord || 1) % draws.length) + 1;
+        done();
+      }));
+      card.querySelector('[data-slow]')?.addEventListener('click', (e) => {
+        e.stopPropagation(); snapshot();
+        const s0 = g.items.find((x) => x.k === 'slow');
+        if (!s0) tele.items.push({ id: uid(), k: 'slow', t0: g.t0, t1: +Math.min(dur() || g.t0 + 3, g.t0 + 3).toFixed(2), speed: 0.5, hold: 0, color: '#4ea1ff' });
+        else if ((s0.speed || 0.5) === 0.5) s0.speed = 0.25; else tele.items = tele.items.filter((x) => x !== s0);
+        dirty = true; drawSide(); render();
+      });
+      // 누르면 그 장면으로 · 옆으로 끌면 장면(그림 전부)의 시각을 옮김
+      card.onpointerdown = (e) => {
+        if (e.target.closest('button')) return;
+        const o = { x: e.clientX, t0: g.t0, ts: g.items.map((x) => [x, x.t0, x.t1]) };
+        let moved = false;
+        try { card.setPointerCapture(e.pointerId); } catch { /* */ }
+        card.onpointermove = (ev) => {
+          if (!edit) return;
+          const dx = ev.clientX - o.x;
+          if (!moved && Math.abs(dx) < 6) return;
+          if (!moved) { moved = true; snapshot(); }
+          const d = +(Math.max(-o.t0, Math.min((dur() || 0) - o.t0, dx / 40 * 0.5))).toFixed(1); // 40px = 0.5초
+          o.ts.forEach(([x, a, b]) => { x.t0 = +(a + d).toFixed(2); if (b != null) x.t1 = +(b + d).toFixed(2); });
+          card.querySelector('.sc-thumb em').textContent = fmtT1(o.t0 + d);
+          setHint(`장면 시각 ${fmtT1(o.t0 + d)} — 놓으면 그 장면으로 가요`);
+        };
+        card.onpointerup = () => {
+          card.onpointermove = null; card.onpointerup = null; setHint();
+          const t0 = g.items[0].t0;
+          goScene(t0);
+          if (edit) { sel = g.items.find((x) => x.k !== 'freeze' && x.k !== 'slow') || g.items[0]; drawSide(); }
+          setTimeout(() => { grabThumb(t0); drawScenes(); }, 450);
+          render();
+        };
+      };
+    });
+    box.querySelector('[data-scadd]')?.addEventListener('click', () => addTimeItem('freeze'));
+    // 지금 멈춰 있는 장면의 사진이 없으면 찍어 둠
+    if (video.paused) for (const g of sc) if (!thumbs.has(sceneKey(g.t0)) && Math.abs(now - g.t0) < 0.08) { grabThumb(g.t0); }
+  }
+  el.querySelectorAll('[data-tlmode]').forEach((b) => (b.onclick = () => { tlMode = b.dataset.tlmode; try { localStorage.setItem('ssaka.st.tlmode', tlMode); } catch { /* */ } drawScenes(); requestAnimationFrame(fit); }));
   function drawTimeline() {
+    drawScenes();
     if (!pps) { tlFit(); return; }
     const D = dur();
     tlI.style.width = `${Math.ceil(D * pps) + 60}px`;
@@ -1517,7 +1755,7 @@ export async function studio(el, { id, mode }) {
         <label class="st-range">이름 <input data-pname value="${esc(it.name || '')}" maxlength="14" placeholder="예) 7 손흥민"></label>
         <div class="st-crow">${teamCols('tout', it.color, 'toutc', '#ffd400', '바깥')}${teamCols('tin', it.fill, 'tinc', '#ffffff', '안쪽')}</div>
         ${trOf(it.p) ? `<ul class="st-items st-trs">${trRow(trOf(it.p), false)}</ul>${aiLine()}` : ''}`,
-      arrow: () => `<div class="seg sm st-wide"><button type="button" class="${it.style === 'dash' ? '' : 'on'}" data-astyle="solid">━ 실선 · 패스</button><button type="button" class="${it.style === 'dash' ? 'on' : ''}" data-astyle="dash">┅ 점선 · 움직임</button></div>
+      arrow: () => `<div class="seg sm st-wide"><button type="button" class="${it.style === 'dash' ? '' : 'on'}" data-astyle="solid">━ 실선 · 패스</button><button type="button" class="${it.style === 'dash' ? 'on' : ''}" data-astyle="dash">┅ 점선 · 움직임</button><button type="button" class="${it.style === 'dribble' ? 'on' : ''}" data-astyle="dribble">〰 물결 · 드리블</button></div>
         <div class="seg sm st-wide"><button type="button" class="${it.live ? 'on' : ''}" data-amode="live">▶ 재생하며</button><button type="button" class="${it.live ? '' : 'on'}" data-amode="hold">⏸ 멈추고</button></div>
         <label class="st-range">화살표 크기 <b data-aszv>${Math.round((it.asz || 1) * 100)}%</b><input type="range" min="40" max="200" step="10" value="${Math.round((it.asz || 1) * 100)}" data-asz></label>`,
       link: () => {
@@ -1528,10 +1766,18 @@ export async function studio(el, { id, mode }) {
           ${trs.length ? `<div class="st-lab">이은 선수 ${trs.length}명</div><ul class="st-items st-trs">${trs.map((tr) => trRow(tr, false)).join('')}</ul>${aiLine()}<button type="button" class="btn ghost sm full" data-linkprec>모두 AI 정밀 추적</button>` : ''}`;
       },
       text: () => `<label class="st-range">글자 <input data-ptext value="${esc(it.t)}" maxlength="30"></label>`,
-      move: () => '<button type="button" class="btn ghost sm full" data-trim>✂ 선수 다듬기</button>',
+      move: () => `<button type="button" class="btn ghost sm full" data-trim>✂ 선수 다듬기</button>
+        <label class="st-range">원래 자리 흔적 <b data-ghv>${Math.round((it.ghost ?? 0.28) * 100)}%</b><input type="range" min="0" max="70" step="5" value="${Math.round((it.ghost ?? 0.28) * 100)}" data-ghost></label>
+        <p class="muted small st-note">원래 자리는 잔디로 덮고, 그 위에 '여기 있었다' 흔적을 이만큼 옅게 남겨요 (0%면 흔적 없음).</p>`,
       zoom: () => `<div class="st-num"><span>모양</span><div class="seg sm">${[['circle', '◯'], ['rect', '▢']].map(([k, l]) => `<button type="button" class="${(it.shape || 'circle') === k ? 'on' : ''}" data-zshape="${k}">${l}</button>`).join('')}</div></div>
         <div class="st-num"><span>배율</span><div class="seg sm">${[2, 3, 4].map((v) => `<button type="button" class="${(it.z || 2) === v ? 'on' : ''}" data-zz="${v}">×${v}</button>`).join('')}</div></div>`,
-      vision: () => `<div class="st-num"><span>넓이</span><div class="seg sm">${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="${(it.spread || 50) === v ? 'on' : ''}" data-vsp="${v}">${l}</button>`).join('')}</div></div>`,
+      vision: () => `<div class="st-num"><span>넓이</span><div class="seg sm">${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="${(it.spread || 50) === v ? 'on' : ''}" data-vsp="${v}">${l}</button>`).join('')}</div></div>
+        <label class="st-range">넓이 <b data-vspv>${it.spread || 50}°</b><input type="range" min="8" max="170" step="1" value="${it.spread || 50}" data-vspr></label>
+        <label class="st-range">방향 <b data-vdirv>${Math.round(vDir(it))}°</b><input type="range" min="0" max="359" step="1" value="${Math.round(vDir(it))}" data-vdir></label>
+        <div class="st-num"><span>바라보는 쪽</span><div class="seg sm">${[[270, '↑ 앞'], [90, '↓ 카메라 쪽'], [180, '← 왼쪽'], [0, '→ 오른쪽']].map(([v, l]) => `<button type="button" data-vdq="${v}">${l}</button>`).join('')}</div></div>
+        <label class="st-range">진하기 <b data-vopv>${Math.round((it.vop ?? 0.55) * 100)}%</b><input type="range" min="10" max="95" step="5" value="${Math.round((it.vop ?? 0.55) * 100)}" data-vop></label>
+        ${sw('vfade', it.vfade !== false, '끝으로 갈수록 옅게')}${sw('vedge', !!it.vedge, '양쪽 테두리 선')}
+        <p class="muted small st-note">시야 끝의 점을 끌면 길이 · 방향이 바뀌어요.</p>`,
       light: () => `<label class="st-range">${it.p?.tr ? '빛 크기' : '크기'} <input type="range" min="${it.p?.tr ? 50 : 10}" max="${it.p?.tr ? 250 : 400}" value="${it.p?.tr ? Math.round((it.scale || 1) * 100) : Math.round((it.r || 0.06) * 1000)}" data-lsize></label>
         <label class="st-range">주변 어둡게 <input type="range" min="20" max="95" value="${Math.round((it.dim ?? 0.68) * 100)}" data-ldim></label>
         ${trOf(it.p) ? `<ul class="st-items st-trs">${trRow(trOf(it.p), false)}</ul>${aiLine()}` : ''}
@@ -1540,17 +1786,18 @@ export async function studio(el, { id, mode }) {
     }[it.k];
     const adv = [
       `<div class="st-num"><span>시작</span><b>${fmtT1(it.t0)}</b><button class="chip" data-t0>지금으로</button></div>`,
+      `<div class="st-num"><span>나오는 순서</span><input type="number" min="1" max="20" step="1" value="${it.ord || 1}" data-pord><i>번째</i></div><p class="muted small st-note">같은 장면에서 같은 번호끼리는 같이 나와요. 간격은 장면 카드에서 바꿔요 (지금 ${it.gap ?? 0.8}초).</p>`,
       `<div class="st-num"><span>멈춰서 보여주기</span><input type="number" min="0" max="30" step="0.5" value="${it.hold ?? 4}" data-phold><i>초</i></div>`,
       it.k === 'light' && it.p?.tr ? sw('pfollow', !it.still, '재생되면 선수 따라가기') : '',
       isLive(it) ? `<div class="st-num"><span>보여주는 시간</span><input type="number" min="0" max="600" step="0.5" value="${it.t1 == null ? '' : +(it.t1 - it.t0).toFixed(1)}" placeholder="끝까지" data-pdur ${it.t1 == null ? 'disabled' : ''}><i>초</i><label class="mini-switch"><input type="checkbox" data-pend ${it.t1 == null ? 'checked' : ''}> 끝까지</label></div>` : '',
       it.k === 'arrow' || it.k === 'spot' || it.k === 'link' ? `<div class="st-num"><span>${it.k === 'spot' ? '나타나는 시간' : '그어지는 시간'}</span><input type="number" min="0" max="6" step="0.1" value="${animSec(it)}" data-panim><i>초</i></div>` : '',
       it.k === 'arrow' ? sw('pbold', it.weight === 'bold', '굵게') : '',
       it.k === 'arrow' || it.k === 'measure' ? `<div class="st-num"><span>거리 표시</span><input type="number" min="0" max="200" step="0.1" value="${it.m ?? ''}" placeholder="${it.k === 'arrow' ? '없음' : '?'}" data-pm><i>m</i></div>` : '',
-      it.k === 'spot' ? `${sw('ptrail', it.trail !== false, '이동 꼬리')}${sw('pmarker', it.marker !== false, '머리 위 ▼')}<label class="st-range">링 크기 <input type="range" min="50" max="220" value="${Math.round((it.scale || 1) * 100)}" data-pscale></label>` : '',
+      it.k === 'spot' ? `${sw('ptrail', it.trail !== false, '이동 꼬리')}${sw('pglow', it.glow !== false, '빛 기둥 (입체)')}${sw('pmarker', it.marker !== false, '머리 위 ▼')}<label class="st-range">링 크기 <input type="range" min="50" max="220" value="${Math.round((it.scale || 1) * 100)}" data-pscale></label>` : '',
       it.k === 'link' ? `${sw('parea', it.area, '면 채우기')}${sw('pwall', it.wall, '수비 라인 벽')}${sw('pflow', it.flow !== false, '흐르는 빛')}` : '',
-      GROUND.has(it.k) ? `${sw('pchroma', tele.set.chroma !== false, '선수를 그림 앞으로')}<p class="muted small st-note">그림이 끊겨 보이면 끄세요 (이 영상의 모든 바닥 그림에 적용)</p>` : '',
+      GROUND.has(it.k) && !(it.k === 'arrow' && it.c) ? `${sw('pocc', it.occ ?? occDefault(it), '선수가 이 그림 앞에 서기')}<p class="muted small st-note">켜면 선수가 그림 위로 지나가요 (자동 인식이라 영상에 따라 그림이 잘릴 수 있어요). 끄면 잘리지 않아요.</p>` : '',
       it.k === 'zoom' ? `<label class="st-range">돋보기 크기 <input type="range" min="40" max="220" value="${Math.round((it.r || 0.1) * 1000)}" data-zr></label>` : '',
-      it.k === 'light' ? sw('lring', it.ring !== false, '테두리 빛') : '',
+      it.k === 'light' ? sw('lring', it.ring === true, '색 테두리 넣기') : '',
       it.k === 'offside' ? `<label class="st-range">밝기 차이 <input type="range" min="0" max="100" value="${Math.round((it.dim ?? 0.5) * 100)}" data-odim></label><button type="button" class="btn ghost sm" data-overt>┃ 세로로</button>` : '',
       it.k === 'grid' ? `<div class="grid2 st-gridin"><label>세로칸<input type="number" min="1" max="20" value="${it.cols}" data-pcols></label><label>가로칸<input type="number" min="1" max="20" value="${it.rows}" data-prows></label>
         <label>실제 가로(m)<input type="number" min="1" max="120" value="${it.wM}" data-pwm></label><label>실제 세로(m)<input type="number" min="1" max="90" value="${it.hM}" data-phm></label></div>` : '',
@@ -1578,7 +1825,7 @@ export async function studio(el, { id, mode }) {
     box.innerHTML = `<h4 class="st-ptitle">${ICONS[it.k] || ''} ${NAMES[it.k]}</h4>
       ${it.k === 'spot' ? '' : `<div class="st-crow">${colorPick([...PALETTE, '#ff9f0a', '#af52de', '#1e4fd8', '#111111'], 'pcolor', it.color || PALETTE[0], 'pcolorc', '#ffd400', '색')}</div>`}
       ${main ? main() : ''}
-      <details class="st-adv" ${advOpen ? 'open' : ''}><summary>자세히 설정</summary>${adv}</details>
+      <details class="st-adv" ${advOpen ? 'open' : ''}><summary>자세히 설정 <small class="muted">시간 · 멈춤 · 선수 앞 · 크기</small></summary>${adv}</details>
       <div class="row st-btnrow"><button class="btn ghost sm" data-pdup>⧉ 복제</button><button class="btn ghost sm" data-pdel>삭제</button></div>`;
     box.querySelector('.st-adv').addEventListener('toggle', (e) => { advOpen = e.target.open; });
     bindTr(box);
@@ -1595,11 +1842,33 @@ export async function studio(el, { id, mode }) {
     box.querySelector('[data-pend]')?.addEventListener('change', ch(() => { it.t1 = box.querySelector('[data-pend]').checked ? null : +(it.t0 + (+tele.set.dur || 5)).toFixed(2); }));
     box.querySelector('[data-panim]')?.addEventListener('change', ch(() => { const v0 = box.querySelector('[data-panim]').value; it.anim = Math.max(0, Math.min(6, v0 === '' ? 1.6 : +v0)); if (it.live) it.t1 = +(it.t0 + it.anim + 1.5).toFixed(2); }));
     box.querySelector('[data-pflow]')?.addEventListener('change', ch(() => { if (box.querySelector('[data-pflow]').checked) delete it.flow; else it.flow = false; }));
-    box.querySelector('[data-pchroma]')?.addEventListener('change', ch(() => { tele.set.chroma = box.querySelector('[data-pchroma]').checked; }));
+    box.querySelector('[data-pocc]')?.addEventListener('change', ch(() => { it.occ = box.querySelector('[data-pocc]').checked; }));
+    box.querySelector('[data-pord]')?.addEventListener('change', ch(() => {
+      const v = Math.max(1, Math.min(20, Math.round(+box.querySelector('[data-pord]').value || 1)));
+      if (v > 1) it.ord = v; else delete it.ord;
+      const grp = tele.items.filter((x) => x.k !== 'freeze' && x.k !== 'slow' && Math.abs(x.t0 - it.t0) <= HOLD_GROUP);
+      applyOrder(grp);
+    }));
     box.querySelector('[data-phold]').onchange = ch(() => { const v = box.querySelector('[data-phold]').value; it.hold = Math.max(0, Math.min(30, v === '' ? 4 : +v)); });
     box.querySelector('[data-pdel]').onclick = ch(() => { tele.items = tele.items.filter((x) => x !== it); sel = null; });
     box.querySelector('[data-pdup]').onclick = () => dupItem(it);
     box.querySelectorAll('[data-vsp]').forEach((b) => (b.onclick = ch(() => { it.spread = +b.dataset.vsp; visionPref = it.spread; })));
+    // 시야 방향: 시작점(선수)을 중심으로 끝점을 돌림 (길이는 그대로) — 카메라 쪽을 보는 선수도 바로 맞춤
+    const setDir = (deg) => {
+      const A = resolve(it.a); const B = resolve(it.b);
+      const ax = A.x * W(); const ay = A.y * H(); const L = Math.max(30, Math.hypot(B.x * W() - ax, B.y * H() - ay));
+      const r = (deg * Math.PI) / 180;
+      it.b = { x: +Math.min(1, Math.max(0, (ax + Math.cos(r) * L) / W())).toFixed(4), y: +Math.min(1, Math.max(0, (ay + Math.sin(r) * L) / H())).toFixed(4) };
+    };
+    box.querySelector('[data-vdir]')?.addEventListener('pointerdown', () => snapshot(), { once: true });
+    box.querySelector('[data-vdir]')?.addEventListener('input', (e) => { setDir(+e.target.value); box.querySelector('[data-vdirv]').textContent = `${e.target.value}°`; dirty = true; render(); });
+    box.querySelectorAll('[data-vdq]').forEach((b) => (b.onclick = ch(() => setDir(+b.dataset.vdq))));
+    box.querySelector('[data-ghost]')?.addEventListener('input', (e) => { it.ghost = e.target.value / 100; box.querySelector('[data-ghv]').textContent = `${e.target.value}%`; dirty = true; render(); });
+    box.querySelector('[data-vspr]')?.addEventListener('pointerdown', () => snapshot(), { once: true });
+    box.querySelector('[data-vspr]')?.addEventListener('input', (e) => { it.spread = +e.target.value; visionPref = it.spread; box.querySelector('[data-vspv]').textContent = `${it.spread}°`; dirty = true; render(); });
+    box.querySelector('[data-vop]')?.addEventListener('input', (e) => { it.vop = e.target.value / 100; box.querySelector('[data-vopv]').textContent = `${e.target.value}%`; dirty = true; render(); });
+    box.querySelector('[data-vfade]')?.addEventListener('change', ch(() => { it.vfade = box.querySelector('[data-vfade]').checked; }));
+    box.querySelector('[data-vedge]')?.addEventListener('change', ch(() => { it.vedge = box.querySelector('[data-vedge]').checked; }));
     box.querySelector('[data-adeg]')?.addEventListener('change', ch(() => { const v = box.querySelector('[data-adeg]').value; if (v === '') delete it.deg; else it.deg = Math.max(0, Math.min(180, +v)); }));
     box.querySelectorAll('[data-tmode]').forEach((b) => (b.onclick = ch(() => {
       if (b.dataset.tmode === 'live') { delete it.still; if (it.t1 != null && it.t1 <= it.t0) it.t1 = +(it.t0 + (+tele.set.dur || 5)).toFixed(2); } else it.still = true;
@@ -1612,7 +1881,7 @@ export async function studio(el, { id, mode }) {
     }));
     box.querySelector('[data-lsize]')?.addEventListener('input', (e) => { if (it.p?.tr) it.scale = e.target.value / 100; else it.r = e.target.value / 1000; dirty = true; render(); });
     box.querySelector('[data-ldim]')?.addEventListener('input', (e) => { it.dim = e.target.value / 100; dirty = true; render(); });
-    box.querySelector('[data-lring]')?.addEventListener('change', ch(() => { it.ring = it.ring === false; }));
+    box.querySelector('[data-lring]')?.addEventListener('change', ch(() => { if (box.querySelector('[data-lring]').checked) it.ring = true; else delete it.ring; }));
     box.querySelector('[data-lfollow]')?.addEventListener('click', () => {
       snapshot();
       const c = resolve(it.p);
@@ -1657,6 +1926,7 @@ export async function studio(el, { id, mode }) {
     box.querySelector('[data-toutc]')?.addEventListener('change', ch(() => { it.color = box.querySelector('[data-toutc]').value; }));
     box.querySelector('[data-tinc]')?.addEventListener('change', ch(() => { it.fill = box.querySelector('[data-tinc]').value; }));
     box.querySelector('[data-ptrail]')?.addEventListener('change', ch(() => { it.trail = it.trail === false; }));
+    box.querySelector('[data-pglow]')?.addEventListener('change', ch(() => { it.glow = it.glow === false; }));
     box.querySelectorAll('[data-lst]').forEach((b) => (b.onclick = ch(() => { it.lstyle = b.dataset.lst; })));
     box.querySelectorAll('[data-lshape]').forEach((b) => (b.onclick = ch(() => { if (b.dataset.lshape === 'closed') { it.closed = true; it.area = true; } else { delete it.closed; delete it.area; } })));
     box.querySelector('[data-linkprec]')?.addEventListener('click', async () => {
@@ -1736,8 +2006,6 @@ export async function studio(el, { id, mode }) {
     openSide?.();
     toast(k === 'freeze' ? '지금 장면에서 3초 멈춰요 — 오른쪽에서 시간을 바꿀 수 있어요' : '지금부터 3초를 천천히(×0.5) 재생해요 — 오른쪽에서 길이 · 속도를 바꿀 수 있어요');
   }
-  // 지금 영상 시각의 재생 속도 (천천히 구간이면 ×0.5 · ×0.25)
-  const speedAt = (m) => { let sp = 1; for (const it of tele.items) if (it.k === 'slow' && m >= it.t0 - 1e-3 && m < (it.t1 ?? it.t0 + 3)) sp = Math.min(sp, it.speed || 0.5); return sp; };
   // 만든 뒤에는 바로 '선택'으로 돌아가서 끌어 옮길 수 있게
   const commit = (it) => { snapshot(); tele.items.push(it); draft = null; sel = it; setTool('select'); sel = it; drawSide(); render(); };
 
@@ -1747,15 +2015,20 @@ export async function studio(el, { id, mode }) {
     if (sel?.k === 'offside' && !getCal() && vis.includes(sel) && pxDist(offHandle(sel), n) < 16) return { it: sel, h: 1 };
     for (const it of vis) {
       const pts = itemPoints(it);
-      const hr = it.k === 'poly' && it.shape ? 14 : 22;
-      for (let i = 0; i < pts.length; i++) if (pts[i] && pxDist(resolve(pts[i]), n) < hr) return { it, h: i };
+      let hr = it.k === 'poly' && it.shape ? 14 : 22;
+      // 시야가 작으면 두 손잡이가 겹쳐 몸통을 못 잡음 → 손잡이를 작게, 가운데는 몸통(통째로 옮기기)
+      if (it.k === 'vision' && pts[0] && pts[1]) hr = Math.max(9, Math.min(22, pxDist(resolve(pts[0]), resolve(pts[1])) * 0.3));
+      // 가장 가까운 손잡이 (첫 번째 것만 잡히지 않게)
+      let bi = -1; let bd = hr;
+      for (let i = 0; i < pts.length; i++) { if (!pts[i]) continue; const d = pxDist(resolve(pts[i]), n); if (d < bd || (d === bd && i > bi)) { bd = d; bi = i; } }
+      if (bi >= 0) return { it, h: bi };
     }
     for (const it of vis) {
       const pts = itemPoints(it).filter(Boolean).map(resolve);
       if (it.k === 'spot' && pxDist(pts[0], n) < Math.max(26, (withSpotSize(it).size || 0) * canvas.clientWidth * 1.2)) return { it, h: null };
       if (it.k === 'text' && pxDist(pts[0], n) < 30) return { it, h: null };
       if (it.k === 'zoom' && pxDist(pts[0], n) < (it.r || 0.1) * canvas.clientWidth) return { it, h: null };
-      if (it.k === 'vision' && segDist(pts[0], pts[1], n) < 14) return { it, h: null };
+      if (it.k === 'vision' && (segDist(pts[0], pts[1], n) < 14 || inVision(it, pts, n))) return { it, h: null };
       if (it.k === 'angle' && (segDist(pts[0], pts[1], n) < 14 || segDist(pts[0], pts[2], n) < 14)) return { it, h: null };
       if (it.k === 'light') {
         const sh = lightShape(it); const k = canvas.clientWidth / W();
@@ -1786,6 +2059,17 @@ export async function studio(el, { id, mode }) {
     }
     return null;
   }
+  // 시야 쐐기 안쪽(조금 넉넉하게)을 누르면 그 시야를 잡음
+  const inVision = (it, pts, n) => {
+    const cw = canvas.clientWidth; const chh = canvas.clientHeight;
+    const ax = pts[0].x * cw; const ay = pts[0].y * chh;
+    const L = Math.hypot((pts[1].x - pts[0].x) * cw, (pts[1].y - pts[0].y) * chh);
+    const px = n.x * cw - ax; const py = n.y * chh - ay; const d = Math.hypot(px, py);
+    if (d > L + 16 || d < 4) return d < 4;
+    let da = Math.atan2(py, px) - Math.atan2((pts[1].y - pts[0].y) * chh, (pts[1].x - pts[0].x) * cw);
+    da = Math.abs(Math.atan2(Math.sin(da), Math.cos(da)));
+    return da <= ((it.spread || 50) * Math.PI) / 360 + Math.min(0.6, 16 / Math.max(1, d));
+  };
   const segDist = (a, b, p) => {
     const cw = canvas.clientWidth;
     const ch = canvas.clientHeight;
@@ -2308,6 +2592,7 @@ export async function studio(el, { id, mode }) {
       const b0 = trBox(tr);
       let st = b0 ? pt.initBox(video, { x: b0.x0, y: b0.y0 }, { x: b0.x1, y: b0.y1 - (b0.y1 - b0.y0) * 0.04 }, tele.set, fa.hz)
         : pt.init(video, trackerPos(tr, start).x, trackerPos(tr, start).y, tele.set, fa.hz);
+      follow.prime(video, st);
       tr.manual = false;
       let tail = opt.to != null ? tr.path.filter((q) => q[0] > until + 0.001) : [];
       tr.path = tr.path.filter((q) => q[0] < start - 0.001);
@@ -2326,39 +2611,18 @@ export async function studio(el, { id, mode }) {
         const nt = Math.min(until, prev + (missRun || amb ? 1 / 24 : 1 / 12));
         await seekTo(nt);
         fa.grab(video, tele.set);
-        const ox = st.x; const oy = st.y;
-        pt.step(video, st, tele.set, nt - prev, fa.cut ? { dx: 0, dy: 0 } : fa.cam);
+        if (fa.cut) { st.nb = []; st.vx = 0; st.vy = 0; } // 편집 컷: 주변 선수 · 움직임 처음부터
         // 화면 밖으로 나감: 나간 자리(가장자리)에서 기다리며 다시 들어오는지 넓게 찾음
         const out = missRun > 0 && holdAtEdge(st, VW, VHc);
-        // 놓친 시간이 길수록 더 넓게 찾음
-        const zoom = out || missRun >= 6 ? 3 : missRun >= 2 ? 1.8 : 1;
-        const boxes = await detectAround(video, st.x, st.y, st.ph, zoom);
-        const pk = pickBest(boxes, st, out ? 5 : missRun >= 6 ? 4 : missRun ? 2.4 : 0.9, true);
-        let b = pk.b;
-        amb = pk.amb;
-        if (b && amb) {
-          // 겹침: 색 · 움직임으로 예상한 자리(st)에 더 가까운 쪽, 둘 다 비슷하면 이번엔 옮기지 않음
-          const dA = Math.hypot((b.x0 + b.x1) / 2 - st.x, b.y1 - st.y);
-          const dB = Math.hypot((pk.alt.x0 + pk.alt.x1) / 2 - st.x, pk.alt.y1 - st.y);
-          b = Math.abs(dA - dB) < st.ph * 0.15 ? null : dA <= dB ? b : pk.alt;
-        }
-        if (b) {
-          st.x = (b.x0 + b.x1) / 2; st.y = b.y1;
-          const bh = b.y1 - b.y0;
-          if (bh > 6 && !amb) { st.ph = st.ph * 0.5 + bh * 0.5; st.ph0 = st.ph; }
+        const r = await follow.step(video, st, tele.set, nt - prev, fa.cut ? { dx: 0, dy: 0 } : fa.cam, out ? 3 : 1);
+        amb = r.amb || r.occ; // 헷갈리거나 겹친 동안은 더 촘촘히
+        if (r.ok || r.occ || r.amb) {
           if (missFrom != null) closeGap(tr, missFrom, nt);
-          st.miss = 0; missRun = 0; missFrom = null; outRun = 0;
-        } else if (!amb) {
+          missRun = 0; missFrom = null; outRun = 0;
+        } else {
           missRun++; if (missFrom == null) missFrom = prev;
           if (out) outRun++;
           markGap(tr, missFrom, nt, out ? 'out' : 'lost');
-        }
-        // 움직임(속도) 갱신 — 겹친 동안 이 방향으로 이어 감
-        const dtt = nt - prev;
-        if (dtt > 0) {
-          const lim = st.ph * 6;
-          st.vx = st.vx * 0.5 + Math.max(-lim, Math.min(lim, (st.x - ox) / dtt)) * 0.5;
-          st.vy = st.vy * 0.5 + Math.max(-lim, Math.min(lim, (st.y - oy) / dtt)) * 0.5;
         }
         tr.lost = missRun > 3;
         tr.h = +(st.ph / VHc).toFixed(4);
@@ -2597,7 +2861,7 @@ export async function studio(el, { id, mode }) {
     if (!g) return false;
     snapshot();
     if (g.it) sel = g.it;
-    if (g.box) { drag = { box: g.box, start: n, b: { ...g.box.b } }; return true; }
+    if (g.box) { drag = { box: g.box, start: n, b: { ...g.box.b }, keep: sel, keepStill: sel?.still }; return true; } // 크기 조절 뒤에도 고르던 그림 · '멈추고 표시만' 그대로
     drag = g.tracker ? { tracker: g.tracker } : { it: g.it, h: g.h, start: n, orig: JSON.parse(JSON.stringify(g.it)) };
     return true;
   }
@@ -2798,10 +3062,13 @@ export async function studio(el, { id, mode }) {
       if (drag?.manKey) { const keep = drag.keep; drag = null; if (man) { drawMarks(); drawPanel(); if (man.auto && !keep) stepMan(1); } return; }
       if (drag?.box) {
         const { box: bx, b } = drag;
+        const drag0 = drag;
         drag = null;
         // 수동 모드에서 모서리를 끌지 않고 톡 누르기만 했으면 → 점 찍기
         if (man && bx.tr === man.tr && Math.abs(b.x0 - bx.b.x0) + Math.abs(b.y0 - bx.b.y0) + Math.abs(b.x1 - bx.b.x1) + Math.abs(b.y1 - bx.b.y1) < 0.002) { placeKey(toNorm(e)); return; }
         if (b.x1 - b.x0 > 0.003 && b.y1 - b.y0 > 0.006) applyBox(bx.tr, b);
+        const kept = drag0?.keep;
+        if (kept && tele.items.includes(kept)) { sel = kept; if (drag0.keepStill) kept.still = true; }
         drawSide(); render();
         return;
       }
@@ -3135,19 +3402,23 @@ export async function studio(el, { id, mode }) {
     const done = new Set();
     let lastM = from - 1e-3; let ticks = 0; let flushed = false; let finished = false;
     const t0w = performance.now();
-    const pf = { proc: 0, render: 0, emit: 0, n: 0, held: 0 }; // 프레임당 시간 (느릴 때 원인 찾기용)
+    const pf = { proc: 0, render: 0, emit: 0, n: 0, held: 0, draw: 0, wait: 0, skip: 0 }; // 프레임당 시간 (느릴 때 원인 찾기용)
     let outT = 0; let prevM = from; // 만든 영상의 시간 (천천히 구간은 영상 시간보다 길게)
     const frameAt = async (m) => {
       vtime = m;
       const hits = tele.items.filter((it) => it.hold > 0 && !done.has(it) && it.t0 > lastM && it.t0 <= m + 1e-3);
       if (hits.length) {
+        hits.splice(0, hits.length, ...holdGroup(hits, tele.items).filter((x) => !done.has(x)));
         hits.forEach((it) => done.add(it));
         processFrameInner(true, m);
-        const hold = Math.max(...hits.map((it) => it.hold));
+        const hold = holdLen(hits);
         freeze = { start: 0, items: hits, until: hold * 1000 };
         for (let f = 0; f < Math.round(hold * fps) && !busy.stop; f++) { vclock = (f * 1000) / fps; let q = performance.now(); render(); pf.render += performance.now() - q; q = performance.now(); await emit(); pf.emit += performance.now() - q; pf.held++; }
         freeze = null; vclock = null;
       }
+      // 원본이 결과 영상보다 장면이 많으면(40 · 60fps → 30fps) 결과에 안 들어갈 장면은 분석 · 그리기를 건너뜀 (멈춤 장면은 위에서 따로)
+      const outNext = outT + Math.max(0, m - prevM) / speedAt((m + prevM) / 2);
+      if (!(ticks / fps <= outNext + 1e-4 && m <= to + 1e-4)) { outT = outNext; prevM = m; lastM = m; pf.skip++; return; }
       let q = performance.now();
       processFrameInner(true, m);
       pf.proc += performance.now() - q; q = performance.now();
@@ -3168,7 +3439,7 @@ export async function studio(el, { id, mode }) {
         if (queue.length) {
           const f = queue.shift();
           const m = f.timestamp / 1e6;
-          if (m >= from - 1e-3 && m <= to + 1e-3) { sctx.drawImage(f, 0, 0, VW, VH); f.close(); await frameAt(m); } else f.close();
+          if (m >= from - 1e-3 && m <= to + 1e-3) { const q0 = performance.now(); sctx.drawImage(f, 0, 0, VW, VH); f.close(); pf.draw += performance.now() - q0; await frameAt(m); } else f.close();
           if (m > to) finished = true;
           continue;
         }
@@ -3176,11 +3447,11 @@ export async function studio(el, { id, mode }) {
           if (!flushed) { flushed = true; await dec.flush(); continue; }
           break;
         }
-        if (dec.decodeQueueSize > 24) { await new Promise((r) => setTimeout(r, 1)); continue; }
-        await feed();
+        if (dec.decodeQueueSize > 24) { const q0 = performance.now(); await new Promise((r) => setTimeout(r, 1)); pf.wait += performance.now() - q0; continue; }
+        { const q0 = performance.now(); await feed(); pf.wait += performance.now() - q0; }
       }
       if (ticks === 0) return 'none';
-      console.info('[영상 만들기] 빠른 방식', `${ticks}프레임 · ${((performance.now() - t0w) / 1000).toFixed(1)}초 · 시각 보정 ${tShift.toFixed(3)}초 · 마지막 ${lastM.toFixed(2)}`, JSON.stringify({ held: pf.held, proc: +(pf.proc / Math.max(1, pf.n)).toFixed(1), render: +(pf.render / Math.max(1, pf.n + pf.held)).toFixed(1), emit: +(pf.emit / Math.max(1, pf.n + pf.held)).toFixed(1) }));
+      console.info('[영상 만들기] 빠른 방식', `${ticks}프레임 · ${((performance.now() - t0w) / 1000).toFixed(1)}초 · 시각 보정 ${tShift.toFixed(3)}초 · 마지막 ${lastM.toFixed(2)}`, JSON.stringify({ held: pf.held, proc: +(pf.proc / Math.max(1, pf.n)).toFixed(1), render: +(pf.render / Math.max(1, pf.n + pf.held)).toFixed(1), emit: +(pf.emit / Math.max(1, pf.n + pf.held)).toFixed(1), draw: +(pf.draw / Math.max(1, pf.n)).toFixed(1), wait: +(pf.wait / Math.max(1, pf.n)).toFixed(1), skip: pf.skip }));
       // 끝까지 못 갔으면(파일을 다 못 읽음 등) 남은 부분은 재생 방식으로 이어서
       if (!busy.stop && lastM < to - 0.2) return { partial: true, lastM, ticks, done, outT };
       return 'done';
@@ -3323,9 +3594,10 @@ export async function studio(el, { id, mode }) {
             // 이 사이에 나타나는 그림 → 그 장면에서 멈춤 시간만큼 같은 장면 반복 (그림이 그려지는 효과 포함)
             const hits = tele.items.filter((it) => it.hold > 0 && !done.has(it) && it.t0 > lastM && it.t0 <= m + 1e-3);
             if (hits.length) {
+              hits.splice(0, hits.length, ...holdGroup(hits, tele.items).filter((x) => !done.has(x)));
               hits.forEach((it) => done.add(it));
               processFrameInner(true, m);
-              const hold = Math.max(...hits.map((it) => it.hold));
+              const hold = holdLen(hits);
               freeze = { start: 0, items: hits, until: hold * 1000 };
               for (let f = 0; f < Math.round(hold * fps) && !busy.stop; f++) { vclock = (f * 1000) / fps; render(); await emit(); }
               freeze = null; vclock = null;

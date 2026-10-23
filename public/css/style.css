@@ -3550,3 +3550,41 @@ html.pad-locked, html.pad-locked body { overflow: hidden; overscroll-behavior: n
 .plan-result[class*="t-"] b, .plan-result[class*="t-"] .plan-per b { color: var(--tc); }
 .per-tbl td:first-child b { color: var(--tc, inherit); }
 .team-chip em { background: #ff9f0a; color: #1a1100; }
+/* 분석실 타임라인 — 장면 카드 */
+.tl-mode { margin-left: 10px; }
+.tl.scene-mode .tl-body, .tl.scene-mode .tl-zoom { display: none; }
+.tl-scenes { display: flex; gap: 10px; overflow-x: auto; padding: 10px 12px 12px; scrollbar-width: thin; }
+.tl:not(.scene-mode) .tl-scenes { display: none; }
+.sc-card { flex: none; width: 150px; display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 10px; border: 1px solid var(--line2); background: var(--surface2, #151917); cursor: grab; user-select: none; touch-action: pan-y; }
+.sc-card.on { border-color: var(--pri, #39e75f); box-shadow: 0 0 0 1px var(--pri, #39e75f) inset; }
+.sc-thumb { position: relative; height: 78px; border-radius: 7px; overflow: hidden; background: #0d100e; display: grid; place-items: center; }
+.sc-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sc-thumb b { font-size: 18px; color: var(--muted); }
+.sc-thumb em { position: absolute; left: 4px; bottom: 4px; font-style: normal; font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 6px; background: rgba(0,0,0,.65); color: #fff; }
+.sc-ics { display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
+.sc-ics span { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; font-size: 11px; background: color-mix(in srgb, var(--c) 22%, transparent); color: var(--c); }
+.sc-ics small { color: var(--muted); font-size: 11px; }
+.sc-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 12px; font-weight: 700; }
+.sc-row .chip { width: 100%; justify-content: center; font-size: 11.5px; padding: 3px 6px; }
+.sc-row .chip.on { border-color: #4ea1ff; color: #4ea1ff; }
+.sc-add { flex: none; width: 92px; border-radius: 10px; border: 1px dashed var(--line2); background: none; color: var(--muted); font-size: 22px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; cursor: pointer; }
+.sc-add small { font-size: 11px; }
+.sc-add:hover { border-color: var(--pri, #39e75f); color: var(--pri, #39e75f); }
+.sc-empty { padding: 18px 4px; margin: 0; }
+/* 분석실 '자세히 설정' — 잘 보이는 버튼으로 */
+.st-adv { margin-top: 14px; border-top: 0; padding-top: 0; }
+.st-adv > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line2); background: var(--surface2, #151917); color: var(--text); font-size: 13.5px; font-weight: 800; }
+.st-adv > summary::before { content: ''; }
+.st-adv > summary::after { content: '열기 ▾'; font-size: 12px; font-weight: 700; color: var(--pri, #39e75f); }
+.st-adv[open] > summary::before { content: ''; }
+.st-adv[open] > summary::after { content: '접기 ▴'; }
+.st-adv > summary:hover { border-color: var(--pri, #39e75f); }
+.st-adv[open] > summary { margin-bottom: 10px; border-color: color-mix(in srgb, var(--pri, #39e75f) 50%, var(--line2)); }
+.st-adv > summary { white-space: nowrap; }
+.st-adv > summary small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; font-size: 11.5px; }
+.sc-ics span { position: relative; cursor: pointer; }
+.sc-ics span i { position: absolute; top: -6px; right: -6px; min-width: 13px; height: 13px; padding: 0 2px; border-radius: 7px; background: var(--tc, #fff); background: #fff; color: #111; font-style: normal; font-size: 9px; font-weight: 900; line-height: 13px; text-align: center; }
+.sc-row .chip[data-seq].on { border-color: #ffd400; color: #ffd400; }
+
+/* 오늘 기록: 불참을 고르지 않으면 불참 사유 칸 숨김 (label 의 display 가 hidden 을 덮지 않게) */
+.daily label[hidden], .daily [data-absent-why][hidden] { display: none !important; }

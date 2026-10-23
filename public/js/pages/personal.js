@@ -229,7 +229,7 @@ export async function daily(el, _p, date0) {
           <div class="tpick-l"><span>기상 시간</span>${timePick('wakeTime', l.wakeTime, false)}</div>
         </div>
         <p class="muted small" data-sleep></p>
-        ${hasFeature('wellness') ? `${dailyFields(l, plans.reduce((a, p) => a + (p.blocks || []).reduce((x, b) => x + (+b.min || 0), 0), 0), bodyNeed)}${scale('sleepQ', 5, l.sleepQ, SLEEP_Q)}` : ''}
+        ${hasFeature('wellness') ? `${dailyFields(l, plans.reduce((a, p) => a + (p.blocks || []).reduce((x, b) => x + (+b.min || 0), 0), 0), { ...bodyNeed, match: tabNow === 'match' })}${scale('sleepQ', 5, l.sleepQ, SLEEP_Q)}` : ''}
         <h4>오늘 다쳤나요? <small class="muted">훈련 · 경기 중에 다쳐서 끝까지 못 했으면 골라 주세요</small></h4>
         <div class="hurt-pick">${[['', '안 다쳤어요'], ['train', '훈련 중 부상'], ['match', '경기 중 부상']].map(([v, t]) => `<label><input type="radio" name="hurt" value="${v}" ${(l.hurt || '') === v ? 'checked' : ''}><span>${t}</span></label>`).join('')}</div>
         <div class="hurt-box" data-hurt-box ${l.hurt ? '' : 'hidden'}>
@@ -380,6 +380,9 @@ export async function daily(el, _p, date0) {
   el.querySelectorAll('[data-jtab]').forEach((a) => (a.onchange = () => {
     dailyTab[date] = a.value;
     el.querySelectorAll('[data-part]').forEach((x) => { x.hidden = x.dataset.part !== a.value; });
+    // 경기를 고르면 '경기 시간', 훈련이면 '훈련 시간'
+    const lb = el.querySelector('[data-tmin-label]'); if (lb) lb.textContent = a.value === 'match' ? '경기 시간' : '훈련 시간';
+    const tm = form.querySelector('[name=trainMin]'); if (tm) tm.placeholder = a.value === 'match' ? '예) 60' : '예) 90';
   }));
   // 경기 장면: 작전판 + 설명
   const scenes = [];
@@ -577,8 +580,8 @@ function bodyGrid(l) {
     ${t('취침 · 기상', l.bedtime || l.wakeTime ? `${esc(l.bedtime || '-')} → ${esc(l.wakeTime || '-')}` : null)}
     ${t('수면 질', l.sleepQ ? `${l.sleepQ}<i>/5</i> <em>${esc(SLEEP_Q[l.sleepQ] || '')}</em>` : null)}
     ${l.hurt ? t('오늘 부상', `${HURT[l.hurt]}${l.hurtWhen ? ` <em>${esc(l.hurtWhen)}</em>` : ''}`, 'hot') : t('자각도 (RPE)', l.absent ? '불참' : l.rpe != null ? `${l.rpe}<i>/10</i>` : '-')}
-    ${t('훈련 시간', l.absent ? '0<i>분</i>' : l.trainMin != null ? `${l.trainMin}<i>분</i>` : null)}
-    ${t('훈련 부하', load != null && !l.hurt ? `${load}<i>RPE×분</i>` : null)}
+    ${t(l.kind === 'match' ? '경기 시간' : '훈련 시간', l.absent ? '0<i>분</i>' : l.trainMin != null ? `${l.trainMin}<i>분</i>` : null)}
+    ${t(l.kind === 'match' ? '경기 부하' : '훈련 부하', load != null && !l.hurt ? `${load}<i>RPE×분</i>` : null)}
     ${t('부상도', `${l.injury ?? 0}<i>/10</i>${l.injuryPart ? ` <em>${esc(l.injuryPart)}</em>` : ''}`, (l.injury || 0) >= 5 ? 'hot' : '')}
     ${l.absent ? t('운동 불참', esc(l.absentReason || '사유 없음'), 'hot') : ''}
     ${t('키', l.height ? `${l.height}<i>cm</i>` : null)}

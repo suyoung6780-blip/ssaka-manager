@@ -133,9 +133,10 @@ async function makeExcel(from, to) {
 
 // 오늘 기록에 들어가는 칸 (기능이 켜진 팀만)
 // needHeight: 이번 달 첫 기록(아직 키를 안 적음) · needWeight: 이번 주(월요일 시작) 첫 기록
-export function dailyFields(l, planMin, { needHeight = false, needWeight = false } = {}) {
+// match: 오늘 '경기'를 고름 → 칸 이름을 경기 시간으로 (훈련 안내 시간으로 미리 채우지 않음)
+export function dailyFields(l, planMin, { needHeight = false, needWeight = false, match = false } = {}) {
   return `<div class="grid2 wellness-fields">
-      <label>훈련 시간 <small class="muted">(분)</small><input type="number" name="trainMin" min="0" max="600" step="5" inputmode="numeric" value="${esc(l.trainMin ?? (planMin || ''))}" placeholder="예) 90" ${l.absent ? 'disabled' : ''}></label>
+      <label><span data-tmin-label>${match ? '경기 시간' : '훈련 시간'}</span> <small class="muted">(분)</small><input type="number" name="trainMin" min="0" max="600" step="5" inputmode="numeric" value="${esc(l.trainMin ?? (match ? '' : planMin || ''))}" placeholder="${match ? '예) 60' : '예) 90'}" ${l.absent ? 'disabled' : ''}></label>
       ${needHeight || l.height ? `<label>키 <small class="muted">(cm · 이번 달 첫 기록)</small><input type="number" name="height" min="100" max="230" step="0.1" inputmode="decimal" value="${esc(l.height ?? '')}" placeholder="예) 165.4"></label>` : ''}
       ${needWeight || l.weight ? `<label>몸무게 <small class="muted">(kg · 이번 주 첫 기록)</small><input type="number" name="weight" min="20" max="150" step="0.1" inputmode="decimal" value="${esc(l.weight ?? '')}" placeholder="예) 52.3"></label>` : ''}
     </div>

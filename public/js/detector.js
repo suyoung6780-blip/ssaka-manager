@@ -1,5 +1,6 @@
-// AI 선수 인식 — TensorFlow.js COCO-SSD (브라우저 안에서 돌아감 · 무료 · 서버 불필요)
+// AI 선수 인식 — YOLOX (작고 흐린 선수에 강함). 못 쓰면 TensorFlow.js COCO-SSD 로 (브라우저 안에서 돌아감 · 무료 · 서버 불필요)
 // 경기 영상의 선수는 작기 때문에, 화면을 잘게 잘라 확대해서 찾는다.
+import { loadYolox, yoloxIn } from './yolox.js';
 const TF = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js';
 const SSD = 'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js';
 const MODEL_IN = 320; // 잘라낸 조각을 이 크기로 맞춰 모델에 넣음 (모델 내부 입력 300px)
@@ -14,17 +15,22 @@ const loadScript = (src) => new Promise((res, rej) => {
   document.head.appendChild(s);
 });
 
-// 처음 한 번만 받아옴 (이후 브라우저에 저장)
+// 처음 한 번만 받아옴 (이후 브라우저에 저장). YOLOX 를 먼저, 안 되면 COCO-SSD
+let engine = null; // 'yolox' · 'ssd'
+let prefer = 'yolox';
+export const preferEngine = (e) => { prefer = e; modelP = null; }; // 비교 시험용
 export function loadAI() {
   if (!modelP) {
     ai.status = 'loading';
-    modelP = (async () => {
-      await loadScript(TF);
-      await loadScript(SSD);
-      const m = await window.cocoSsd.load({ base: 'mobilenet_v2' });
-      ai.status = 'ready';
-      return m;
-    })().catch((e) => { ai.status = 'failed'; modelP = null; throw e; });
+    modelP = (prefer === 'yolox' ? loadYolox() : Promise.reject(new Error('ssd'))).then((s) => { engine = 'yolox'; ai.status = 'ready'; return s; })
+      .catch(async () => {
+        await loadScript(TF);
+        await loadScript(SSD);
+        const m = await window.cocoSsd.load({ base: 'mobilenet_v2' });
+        engine = 'ssd'; ai.status = 'ready';
+        return m;
+      })
+      .catch((e) => { ai.status = 'failed'; modelP = null; throw e; });
   }
   return modelP;
 }
@@ -53,6 +59,7 @@ const contains = (o, b) => b.x0 >= o.x0 - 2 && b.x1 <= o.x1 + 2 && b.y0 >= o.y0 
 // 영역을 그리는 순간의 프레임을 쓰므로, 결과가 늦게 와도 '그 순간' 기준
 export async function detectIn(video, r, minScore = 0.3) {
   const model = await loadAI();
+  if (engine === 'yolox') return yoloxIn(video, r, Math.max(0.2, minScore - 0.05)); // YOLOX 점수는 조금 낮게 나옴
   const VW = video.videoWidth; const VH = video.videoHeight;
   const x = Math.max(0, Math.min(VW - 4, r.x)); const y = Math.max(0, Math.min(VH - 4, r.y));
   const w = Math.max(4, Math.min(VW - x, r.w)); const h = Math.max(4, Math.min(VH - y, r.h));
