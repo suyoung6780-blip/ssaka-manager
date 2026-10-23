@@ -42,7 +42,14 @@ const cx = cv.getContext('2d', { willReadFrequently: true });
 const buf = new Float32Array(3 * SIZE * SIZE);
 
 // 영상(또는 캔버스)의 한 영역 r(영상 픽셀)에서 사람 찾기 → 영상 픽셀 상자들 {x0,y0,x1,y1,score}
-export async function yoloxIn(src, r, minScore = 0.25) {
+// 한 번에 하나씩 (뒤에서 도는 추적과 화면에서 누른 '잡기'가 겹쳐도 AI가 엉키지 않게)
+let lock = Promise.resolve();
+export function yoloxIn(src, r, minScore = 0.25) {
+  const run = lock.then(() => yoloxOnce(src, r, minScore));
+  lock = run.catch(() => {});
+  return run;
+}
+async function yoloxOnce(src, r, minScore) {
   const sess = await loadYolox();
   const VW = src.videoWidth || src.width; const VH = src.videoHeight || src.height;
   const x = Math.max(0, Math.min(VW - 4, r.x)); const y = Math.max(0, Math.min(VH - 4, r.y));

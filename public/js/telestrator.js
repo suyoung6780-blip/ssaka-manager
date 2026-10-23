@@ -3,6 +3,8 @@
 
 export const GLASS = 'rgba(255,255,255,0.42)'; // 투명색 (반투명 흰색)
 export const PALETTE = ['#ffd400', '#ff3b30', '#ffffff', '#00d1ff', '#34c759', GLASS];
+// 그림 스타일 색 (중계 화면에서 많이 쓰는 색 + 팀 색 + 투명)
+export const STYLE_COLORS = ['#ffd400', '#ffb020', '#ff7a00', '#ff3b30', '#e4002b', '#ff2d92', '#af52de', '#7c4dff', '#1e4fd8', '#0a2a6b', '#4ea1ff', '#00d1ff', '#00c7a3', '#34c759', '#0b6e3b', '#a3e635', '#ffffff', '#c7cdd1', '#8e8e93', '#3a3a3c', '#111111', GLASS];
 // 유니폼 색 고르기용 (트래킹 링 안쪽 · 바깥 · 이름표)
 export const TEAM_COLORS = ['#ffffff', '#ffd400', '#ff9f0a', '#ff3b30', '#c8102e', '#ff2d92', '#af52de', '#1e4fd8', '#0a2a6b', '#00d1ff', '#34c759', '#0b6e3b', '#8e8e93', '#111111'];
 export const uid = () => Math.random().toString(36).slice(2, 9);
@@ -409,7 +411,21 @@ function keepRealPlayers(occ, d, g, sh, W, H) {
       for (let y = b.y1 + 1; y <= Math.min(H - 1, b.y1 + 4); y++) for (let x = b.x0; x <= b.x1; x++) { tot++; if (g[y * W + x] || sh[y * W + x]) gr++; }
       if (tot && gr / tot < 0.25) bad = true;
     }
-    if (bad) for (const i of b.px) occ[i] = 0;
+    if (bad) { for (const i of b.px) occ[i] = 0; continue; }
+    // 발밑에서 옆으로 길게 깔린 진한 그림자는 선수가 아님 — 몸통(위쪽 60%)의 가로 범위 밖에 있는 아래쪽 어두운 픽셀은 뺌
+    // (그림자까지 선수로 보면 그 위를 지나는 선 · 면이 크게 끊김)
+    const yCut = b.y0 + Math.round(bh * 0.6);
+    let lx = W; let rx = -1;
+    for (const i of b.px) { const y = (i / W) | 0; if (y >= yCut) continue; const x = i - y * W; if (x < lx) lx = x; if (x > rx) rx = x; }
+    if (rx >= lx) {
+      const pad = Math.max(2, Math.round((rx - lx + 1) * 0.25));
+      for (const i of b.px) {
+        const y = (i / W) | 0; if (y < yCut) continue;
+        const x = i - y * W; if (x >= lx - pad && x <= rx + pad) continue;
+        const p = i * 4; const mx = Math.max(d[p], d[p + 1], d[p + 2]); const mn = Math.min(d[p], d[p + 1], d[p + 2]);
+        if ((mx < 110 && (mx - mn) < Math.max(28, mx * 0.45)) || (mx > 150 && mx - mn < 60)) occ[i] = 0; // 그림자 · 발에 붙은 흰 라인
+      }
+    }
   }
 }
 
@@ -1454,14 +1470,18 @@ export function drawItem(ctx, it, P, W, items, resolve) {
         const rx1 = Math.hypot(e1.x - c00.x, e1.y - c00.y) * sc; const ry1 = Math.max(1, Math.hypot(e2.x - c00.x, e2.y - c00.y)) * sc;
         const hw = rx1 * 0.9 * grow;
         const wall = (a0, a1, al) => {
-          const n2 = 24; const base = []; for (let i2 = 0; i2 <= n2; i2++) { const an = a0 + ((a1 - a0) * i2) / n2; base.push({ x: c00.x + Math.cos(an) * rx1, y: c00.y + Math.sin(an) * ry1 }); }
-          const gr = ctx.createLinearGradient(0, c00.y + ry1, 0, c00.y - ry1 - hw);
-          const wc = col; // 팀 색 빛을 잔디 위에 더함(lighter) — 아래가 진하고 위로 사라짐
-          gr.addColorStop(0, rgba(wc, al)); gr.addColorStop(0.4, rgba(wc, al * 0.5)); gr.addColorStop(1, rgba(wc, 0));
-          ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = gr; ctx.beginPath();
-          base.forEach((q, i2) => (i2 ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
-          for (let i2 = base.length - 1; i2 >= 0; i2--) ctx.lineTo(base[i2].x, base[i2].y - hw);
-          ctx.closePath(); ctx.fill(); ctx.restore();
+          // 세로 띠를 여러 장 — 가운데(정면)는 진하고 양옆 끝으로 갈수록 옅게 (상자처럼 각지지 않게)
+          const n2 = 28; const wc = col;
+          ctx.save(); ctx.globalCompositeOperation = 'lighter';
+          for (let i2 = 0; i2 < n2; i2++) {
+            const t0 = a0 + ((a1 - a0) * i2) / n2; const t1 = a0 + ((a1 - a0) * (i2 + 1)) / n2;
+            const p0 = { x: c00.x + Math.cos(t0) * rx1, y: c00.y + Math.sin(t0) * ry1 }; const p1 = { x: c00.x + Math.cos(t1) * rx1, y: c00.y + Math.sin(t1) * ry1 };
+            const k2 = 0.25 + 0.75 * Math.abs(Math.sin((t0 + t1) / 2)); // 옆 끝 옅게
+            const g2 = ctx.createLinearGradient(0, Math.max(p0.y, p1.y), 0, Math.min(p0.y, p1.y) - hw);
+            g2.addColorStop(0, rgba(wc, al * k2)); g2.addColorStop(0.4, rgba(wc, al * k2 * 0.45)); g2.addColorStop(1, rgba(wc, 0));
+            ctx.fillStyle = g2; ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.lineTo(p1.x, p1.y - hw); ctx.lineTo(p0.x, p0.y - hw); ctx.closePath(); ctx.fill();
+          }
+          ctx.restore();
         };
         if (part !== 'front') wall(Math.PI, Math.PI * 2, 0.6); // 먼 쪽 벽 (선수 뒤)
         if (part !== 'back') wall(0, Math.PI, 0.3); // 가까운 쪽 벽 (선수 앞 · 더 옅게)
@@ -1472,17 +1492,39 @@ export function drawItem(ctx, it, P, W, items, resolve) {
       const innerB = halves.map((a0) => band(0.62 * sc, 0.8 * sc, a0, a0 + sweep));
       ctx.save(); ctx.globalAlpha = Math.min(1, grow * 1.6);
       const thick = Math.max(1, lwR * 0.38);
-      const paint = (shapes, c3) => {
+      // 중계 화면 느낌 링: 두께 있는 옆면 · 위(먼 쪽)는 밝고 아래(가까운 쪽)는 진한 윗면 · 가장자리 반짝임 · 링을 따라 도는 빛
+      const top = ringAt(sc, -Math.PI / 2); const bot = ringAt(sc, Math.PI / 2);
+      const paint = (shapes, c3, depth) => {
         ctx.save();
-        ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.filter = `blur(${Math.max(1, thick * 0.8).toFixed(1)}px)`;
-        ctx.translate(0, thick * 1.6); shapes.forEach((sh) => { gpath(ctx, sh); ctx.fill(); }); ctx.restore();
-        ctx.save(); ctx.fillStyle = shade(c3, -0.45);
-        for (let d = thick; d > 0; d -= Math.max(0.6, thick / 3)) { ctx.save(); ctx.translate(0, d); shapes.forEach((sh) => { gpath(ctx, sh); ctx.fill(); }); ctx.restore(); }
-        ctx.fillStyle = c3; shapes.forEach((sh) => { gpath(ctx, sh); ctx.fill(); });
+        ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.filter = `blur(${Math.max(1, depth * 0.9).toFixed(1)}px)`;
+        ctx.translate(0, depth * 1.7); shapes.forEach((sh) => { gpath(ctx, sh); ctx.fill(); }); ctx.restore();
+        ctx.save();
+        const side = ctx.createLinearGradient(0, top.y, 0, bot.y + depth);
+        side.addColorStop(0, shade(c3, -0.25)); side.addColorStop(1, shade(c3, -0.6));
+        ctx.fillStyle = side;
+        for (let d = depth; d > 0; d -= Math.max(0.5, depth / 4)) { ctx.save(); ctx.translate(0, d); shapes.forEach((sh) => { gpath(ctx, sh); ctx.fill(); }); ctx.restore(); }
+        const face = ctx.createLinearGradient(0, top.y, 0, bot.y);
+        face.addColorStop(0, tint(c3, 0.45)); face.addColorStop(0.45, c3); face.addColorStop(1, shade(c3, -0.12));
+        ctx.fillStyle = face; shapes.forEach((sh) => { gpath(ctx, sh); ctx.fill(); });
         ctx.restore();
       };
-      paint(outerB, col);
-      paint(innerB, inCol);
+      const rimLine = (r, a0, a1, al, w2) => { ctx.save(); ctx.strokeStyle = `rgba(255,255,255,${al})`; ctx.lineWidth = w2; ctx.lineCap = 'round'; gpath(ctx, arcPts(r, a0, a1, 24), false); ctx.stroke(); ctx.restore(); };
+      paint(outerB, col, thick * 1.5);
+      paint(innerB, inCol, thick);
+      // 가장자리 반짝임: 바깥 띠 위쪽 테두리 · 안쪽 띠 아래쪽 테두리 (빛이 위에서 비추는 것처럼)
+      const hw2 = Math.max(0.8, lwR * 0.12);
+      halves.forEach((a0) => { rimLine(sc, a0 + 0.05, a0 + sweep - 0.05, 0.55, hw2); rimLine(0.62 * sc, a0 + 0.05, a0 + sweep - 0.05, 0.22, hw2 * 0.8); });
+      // 링을 따라 천천히 도는 빛 (내보낸 영상에서도 같은 속도)
+      if (it._flow != null && it.sheen !== false && grow >= 1) {
+        const ang = (it._flow * 1.3) % (Math.PI * 2);
+        const q = ringAt(0.82 * sc, ang); const e1 = ringAt(1, 0); const rr = Math.hypot(e1.x - c00.x, e1.y - c00.y) * 0.55;
+        ctx.save();
+        ctx.beginPath(); [...outerB, ...innerB].forEach((sh) => { sh.forEach((pt, k2) => (k2 ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y))); ctx.closePath(); }); ctx.clip();
+        const sg = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, rr);
+        sg.addColorStop(0, 'rgba(255,255,255,0.75)'); sg.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = sg; ctx.fillRect(q.x - rr, q.y - rr, rr * 2, rr * 2);
+        ctx.restore();
+      }
       ctx.restore();
       if (part) ctx.restore();
       break;
@@ -1634,8 +1676,20 @@ export function drawItem(ctx, it, P, W, items, resolve) {
       break;
     }
     case 'text': {
+      // 글자: 크기(fs 배율) · 배경색(bg, 'none' = 투명 · 기본 반투명 검정) 조절
       const p = P(it.p);
-      label(ctx, it.t, p.x, p.y, W, col, true);
+      const fs = Math.max(10, (W / 52) * (it.fs || 1));
+      const k = easeOut(prog);
+      ctx.save();
+      ctx.globalAlpha = k;
+      ctx.font = `800 ${fs}px Pretendard, sans-serif`;
+      const tw = ctx.measureText(it.t || '').width + fs;
+      const bg = it.bg ?? 'rgba(0,0,0,.72)';
+      if (bg !== 'none') { ctx.fillStyle = bg === GLASS ? 'rgba(255,255,255,.42)' : bg; ctx.beginPath(); ctx.roundRect(p.x - tw / 2, p.y - fs * 0.85, tw, fs * 1.5, fs * 0.3); ctx.fill(); }
+      else { ctx.shadowColor = 'rgba(0,0,0,.85)'; ctx.shadowBlur = fs * 0.25; ctx.shadowOffsetY = fs * 0.04; } // 배경 없을 땐 글자 그림자로 잘 보이게
+      ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(it.t || '', p.x, p.y - fs * 0.1);
+      ctx.restore();
       break;
     }
     case 'vision': {
