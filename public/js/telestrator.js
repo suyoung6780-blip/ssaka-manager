@@ -508,7 +508,16 @@ export function isGrass(r, g, b, key) {
   if (h < 0) return false;
   let dh = Math.abs(h - key.hue);
   if (dh > 180) dh = 360 - dh;
-  return dh <= 14 + key.tol * 0.5;
+  const tol = 14 + key.tol * 0.5;
+  if (dh <= tol) return true;
+  // 햇빛 받은 잔디: 노란빛 쪽으로 조금 더 넓게 — 대신 연한 색만 (진한 노랑 · 연두 유니폼은 그대로 선수)
+  // (노란빛 잔디를 선수로 잘못 보면 그 위의 선 · 발밑 원이 통째로 숨어 버림)
+  const toward = (key.hue - h + 360) % 360; // 잔디 색보다 노란 쪽으로 얼마나
+  if (toward > tol && toward <= tol + 22) {
+    const mx = r > g ? (r > b ? r : b) : (g > b ? g : b); const mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    if (mx > 70 && (mx - mn) / mx < 0.55) return true;
+  }
+  return false;
 }
 
 // ───────── 선수 트래킹 ─────────
@@ -862,12 +871,15 @@ function steadyRaw(tr, t) {
     const fx = m0.x + (m0.x - m1.x) * lead; const fy = m0.y + (m0.y - m1.y) * lead;
     return { x: slow.x + (fx - slow.x) * k2, y: slow.y + (fy - slow.y) * k2, h: slow.h || m0.h };
   }
-  const near = avg(t, 0.4, 0.05); const wide = avg(t, 1.0, 0.08);
+  const wide = avg(t, 1.0, 0.08);
   const a = avg(t - 0.5, 0.3, 0.05); const b = avg(t + 0.5, 0.3, 0.05);
-  if (!near || !wide || !a || !b) return near || trackerPos(tr, t);
+  if (!wide || !a || !b) return avg(t, 0.4, 0.05) || trackerPos(tr, t);
   // 가만히 있는지: 앞뒤 1초 사이에 움직인 거리를 선수 키와 비교 (멀리 있는 작은 선수도 같은 기준)
   const hh = Math.max(0.02, wide.h || tr.h || 0.08);
   const mv = Math.hypot(a.x - b.x, a.y - b.y) / hh;
+  // 화면에서 빨리 움직일수록(선수가 뛰거나 카메라가 빨리 돌 때) 평균 내는 시간을 짧게 — 길게 평균 내면 표시가 늦게 따라감
+  const nearHalf = 0.4 - 0.28 * Math.min(1, Math.max(0, (mv - 0.5) / 1.5));
+  const near = avg(t, nearHalf, Math.min(0.05, nearHalf / 4)) || trackerPos(tr, t);
   const k = Math.min(1, Math.max(0, (mv - 0.18) / 0.3)); // 키의 18% 안쪽이면 고정, 키의 절반 넘게 움직이면 그대로 따라감
   // 키(링 크기)는 항상 넓게 평균 — 커졌다 작아졌다 하지 않게
   return { x: wide.x + (near.x - wide.x) * k, y: wide.y + (near.y - wide.y) * k, h: wide.h };

@@ -470,20 +470,45 @@ export async function studio(el, { id, mode }) {
   //  천천히 움직이거나 제자리에서 흔들릴 땐 강하게 눌러 주고, 빨리 뛰면 늦지 않게 바로 따라감 (One Euro 필터)
   //  재생 · 영상 만들기 때만 (멈춰서 고칠 땐 실제 자리 그대로)
   const lp = (cut, dt) => { const tau = 1 / (2 * Math.PI * cut); return 1 / (1 + tau / dt); };
-  function steady(tr, r, live) {
-    const hh = tr.h || r.h || 0.08; // 단위 (키) — 바뀌지 않는 값으로
-    const wx = r.x / hh; const wy = r.y / hh;
-    const f = tr._sw;
-    const dt = f ? t() - f.t : 0;
-    if (!live || !f || dt <= 0 || dt > 0.35) { tr._sw = { x: wx, y: wy, vx: 0, vy: 0, t: t() }; return r; }
+  //  카메라 움직임은 빼고 거름 (카메라가 빨리 돌아도 표시가 늦게 따라가지 않게) → 거른 뒤 다시 더함
+  // 카메라 누적 이동 (장면 사이는 이어서 · 계단처럼 끊기면 표시가 떨림)
+  const camSmooth = (tt) => {
+    const n = camLog.length; if (!n) return null;
+    let i = n - 1; while (i > 0 && camLog[i][0] > tt) i--;
+    const a = camLog[i]; const b = camLog[Math.min(n - 1, i + 1)];
+    const k = b[0] > a[0] ? Math.max(0, Math.min(1, (tt - a[0]) / (b[0] - a[0]))) : 0;
+    // 카메라 속도 (최근 0.3초, 화면 비율/초) — 빨리 돌 때만 카메라를 빼고 거름
+    let j = i; while (j > 0 && camLog[j][0] > a[0] - 0.3) j--;
+    const sp = a[0] > camLog[j][0] ? Math.hypot(a[1] - camLog[j][1], a[2] - camLog[j][2]) / (a[0] - camLog[j][0]) : 0;
+    return [tt, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k, sp];
+  };
+  // 같은 거르기를 화면 좌표 · 카메라를 뺀 좌표 두 가지로 해 두고, 카메라가 빨리 돌수록 뒤쪽을 씀
+  const euro = (f, wx, wy, dt) => {
     const vx = (wx - f.x) / dt; const vy = (wy - f.y) / dt;
     const ad = lp(1.0, dt);
     const svx = f.vx + (vx - f.vx) * ad; const svy = f.vy + (vy - f.vy) * ad;
     const cut = 0.35 + 0.45 * Math.hypot(svx, svy); // 느리면 0.6Hz(아주 부드럽게) · 빠르면 높게(바로 따라감)
     const a = lp(cut, dt);
-    const nx = f.x + (wx - f.x) * a; const ny = f.y + (wy - f.y) * a;
-    tr._sw = { x: nx, y: ny, vx: svx, vy: svy, t: t() };
-    return { ...r, x: nx * hh, y: ny * hh };
+    return { x: f.x + (wx - f.x) * a, y: f.y + (wy - f.y) * a, vx: svx, vy: svy };
+  };
+  function steady(tr, r, live) {
+    const hh = tr.h || r.h || 0.08; // 단위 (키) — 바뀌지 않는 값으로
+    const cm = camSmooth(t());
+    const cx0 = cm ? cm[1] : 0; const cy0 = cm ? cm[2] : 0;
+    const sx = r.x / hh; const sy = r.y / hh; // 화면 좌표
+    const gx = (r.x - cx0) / hh; const gy = (r.y - cy0) / hh; // 카메라를 뺀 좌표
+    const f = tr._sw;
+    const dt = f ? t() - f.t : 0;
+    if (!live || !f || dt <= 0 || dt > 0.35 || f.cl !== camLog[0]) {
+      tr._sw = { s: { x: sx, y: sy, vx: 0, vy: 0 }, g: { x: gx, y: gy, vx: 0, vy: 0 }, t: t(), cl: camLog[0] };
+      return r;
+    }
+    const s2 = euro(f.s, sx, sy, dt); const g2 = euro(f.g, gx, gy, dt);
+    tr._sw = { s: s2, g: g2, t: t(), cl: camLog[0] };
+    // 카메라가 키의 0.6배/초보다 빨리 돌기 시작하면 카메라를 뺀 쪽으로 (1.6배/초면 완전히)
+    const cw = cm ? Math.max(0, Math.min(1, (cm[3] / hh - 0.6) / 1.0)) : 0;
+    const ox = s2.x * hh * (1 - cw) + (g2.x * hh + cx0) * cw; const oy = s2.y * hh * (1 - cw) + (g2.y * hh + cy0) * cw;
+    return { ...r, x: ox, y: oy };
   }
   function centerRaw(tr, q) {
     const hh = q.h || tr.h || 0.08; // 그 순간의 키 (트래킹 길에 기록된 값이 더 정확)
@@ -1056,7 +1081,7 @@ export async function studio(el, { id, mode }) {
     [...vis.filter((it) => it.k === 'link'), ...(draft?.k === 'link' ? [draft] : [])].forEach((it) => it.pts.forEach((p) => {
       if (!p.tr || trHid(p.tr)) return;
       const pulse = it._flow != null && it.flow !== false && (it._prog ?? 1) >= 1 ? 1 + 0.07 * Math.sin(it._flow * 4.2) : 1; // 발밑 원이 숨 쉬듯
-      footRing({ ...withSpotSize({ k: 'spot', p, scale: 0.9 * pulse }), color: it.color, _prog: it._prog ?? 1 }, behind(it));
+      footRing({ ...withSpotSize({ k: 'spot', p, scale: 0.9 * pulse }), color: it.color, _prog: it._prog ?? 1 }, false); // 연결선 발밑 원도 앞쪽 반은 항상 보이게 (작게 붙어 있는 선수 뒤로 통째로 숨지 않게)
     }));
     if (fa.ok) {
       gctx.save();
@@ -1240,12 +1265,12 @@ export async function studio(el, { id, mode }) {
     const p = P(it.p);
     const r = (it.size || 0.025) * w;
     const ph = playerPx(it) || r / 0.48;
-    const head = p.y - ph * 1.02;
+    const head = p.y - ph * 0.96; // AI 상자 키는 실제 몸보다 조금 커서 (머리 위 표시가 떠 보이지 않게)
     const col = it.color || PALETTE[0];
     ctx.save();
     if (it.marker !== false) {
       const s = Math.max(6, r * 0.55);
-      const y = head - s * 0.5;
+      const y = head - s * 0.4;
       // 머리 위 작은 역삼각형 (테두리 없이 은은한 빛)
       ctx.fillStyle = col;
       ctx.shadowColor = col; ctx.shadowBlur = s * 0.9;
@@ -2646,6 +2671,7 @@ export async function studio(el, { id, mode }) {
         }
       }
       if (tail.length) tr.path.push(...tail);
+      tr.aiTo = +Math.max(tr.aiTo ?? -1, tail.length ? Math.max(prev, lastT(tr)) : prev).toFixed(3); // 여기까지는 AI로 계산함 (내보내기 전 자동 계산 판단)
       ok = !busy.stop;
       if (missRun < 18 && !opt.quiet) toast(busy.stop ? '여기까지 따라갔어요 — 이어서 하려면 [AI 정밀 추적]' : 'AI 정밀 추적을 마쳤어요 — ▶ 재생해서 확인하세요');
     } catch (err) {
@@ -2670,6 +2696,19 @@ export async function studio(el, { id, mode }) {
       && (all || (lastT(tr) >= now - 0.75 && lastT(tr) <= now + 30))
       && Math.min(trackUntil(tr), lastT(tr) + (all ? 120 : 30)) - lastT(tr) > 0.15);
   };
+  // AI로 아직 계산 안 한(재생 중 색으로만 따라간) 선수 — 내보내기 전에 AI로 정확히
+  const aiPending = (from, to) => tele.trackers.filter((tr) => !tr.manual && tr.path.length
+    && tele.items.some((it) => itemPoints(it).some((p) => p && p.tr === tr.id))
+    && Math.min(to, trackUntil(tr), lastT(tr) + 0.5) > Math.max(from, tr.aiTo ?? -1) + 0.3
+    && trackUntil(tr) > from);
+  async function aiBeforeExport(from, to) {
+    for (const tr of aiPending(from, to)) {
+      const s0 = Math.max(tr.path[0][0], tr.aiTo ?? -1, Math.min(from, lastT(tr)));
+      const okk = await preciseTrack(tr, { from: s0, to: Math.max(s0 + 0.2, Math.min(to + 0.5, lastT(tr))), quiet: true }); // 그 뒤 기록은 그대로 두고 이 구간만
+      if (!okk || busy?.stop) return false;
+    }
+    return true;
+  }
   async function prepTracks(all = false) {
     if (!edit || !fa.ok) return true;
     const now = t();
@@ -3676,6 +3715,7 @@ export async function studio(el, { id, mode }) {
         <label>화질<select data-xq>${opts.map(([h, l]) => `<option value="${h}">${l}</option>`).join('')}</select></label>
         <label>부드러움<select data-xf><option value="30">30fps (보통)</option><option value="60">60fps (더 부드럽게 · 2배 오래 걸림)</option></select></label>
       </div>
+      ${fa.ok && aiPending(a0, b0).length ? `<label class="mini-switch"><input type="checkbox" data-xai checked> 만들기 전에 AI로 선수 위치를 정확히 계산 <small class="muted">(${aiPending(a0, b0).length}명 · 추천 — 재생하며 따라간 위치는 카메라가 빨리 돌면 늦어요)</small></label>` : ''}
       <p class="muted small">※ [만들기]를 누르면 <b>저장할 곳</b>을 먼저 골라요 — 만드는 동안 그 파일에 바로 저장돼서 긴 영상도 괜찮아요.<br>※ 만드는 동안 <b>이 창을 띄워 두세요</b> — 다른 창으로 가면 잠깐 멈췄다가 돌아오면 이어서 해요.<br>※ 트래킹이 정확하지 않으면 먼저 [AI 정밀 추적]을 해 두세요 (만들 때는 화면에서 본 그대로 들어가요).<br>※ 소리는 들어가지 않아요.</p>
       <div class="row end"><button class="btn" data-xgo>만들기</button></div>`);
     const toSec = (v) => { const p = String(v).trim().split(':').map(Number); return p.some(isNaN) ? NaN : p.reduce((x, y) => x * 60 + y, 0); };
@@ -3692,8 +3732,10 @@ export async function studio(el, { id, mode }) {
           fileHandle = await window.showSaveFilePicker({ suggestedName: `${(post.title || 'analysis').replace(/[\\/:*?"<>|]/g, '_')}.mp4`, types: [{ description: 'MP4 영상', accept: { 'video/mp4': ['.mp4'] } }] });
         } catch (e) { if (e?.name === 'AbortError') return; fileHandle = null; } // 취소하면 그만
       }
+      const wantAI = !!m.el.querySelector('[data-xai]')?.checked;
       m.close();
       try {
+        if (wantAI && !(await aiBeforeExport(from, Math.min(dur(), to)))) { toast('AI 계산을 멈췄어요 — 다시 [영상으로 내보내기]를 눌러 주세요'); return; }
         await exportHQ({ from, to: Math.min(dur(), to), maxH, fps, fileHandle });
       } catch (err) { toast(`영상을 만들 수 없어요: ${err.message || err}`); }
     };
