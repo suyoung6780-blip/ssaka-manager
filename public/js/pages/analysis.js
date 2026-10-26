@@ -402,7 +402,7 @@ export async function studio(el, { id, mode }) {
   const camShift = (t0) => { const a = camAt(t0); const b = camAt(t()); return a && b ? { x: b[1] - a[1], y: b[2] - a[2] } : null; };
   const shiftPt = (q, d) => (!q || q.tr ? q : { ...q, x: q.x + d.x, y: q.y + d.y });
   function camFollow(it) {
-    if (!isLive(it) || it.k === 'slow') return it;
+    if (!(isLive(it) || (it.span && it.t1 != null)) || it.k === 'slow') return it; // 재생 중에도 보이는 고정 그림도 카메라를 따라 바닥에 붙어 있게
     const d = camShift(it.t0);
     if (!d || (Math.abs(d.x) < 1e-4 && Math.abs(d.y) < 1e-4)) return it;
     const o = { ...it };
@@ -594,9 +594,12 @@ export async function studio(el, { id, mode }) {
   let arrowSz = (() => { try { const v = +localStorage.getItem('ssaka.st.asz'); return v >= 0.4 && v <= 2 ? v : 1; } catch { return 1; } })(); // 새 화살표 크기 (마지막에 고른 크기)
   let advOpen = false; // 오른쪽 '자세히 설정' 열어 둠 // 화살표: 멈추지 않고 재생 중에 그어지기 (마지막에 고른 값)
   let visionPref = 50; // 시야 넓이 기본값 (마지막에 고른 값) // 트래킹 · 스포트라이트를 새로 만들 때 '따라가기' 기본값 (마지막에 고른 값)
+  // 고정 그림도 '재생하는 동안에도 보이기'를 켜면 시작~끝 동안 계속 보임 (다른 그림과 시간이 겹쳐도 각자 시간대로)
+  const spanOn = (it) => !!it.span && it.t1 != null && !isLive(it);
+  const inSpan = (it) => t() >= it.t0 - 0.02 && t() <= it.t1 + 0.02;
   const visible = (it) => (isLive(it)
     ? t() >= it.t0 - 0.02 && (it.t1 == null || t() <= it.t1 + 0.02) && !cutOff(it)
-    : recording?.hq ? !!freeze?.items.includes(it) : freeze ? freeze.items.includes(it) : video.paused && Math.abs(t() - it.t0) < 0.06); // 멈춤 중엔 같은 장면으로 묶인 그림 모두 (내보낸 영상과 똑같이)
+    : (spanOn(it) && inSpan(it)) || (recording?.hq ? !!freeze?.items.includes(it) : freeze ? freeze.items.includes(it) : video.paused && Math.abs(t() - it.t0) < 0.06)); // 멈춤 중엔 같은 장면으로 묶인 그림 모두 (내보낸 영상과 똑같이)
   const toNorm = (e) => {
     const r = canvas.getBoundingClientRect();
     return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) };
@@ -2030,7 +2033,9 @@ export async function studio(el, { id, mode }) {
       offside: () => '<button type="button" class="btn ghost sm full" data-oside>◐ 어두운 쪽 바꾸기</button>',
     }[it.k];
     const adv = [
-      `<div class="st-num"><span>시작</span><b>${fmtT1(it.t0)}</b><button class="chip" data-t0>지금으로</button></div>`,
+      `<div class="st-num"><span>시작</span><input type="number" min="0" step="0.1" value="${(+it.t0).toFixed(1)}" data-pt0n><i>초</i><button class="chip" data-t0>지금으로</button></div>`,
+      !isLive(it) && it.k !== 'move' ? `${sw('pspan', !!it.span, '재생하는 동안에도 보이기 (시작 ~ 끝)')}${it.span ? `<div class="st-num"><span>끝</span><input type="number" min="0" step="0.1" value="${(+(it.t1 ?? it.t0 + 5)).toFixed(1)}" data-pt1n><i>초</i><button class="chip" data-t1now>지금으로</button></div>` : ''}` : '',
+      isLive(it) ? `<div class="st-num"><span>끝</span><input type="number" min="0" step="0.1" value="${it.t1 == null ? '' : (+it.t1).toFixed(1)}" placeholder="끝까지" data-pt1n ${it.t1 == null ? 'disabled' : ''}><i>초</i><button class="chip" data-t1now ${it.t1 == null ? 'disabled' : ''}>지금으로</button></div>` : '',
       `<div class="st-num"><span>나오는 순서</span><input type="number" min="1" max="20" step="1" value="${it.ord || 1}" data-pord><i>번째</i></div><p class="muted small st-note">같은 장면에서 같은 번호끼리는 같이 나와요. 간격은 장면 카드에서 바꿔요 (지금 ${it.gap ?? 0.8}초).</p>`,
       `<div class="st-num"><span>멈춰서 보여주기</span><input type="number" min="0" max="30" step="0.5" value="${it.hold ?? 4}" data-phold><i>초</i></div>`,
       it.k === 'light' && it.p?.tr ? sw('pfollow', !it.still, '재생되면 선수 따라가기') : '',
@@ -2096,6 +2101,15 @@ export async function studio(el, { id, mode }) {
       it.t0 = +t().toFixed(2);
       if (len != null) it.t1 = +(it.t0 + len).toFixed(2);
     });
+    // 시작 · 끝을 숫자로 (그림마다 자기 시간대로 · 다른 그림과 겹쳐도 됨)
+    box.querySelector('[data-pt0n]')?.addEventListener('change', ch(() => {
+      const v = Math.max(0, Math.min(dur() || 1e9, +box.querySelector('[data-pt0n]').value || 0));
+      const len = it.t1 == null ? null : it.t1 - it.t0;
+      it.t0 = +v.toFixed(2); if (len != null) it.t1 = +(it.t0 + Math.max(0.2, len)).toFixed(2);
+    }));
+    box.querySelector('[data-pt1n]')?.addEventListener('change', ch(() => { const v = +box.querySelector('[data-pt1n]').value; if (v > it.t0) it.t1 = +Math.min(dur() || 1e9, v).toFixed(2); else toast('끝은 시작보다 뒤여야 해요'); }));
+    box.querySelector('[data-t1now]')?.addEventListener('click', ch(() => { if (t() > it.t0 + 0.1) it.t1 = +t().toFixed(2); else toast('끝은 시작보다 뒤여야 해요 — 영상을 끝낼 장면으로 옮기고 누르세요'); }));
+    box.querySelector('[data-pspan]')?.addEventListener('change', ch(() => { it.span = !it.span; if (it.span && (it.t1 == null || it.t1 <= it.t0)) it.t1 = +(it.t0 + (+tele.set.dur || 5)).toFixed(2); }));
     box.querySelector('[data-pdur]')?.addEventListener('change', ch(() => { const v0 = box.querySelector('[data-pdur]').value; const v = +v0; if (v0 !== '' && v >= 0) it.t1 = +(it.t0 + v).toFixed(2); }));
     box.querySelector('[data-pend]')?.addEventListener('change', ch(() => { it.t1 = box.querySelector('[data-pend]').checked ? null : +(it.t0 + (+tele.set.dur || 5)).toFixed(2); }));
     box.querySelector('[data-panim]')?.addEventListener('change', ch(() => { const v0 = box.querySelector('[data-panim]').value; it.anim = Math.max(0, Math.min(6, v0 === '' ? 1.6 : +v0)); if (it.live) it.t1 = +(it.t0 + it.anim + 1.5).toFixed(2); }));
@@ -3381,7 +3395,7 @@ export async function studio(el, { id, mode }) {
         return;
       }
       if (tool === 'light') {
-        draft = newItem('light', { p: { x: +n.x.toFixed(4), y: +n.y.toFixed(4) }, r: 0.004, dim: 0.68 });
+        draft = newItem('light', { p: { x: +n.x.toFixed(4), y: +n.y.toFixed(4) }, r: 0.004, dim: 0.68, span: true }); // 고정 스포트라이트도 정한 시간 동안 보이게
         drag = { creating: true, start: n };
         render();
         return;
