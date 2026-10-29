@@ -6,7 +6,9 @@
 # 필요한 설정 (Vercel 환경 변수):
 #   GOOGLE_SA_JSON      — 이미 있음 (서비스 계정 · 'Firebase 인증 관리자' 권한)
 #   KAKAO_REST_KEY      — 카카오 디벨로퍼스 › 내 애플리케이션 › 앱 키 › REST API 키
-#   KAKAO_CLIENT_SECRET — (선택) 카카오 로그인 › 보안 › Client Secret 을 켰다면
+#   KAKAO_CLIENT_SECRET — 카카오 디벨로퍼스에서 클라이언트 시크릿을 ON 으로 켰다면 꼭 (그 REST API 키의 시크릿 코드)
+#                         서버에서만 씀 — 화면 코드에 넣지 않음 · 켰는데 없거나 틀리면 카카오가 KOE010 을 돌려줌
+#   설정 확인: /api/kakao?diag=1 → 키 · 시크릿이 '들어 있는지'만 (값은 안 보여 줌)
 # 카카오 디벨로퍼스 › 카카오 로그인 › Redirect URI 에 https://<사이트 주소>/api/kakao 등록
 # 동의항목: 카카오계정(이메일) 필수 — 이메일로 기존 계정을 찾고, 이메일 인증된 계정만 받음
 import json
@@ -65,8 +67,13 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: C901
         import requests
         q = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
-        key = os.environ.get('KAKAO_REST_KEY', '')
+        key = os.environ.get('KAKAO_REST_KEY', '').strip()
+        secret = os.environ.get('KAKAO_CLIENT_SECRET', '').strip()  # 붙여 넣을 때 생긴 앞뒤 공백 · 줄바꿈 제거
         info = _sa()
+        if q.get('diag'):  # 운영 환경 변수가 들어 있는지만 확인 (값은 절대 보여 주지 않음)
+            body = json.dumps({'rest_key': bool(key), 'client_secret': bool(secret), 'service_account': bool(info)}).encode()
+            self.send_response(200); self.send_header('Content-Type', 'application/json'); self.send_header('Cache-Control', 'no-store'); self.end_headers(); self.wfile.write(body)
+            return
         if not key or not info:
             return self._fail('config')
         redirect = f'{self._base()}/api/kakao'
@@ -88,12 +95,15 @@ class handler(BaseHTTPRequestHandler):
             return self._fail('state')
         try:
             data = {'grant_type': 'authorization_code', 'client_id': key, 'redirect_uri': redirect, 'code': q['code']}
-            if os.environ.get('KAKAO_CLIENT_SECRET'):
-                data['client_secret'] = os.environ['KAKAO_CLIENT_SECRET']
+            if secret:
+                data['client_secret'] = secret
             t = requests.post('https://kauth.kakao.com/oauth/token', data=data, timeout=10).json()
             at = t.get('access_token')
             if not at:
-                return self._fail('state')
+                err = str(t.get('error_code') or t.get('error') or '')
+                # 서버 기록에는 오류 코드만 (시크릿 · 코드 값은 남기지 않음)
+                print(f"kakao token error: {err} {str(t.get('error_description') or '')[:120]} secret_set={bool(secret)}", flush=True)
+                return self._fail('secret' if err in ('KOE010', 'invalid_client') else 'token')
             me = requests.get('https://kapi.kakao.com/v2/user/me', headers={'Authorization': f'Bearer {at}'}, timeout=10).json()
             acc = me.get('kakao_account') or {}
             email = (acc.get('email') or '').strip().lower()
