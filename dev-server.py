@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / 'feedbot'))
 import feeds  # noqa: E402  — 축구 브리핑 수집 (GitHub Actions 와 같은 코드)
 DEMO = '--demo' in sys.argv
 LAN = '--lan' in sys.argv
-PORT = 8765
+PORT = int(sys.argv[sys.argv.index('--port') + 1]) if '--port' in sys.argv else 8765  # 시제품: --port 로 다른 번호
 
 
 _cache = {'data': None}
@@ -77,7 +77,28 @@ class Handler(SimpleHTTPRequestHandler):
         path = self.path.split('?')[0]
         if DEMO and path == '/api/admin_user':  # 데모: 계정 지우기는 흉내만
             return self.send_bytes(json.dumps({'ok': True, 'demo': True}).encode(), 'application/json; charset=utf-8')
+        if DEMO and path == '/api/pay':  # 데모: 포트원 테스트 결제창까지만 (DB · 로그인 확인 없이)
+            return self.demo_pay()
         self.send_response(404); self.end_headers()
+
+    def demo_pay(self):
+        # 데모: 포트원 테스트 결제창까지 (DB · 로그인 확인 없이). 이 컴퓨터에서 PORTONE_STORE_ID · PORTONE_CHANNEL_KEY 를 넣고 켜면 열림
+        import os, time as _t
+        from urllib.parse import parse_qs, urlparse
+        step = (parse_qs(urlparse(self.path).query).get('step') or [''])[0]
+        n = int(self.headers.get('Content-Length') or 0)
+        q = json.loads(self.rfile.read(n) or b'{}')
+        J = lambda o: self.send_bytes(json.dumps(o, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
+        if step == 'complete':  # 체험 모드: 승인 확인 · 기간 연장은 하지 않음
+            return J({'ok': False, 'message': '체험 모드라 결제창까지만 확인했어요 (기간 연장은 실제 사이트에서). 테스트 결제는 포트원이 자동으로 취소해요.'})
+        sid, ck = os.environ.get('PORTONE_STORE_ID', ''), os.environ.get('PORTONE_CHANNEL_KEY', '')
+        if not (sid and ck):
+            return J({'ok': False, 'message': '데모: 포트원 상점 아이디 · 채널 키가 아직 없어요.'})
+        prices = {'gaffer': ('가퍼', 14900), 'rising': ('라이징', 29000), 'pro': ('프로', 39000), 'champion': ('챔피언', 54900)}
+        cyc = {'month': ('1개월', 1), 'year': ('12개월', 10)}
+        p, c = prices.get(q.get('plan'), prices['pro']), cyc.get(q.get('cycle'), cyc['month'])
+        return J({'ok': True, 'storeId': sid, 'channelKey': ck, 'paymentId': f"DEMO-{q.get('plan')}-{q.get('cycle')}-{int(_t.time() * 1000)}",
+                  'orderName': f'싸카매니저 {p[0]} {c[0]}', 'totalAmount': p[1] * c[1]})
 
     # 영상 탐색(seek)에 필요한 HTTP Range 요청 지원 — 기본 http.server 는 지원하지 않음
     def send_range(self, rng):

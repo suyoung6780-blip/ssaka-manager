@@ -1,9 +1,23 @@
 // 분석실 > 경기분석 — 영상을 보며 경기장을 탭해 장면 기록 → 상대(또는 우리) 공격 방향 · 슈팅 · 크로스 · 위험 지역 · 시간대 흐름 리포트
 // + 코치가 직접 정하는 포메이션(등번호) · 키 플레이어 → 저장하면 기록 · 자동 분석 · 포메이션 · 키 플레이어가 한 리포트로
-import { db, doc, updateDoc, deleteDoc } from '../fb.js';
+import { db, doc, updateDoc, deleteDoc, collection, getDocs } from '../fb.js';
 import { esc, toast, fail, modal, confirmBox, empty } from '../ui.js';
-import { state, go } from '../store.js';
+import { state, go, numberAt } from '../store.js';
 import { createPad, blank } from '../tactic.js';
+import { protoOn, loadWork, saveWork, workTimer, fmtDur } from '../proto/work.js';
+import { probe as probeVideo, DETECTORS, buildCands, CAND_TYPE } from '../proto/scenes.js';
+
+// 시제품(3.0): 분석 목적별 템플릿 — 그 목적에 쓰는 장면만 진하게 (다른 키도 그대로 눌러져요)
+export const TEMPLATES = [
+  ['all', '전체', null],
+  ['att', '공격', ['attack', 'through', 'long', 'dribble', 'cross', 'shot', 'goal', 'loss', 'counter', 'corner', 'freekick', 'note']],
+  ['def', '수비', ['press', 'win', 'clear', 'save', 'duel', 'loss', 'gegen', 'foul', 'shot', 'goal', 'note']],
+  ['tr', '전환', ['win', 'loss', 'counter', 'gegen', 'press', 'shot', 'note']],
+  ['set', '세트피스', ['corner', 'freekick', 'penalty', 'shot', 'goal', 'clear', 'save', 'foul', 'note']],
+  ['player', '선수 한 명', null],
+  ['gk', '골키퍼', ['save', 'clear', 'long', 'attack', 'corner', 'freekick', 'penalty', 'goal', 'note']],
+];
+const hasXY = (e) => e.x != null && e.y != null; // 위치 없이 빠르게 기록한 장면은 지도 · 위치 통계에서 빠져요
 
 // 손가락으로 쓰는 화면(휴대폰 · 태블릿)
 const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
@@ -265,6 +279,41 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
   let team = data.target === 'us' ? 'us' : 'opp';
   let saveT = null;
   let lastId = null; // 방금 기록한 장면
+  // ── 시제품(3.0): 팀 기능 'proto3'가 켜진 팀의 코치에게만 ──
+  const P = canEdit && !sample && protoOn();
+  const work = P ? await loadWork(post.id) : {};
+  work.log ||= []; work.sessions ||= [];
+  let roster = []; // 우리 팀 선수 (UID 연결)
+  if (P) {
+    try { roster = (await getDocs(collection(db, 'teams', state.team.id, 'members'))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => m.role === 'player').sort((a, b) => (+a.number || 99) - (+b.number || 99)); } catch { roster = []; }
+  }
+  const nameOf = (id) => roster.find((m) => m.id === id)?.name || '';
+  const ls0 = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
+  let tpl = P ? ls0('ssaka.p3.tpl', 'all') : 'all'; // 분석 목적 템플릿
+  let tplUid = P ? ls0('ssaka.p3.tplUid', '') : ''; // '선수 한 명' 템플릿의 선수
+  let quick = P ? ls0('ssaka.p3.quick', false) : false; // 빠른 기록: 키만 누르면 바로 기록 (위치는 나중에 · 안 찍어도 됨)
+  let skipDead = P ? ls0('ssaka.p3.skip', false) : false; // 멈춤 구간 건너뛰며 보기
+  // 되돌리기: 기록 + AI 후보 상태(맞음 · 아님)를 함께 저장했다가 되돌림
+  const undoS = []; const redoS = [];
+  const snapState = () => JSON.stringify({ e: data.events, c: (work.scan?.cands || []).map((c) => [c.id, c.state, c.ev || null]) });
+  const restore = (s) => {
+    const o = JSON.parse(s); data.events = o.e;
+    const m = new Map(o.c.map(([id, st, ev]) => [id, [st, ev]]));
+    (work.scan?.cands || []).forEach((c) => { const v = m.get(c.id); if (!v) return; c.state = v[0]; if (v[1]) c.ev = v[1]; else delete c.ev; });
+  };
+  const snap = () => { if (!P) return; undoS.push(snapState()); if (undoS.length > 80) undoS.shift(); redoS.length = 0; };
+  const W = P ? workTimer() : null;
+  if (W) state.cleanup.push(() => { W.stop(); pushSession(); });
+  const logEdit = (what, e, extra = {}) => { if (P) work.log.push({ at: new Date().toISOString(), what, id: e?.id, k: e?.k, t: e?.t, ...extra }); };
+  let curCand = null; // 후보 검토: 지금 보는 후보
+  function pushSession() {
+    if (!W || W.s.sec < 5) return;
+    const s = { ...W.s, end: new Date().toISOString(), videoSec: Math.round(video?.duration || 0) };
+    const i = work.sessions.findIndex((x) => x.start === s.start);
+    if (i >= 0) work.sessions[i] = s; else work.sessions.push(s);
+    saveWork(post.id, work).catch(() => {});
+  }
+  if (W) { const iv = setInterval(pushSession, 30000); state.cleanup.push(() => clearInterval(iv)); }
   const file = files.get(post.id);
   const vsrc = post.video?.url || (file ? URL.createObjectURL(file) : '');
   if (file) state.cleanup.push(() => URL.revokeObjectURL(vsrc));
@@ -279,7 +328,8 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       <div class="st-title"><strong>${esc(post.title)}</strong><small>경기분석 · ${esc([post.opponent && `vs ${post.opponent}`, post.date].filter(Boolean).join(' · '))}</small></div>
       <div class="st-actions"><span class="muted small" data-saved></span>${canEdit ? '<button class="btn ghost sm" data-full title="영상 · 단축키 · 경기장 · 자세히 칸을 한 화면에 (Esc로 나가기)">전체화면으로 기록</button><button class="btn ghost sm" data-del>삭제</button><button class="btn sm" data-savebtn>저장</button>' : ''}</div></header>
     ${sample ? '<div class="banner sample-banner">예시 리포트예요 — 코치님이 영상을 보며 단축키로 직접 기록하면(전반 · 후반 · 킥오프 · 결과 · 발 · 번호) 이렇게 한 장으로 정리돼요. 위 [전체 · 전반 · 후반]도 눌러 보세요.</div>' : ''}
-    <nav class="tabs admin-tabs ma-tabs">${[...(canEdit ? [['tag', '기록하기']] : [['check', '체크 포인트']]), ['formation', '포메이션'], ['report', '리포트']].map(([k, l]) => `<a href="javascript:void 0" data-tab="${k}">${l}</a>`).join('')}</nav>
+    ${P ? '<div class="banner p3-banner"><b>시제품 3.0</b> 이 팀에만 켜 둔 시험 기능이 있어요 — 목적별 템플릿 · 빠른 기록 · 실행 취소 · 선수 연결 · <b>AI 후보 (실험)</b> · 작업 시간 재기</div>' : ''}
+    <nav class="tabs admin-tabs ma-tabs">${[...(canEdit ? [['tag', '기록하기']] : [['check', '체크 포인트']]), ...(P ? [['review', 'AI 후보 (실험)']] : []), ['formation', '포메이션'], ['report', '리포트']].map(([k, l]) => `<a href="javascript:void 0" data-tab="${k}">${l}</a>`).join('')}</nav>
     <div class="ma-body">
       <div class="ma-video" ${canEdit ? '' : 'hidden'}>
         ${vsrc ? `<div class="ma-vwrap"><video playsinline preload="auto" crossorigin="anonymous" src="${esc(vsrc)}"></video>${canEdit ? '<div class="ma-status" data-status></div>' : ''}</div>
@@ -427,6 +477,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     drawStatus();
     video.addEventListener('pause', drawStatus);
     const upd = () => {
+      if (!el.querySelector('[data-time]')) return; // 화면을 떠난 뒤 늦게 온 신호
       el.querySelector('[data-time]').textContent = `${fmtT(t())} / ${fmtT(video.duration || 0)}`;
       el.querySelector('[data-seek]').value = video.duration ? Math.round((t() / video.duration) * 1000) : 0;
       el.querySelector('[data-play]').textContent = video.paused ? '▶' : '❚❚';
@@ -439,6 +490,20 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     el.querySelector('[data-seek]').oninput = (e) => { video.currentTime = (e.target.value / 1000) * (video.duration || 0); };
     el.querySelector('[data-rate]').onchange = (e) => { video.playbackRate = +e.target.value; e.target.blur(); };
     state.cleanup.push(() => video.pause());
+    if (W) {
+      W.bindPlaying(() => !video.paused);
+      // 멈춤 구간 건너뛰기: 찾아 둔 '선수가 거의 안 움직인 구간' 안에 들어오면 끝나기 2초 전으로
+      video.addEventListener('timeupdate', () => {
+        if (!skipDead || video.paused || !work.scan?.dead?.length) return;
+        const now = t();
+        const d = work.scan.dead.find((x) => now > x.t0 + 1 && now < x.t1 - 2.5);
+        if (d) { W.count('skipSec', Math.round(d.t1 - 2 - now)); video.currentTime = d.t1 - 2; toast(`멈춤 구간 ${Math.round(d.t1 - 2 - now)}초 건너뜀`); }
+      });
+    }
+  }
+  if (W) {
+    el.addEventListener('pointerdown', () => W.count('clicks'));
+    el.addEventListener('keydown', () => W.touch());
   }
 
   // ── 탭 ──
@@ -446,10 +511,10 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     tab = k;
     document.querySelectorAll('.tour-bubble').forEach((x) => x.remove()); document.querySelectorAll('.tour-on').forEach((x) => x.classList.remove('tour-on'));
     el.querySelectorAll('[data-tab]').forEach((a) => a.classList.toggle('active', a.dataset.tab === k));
-    el.querySelector('.ma-video').hidden = !(canEdit && (k === 'tag' || k === 'formation'));
-    el.querySelectorAll('[data-kb], [data-tips]').forEach((x) => { x.hidden = k !== 'tag'; });
-    el.querySelector('.ma-body').classList.toggle('wide', !(canEdit && (k === 'tag' || k === 'formation')));
-    if (k === 'tag') drawTag(); else if (k === 'check') drawCheck(); else if (k === 'formation') drawFormation(); else drawReport();
+    el.querySelector('.ma-video').hidden = !(canEdit && (k === 'tag' || k === 'formation' || k === 'review'));
+    el.querySelectorAll('[data-kb], [data-tips]').forEach((x) => { x.hidden = k !== 'tag' && !(k === 'review' && x.matches('[data-kb]')); });
+    el.querySelector('.ma-body').classList.toggle('wide', !(canEdit && (k === 'tag' || k === 'formation' || k === 'review')));
+    if (k === 'tag') drawTag(); else if (k === 'review') drawReview(); else if (k === 'check') drawCheck(); else if (k === 'formation') drawFormation(); else drawReport();
     syncMaPhone();
   };
   el.querySelectorAll('[data-tab]').forEach((a) => (a.onclick = () => setTab(a.dataset.tab)));
@@ -503,6 +568,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
         ${half === 1 ? '<button class="btn sm" data-start2 title="영상에서 후반이 시작하는 순간에 누르세요">후반 시작</button>' : ''}
         <button class="btn ghost sm" data-dir title="${half === 2 ? '후반은 전반과 반대로 자동으로 바뀌어요' : '전반에 화면에서 공격하는 방향'}">${dirLabel()} ${dirArrow()}</button>
 </div>
+      ${P ? p3Bar() : ''}
       <div class="ma-halfbar h${half}"><b>${HALF[half]}</b> 기록하는 중<span>${half === 1 ? '후반이 되면 위 <b>후반 시작</b>을 누르세요' : '전반 기록은 위 <b>전반</b>을 누르면 다시 보여요'}</span></div>
       ${data.halfStart[half] == null ? `<p class="ma-kowarn">${HALF[half]} 킥오프 시각을 아직 안 맞췄어요 — 영상에서 <b>휘슬이 울리는 순간</b> 위 <b>지금이 ${HALF[half]} 킥오프</b>를 누르면 리포트 시간(예: ${HALF[half]} 15분)이 정확해져요.</p>` : ''}
       <p class="muted small ma-hint" data-hint></p>
@@ -541,6 +607,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       save(); drawTag(); toast(`${HALF[half]} 킥오프를 ${fmtT(t())}로 맞췄어요.`);
     };
     panel.querySelector('[data-detailon]').onchange = (e) => { detailOn = e.target.checked; lsSet('ssaka.ma.detail2', detailOn); drawDetail(); drawHint(); };
+    if (P) bindP3(panel);
     drawHint();
     drawTagPitch();
     drawDetail();
@@ -549,6 +616,244 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     bindKeys();
     drawKb();
   }
+  // ───────── 시제품(3.0) 도구: 템플릿 · 빠른 기록 · 되돌리기 · 건너뛰기 ─────────
+  const tplKinds = () => { const t0 = TEMPLATES.find(([k]) => k === tpl); return t0?.[2] ? new Set(t0[2]) : null; };
+  const playerOpts = (sel) => roster.map((m) => `<option value="${m.id}" ${m.id === sel ? 'selected' : ''}>${esc(m.number ? `${m.number}번 ` : '')}${esc(m.name || '')}${m.position ? ` · ${esc(m.position)}` : ''}</option>`).join('');
+  function p3Bar() {
+    return `<div class="p3-bar">
+      <label class="p3-f">분석 목적<select data-p3tpl>${TEMPLATES.map(([k, l]) => `<option value="${k}" ${k === tpl ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      ${(tpl === 'player' || tpl === 'gk') && roster.length ? `<label class="p3-f">선수<select data-p3uid><option value="">선수 고르기</option>${playerOpts(tplUid)}</select></label>` : ''}
+      <label class="switch sm" title="단축키를 누르면 지금 시각으로 바로 기록돼요. 위치는 6초 안에 경기장을 누르면 붙고, 안 눌러도 돼요"><input type="checkbox" data-p3quick ${quick ? 'checked' : ''}><span>빠른 기록 (위치는 선택)</span></label>
+      ${work.scan?.dead?.length ? `<label class="switch sm" title="AI 후보 찾기에서 찾은 '선수가 거의 안 움직인 구간'을 재생할 때 넘어가요"><input type="checkbox" data-p3skip ${skipDead ? 'checked' : ''}><span>멈춤 구간 건너뛰기 (${work.scan.dead.length}곳)</span></label>` : ''}
+      <span class="p3-undo"><button type="button" class="btn ghost sm" data-p3undo ${undoS.length ? '' : 'disabled'} title="Ctrl(⌘) + Z">되돌리기</button><button type="button" class="btn ghost sm" data-p3redo ${redoS.length ? '' : 'disabled'} title="Ctrl(⌘) + Shift + Z">다시 하기</button></span>
+    </div>`;
+  }
+  const redrawCur = () => { if (tab === 'review') drawReview(); else if (tab === 'tag') drawTag(); drawMarks(); };
+  function bindP3(box) {
+    box.querySelector('[data-p3tpl]')?.addEventListener('change', (e) => {
+      tpl = e.target.value; lsSet('ssaka.p3.tpl', tpl);
+      if ((tpl === 'player' || tpl === 'gk') && teams.includes('us') && team !== 'us') pickTeam('us');
+      redrawCur(); drawKb();
+    });
+    box.querySelector('[data-p3uid]')?.addEventListener('change', (e) => { tplUid = e.target.value; lsSet('ssaka.p3.tplUid', tplUid); e.target.blur(); toast(tplUid ? `이제 우리 팀 기록은 ${nameOf(tplUid)} 선수로 연결돼요.` : '선수 연결을 껐어요.'); });
+    box.querySelector('[data-p3quick]')?.addEventListener('change', (e) => { quick = e.target.checked; lsSet('ssaka.p3.quick', quick); e.target.blur(); drawHint(); });
+    box.querySelector('[data-p3skip]')?.addEventListener('change', (e) => { skipDead = e.target.checked; lsSet('ssaka.p3.skip', skipDead); e.target.blur(); });
+    box.querySelector('[data-p3undo]')?.addEventListener('click', (ev) => { ev.currentTarget.blur(); undo(); });
+    box.querySelector('[data-p3redo]')?.addEventListener('click', (ev) => { ev.currentTarget.blur(); redo(); });
+  }
+  function afterChange() {
+    if (lastId && !data.events.some((x) => x.id === lastId)) lastId = null;
+    save(); saveWork(post.id, work).catch(() => {}); redrawCur(); drawStatus();
+  }
+  function undo() {
+    if (!undoS.length) { toast('되돌릴 기록이 없어요.'); return; }
+    redoS.push(snapState()); restore(undoS.pop()); W?.count('undos'); logEdit('undo'); afterChange(); toast('되돌렸어요.');
+  }
+  function redo() {
+    if (!redoS.length) return;
+    undoS.push(snapState()); restore(redoS.pop()); logEdit('redo'); afterChange();
+  }
+  let quickAt = 0; // 빠른 기록 시각 (이 뒤 6초 안에 경기장을 누르면 위치가 붙음)
+  function quickAdd(k) {
+    if (!video) { toast('먼저 경기 영상을 열어 주세요.'); return; }
+    const e = { id: uid(), t: +t().toFixed(1), half, team, k, x: null, y: null };
+    if (k === 'note') { const s0 = prompt('메모'); if (!s0) return; e.text = s0.slice(0, 80); }
+    quickAt = Date.now();
+    addEvent(e);
+  }
+
+  // ───────── AI 후보 (실험): 영상 확인 → 후보 찾기 → 검토 → 확정한 것만 기록 ─────────
+  let scanning = null; // { ctl, label, p }
+  const cands = () => work.scan?.cands || [];
+  const evOf = (c) => data.events.find((x) => x.id === c.ev);
+  const scanSrc = () => file || post.video?.url || (lk?.kind === 'file' ? lk.url : null);
+  const fmtWhen = (iso) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const KIND_HINT = { whistle: ['foul', 'freekick', 'offside', 'corner', 'goal'], restart: ['corner', 'freekick', 'penalty', 'goal'], long: ['goal', 'note'] };
+  function probeHtml(p) {
+    if (!p) return '<p class="muted small">영상 파일의 형식 · 길이 · 화면 크기 · 소리를 확인하고, 어떤 방식으로 후보를 찾을 수 있는지 알려 줘요.</p>';
+    const row = (l, v) => `<div><small>${l}</small><b>${v}</b></div>`;
+    return `<div class="p3-probe">${row('형식', esc(p.kind.toUpperCase()))}${row('화면', p.w ? `${p.w} × ${p.h}` : '-')}${row('길이', p.dur ? fmtT(p.dur) : '-')}${row('크기', `${p.sizeMB.toLocaleString()}MB`)}${row('소리', p.hasAudio ? '있음' : '<span class="p3-no">분석 못 함</span>')}</div>
+      ${p.audio?.why ? `<p class="small p3-why">${esc(p.audio.why)}</p>` : ''}
+      <ul class="p3-can">${DETECTORS.map((d) => { const why = d.needs(p); return `<li class="${why ? 'off' : 'on'}"><b>${d.label}</b> ${why ? `— 쓸 수 없음: ${esc(why)}` : '— 쓸 수 있어요'}</li>`; }).join('')}</ul>`;
+  }
+  function detsHtml(p) {
+    const sel = ls0('ssaka.p3.dets', DETECTORS.map((d) => d.id));
+    return DETECTORS.map((d) => { const why = p ? d.needs(p) : ''; return `<label class="p3-det ${why ? 'off' : ''}"><input type="checkbox" data-det value="${d.id}" ${sel.includes(d.id) && !why ? 'checked' : ''} ${why || !p ? 'disabled' : ''}><span><b>${d.label}</b> <small class="muted">${d.ver}</small><br><small class="muted">${esc(d.hint)}</small></span></label>`; }).join('');
+  }
+  function curHtml() {
+    const c = cands().find((x) => x.id === curCand);
+    if (!c) return '<p class="muted small"><kbd>L</kbd>(또는 아래 목록의 시각)을 누르면 첫 후보부터 영상이 그 장면 몇 초 앞에서 재생돼요.</p>';
+    const e = evOf(c);
+    return `<div class="p3-curhead"><span class="p3-type t-${c.type}">${CAND_TYPE[c.type]}</span><b>${fmtT(c.t)}</b><small class="muted">${esc(c.why)} · 믿을 만한 정도 ${Math.round(c.score * 100)}%</small>${c.state === 'ok' ? `<span class="tag solid">맞음 · ${esc(KIND[e?.k]?.l || '')}</span>` : c.state === 'no' ? '<span class="tag">아님</span>' : ''}</div>
+      <div class="p3-curbtns">${KIND_HINT[c.type].map((k) => `<button type="button" class="kb-key g-${KIND[k].g}" style="--c:${KIND[k].c}" data-ck="${k}"><b>${KIND[k].key}</b><span>${KIND[k].l}</span></button>`).join('')}
+        <button type="button" class="kb-key fn" data-cno><b>N</b><span>아님</span></button><button type="button" class="kb-key fn" data-crep><b>H</b><span>다시 보기</span></button><button type="button" class="kb-key fn" data-cnext><b>L</b><span>다음</span></button></div>
+      <p class="muted small">다른 장면이면 영상 밑 단축키를 그대로 누르세요 · 팀은 <kbd>Tab</kbd> (지금 ${TEAM[team]})</p>`;
+  }
+  const candRow = (c) => `<li class="p3-c ${c.state} ${c.id === curCand ? 'cur' : ''}" data-cid="${c.id}"><button type="button" class="link-btn ma-min" data-cgo>${fmtT(c.t)}</button><span class="p3-type t-${c.type}">${CAND_TYPE[c.type]}</span><small>${esc(c.why)}</small><span class="p3-score" title="믿을 만한 정도 ${Math.round(c.score * 100)}%"><i style="width:${Math.round(c.score * 100)}%"></i></span><b class="p3-st">${c.state === 'ok' ? `맞음 · ${esc(KIND[evOf(c)?.k]?.l || '')}` : c.state === 'no' ? '아님' : ''}</b></li>`;
+  function drawReview() {
+    const cs = cands(); const ok = cs.filter((c) => c.state === 'ok').length; const no = cs.filter((c) => c.state === 'no').length;
+    const sc = work.scan; const src = scanSrc();
+    panel.innerHTML = `
+      <div class="banner p3-warn"><b>실험 기능</b> 실제 유소년 경기에서 정확도가 검증되지 않았어요. AI 후보는 <b>리포트에 들어가지 않고</b>, 코치님이 맞다고 고른 것만 기록이 돼요.</div>
+      ${p3Bar()}
+      <section class="card p3-card"><h4>1. 영상 확인 <small class="muted">촬영 환경 · 분석할 수 있는지</small></h4>${probeHtml(sc?.probe)}
+        ${src ? `<div class="row"><button type="button" class="btn sm ${sc?.probe ? 'ghost' : ''}" data-p3probe>${sc?.probe ? '다시 확인' : '영상 확인하기'}</button></div>` : '<p class="muted small p3-why">내 컴퓨터 영상 파일(또는 mp4 주소)로 연 경기만 확인할 수 있어요. 유튜브 · 비메오 · Veo 링크는 영상을 직접 읽을 수 없어요.</p>'}</section>
+      <section class="card p3-card"><h4>2. 장면 후보 찾기 <small class="muted">이 컴퓨터 안에서만 · 영상은 어디에도 올라가지 않아요</small></h4>
+        <div class="p3-dets">${detsHtml(sc?.probe)}</div>
+        <div class="row p3-scanrow" data-scanrow>${scanning ? `<div class="p3-prog"><i style="width:${Math.round((scanning.p || 0) * 100)}%"></i></div><span class="small" data-scanlbl>${esc(scanning.label)} ${Math.round((scanning.p || 0) * 100)}%</span><button type="button" class="btn ghost sm" data-p3stop>멈추기</button>`
+          : `<button type="button" class="btn sm" data-p3scan ${sc?.probe && src ? '' : 'disabled'}>${sc?.cands ? '다시 찾기' : '후보 찾기 시작'}</button>${sc?.ranAt ? `<span class="muted small">${fmtWhen(sc.ranAt)} · 걸린 시간 ${fmtDur(sc.ms / 1000)} · ${esc((sc.used || []).join(' · ') || '-')}</span>` : '<span class="muted small">25분 영상에 몇 분 걸릴 수 있어요 — 그동안 기록하기 탭을 써도 돼요</span>'}`}</div>
+        ${sc?.camera ? `<p class="small">촬영 방식 짐작: <b>${esc(sc.camera.label)}</b> <span class="muted">(카메라가 움직인 시간 ${sc.camera.moving}%)</span></p>` : ''}
+        ${sc?.dead ? `<p class="small">선수가 거의 안 움직인 구간 <b>${sc.dead.length}곳 · 모두 ${fmtDur(sc.dead.reduce((a, d) => a + d.t1 - d.t0, 0))}</b> — 위 <b>멈춤 구간 건너뛰기</b>를 켜면 재생할 때 넘어가요. 먼 곳에서 벌어진 장면도 움직임이 작게 보여 섞일 수 있어요.</p>` : ''}
+      </section>
+      <section class="card p3-card"><h4>3. 후보 검토 <small class="muted">후보 ${cs.length} · 맞음 ${ok} · 아님 ${no} · 남음 ${cs.length - ok - no}${ok + no ? ` · 지금까지 맞은 비율 ${Math.round((ok / (ok + no)) * 100)}%` : ''}</small></h4>
+        ${cs.length ? `<p class="muted small p3-keys"><kbd>L</kbd> 다음 후보 · <kbd>J</kbd> 이전 · <kbd>H</kbd> 다시 보기 · 맞으면 <b>장면 단축키</b> (예: <kbd>Z</kbd> 코너킥 · <kbd>X</kbd> 프리킥 · <kbd>V</kbd> 파울 · <kbd>W</kbd> 득점) · 아니면 <kbd>N</kbd> · 잘못 누르면 <kbd>Ctrl</kbd>+<kbd>Z</kbd></p>
+          <div class="p3-cur" data-cur>${curHtml()}</div>
+          <ol class="list p3-cands" data-cands>${cs.map(candRow).join('')}</ol>`
+          : '<p class="muted small">아직 후보가 없어요. 위에서 영상 확인 → 후보 찾기를 해 주세요. 후보 없이도 기록하기 탭에서 그대로 기록할 수 있어요.</p>'}
+      </section>
+      ${linkHtml()}`;
+    bindP3(panel); bindReview(); drawKb();
+  }
+  function bindReview() {
+    panel.querySelector('[data-p3probe]')?.addEventListener('click', async (ev) => {
+      ev.currentTarget.blur(); const b = ev.currentTarget; b.disabled = true; b.textContent = '확인 중…';
+      try { const p = await probeVideo(scanSrc()); work.scan = { ...(work.scan || {}), probe: { ...p, audio: { ok: p.audio.ok, why: p.audio.why || '', silent: !!p.audio.silent } } }; logEdit('probe'); await saveWork(post.id, work); } catch (err) { fail(err); }
+      drawReview();
+    });
+    panel.querySelectorAll('[data-det]').forEach((c) => (c.onchange = () => { lsSet('ssaka.p3.dets', [...panel.querySelectorAll('[data-det]:checked')].map((x) => x.value)); c.blur(); }));
+    panel.querySelector('[data-p3scan]')?.addEventListener('click', (ev) => { ev.currentTarget.blur(); runScan(); });
+    panel.querySelector('[data-p3stop]')?.addEventListener('click', () => scanning?.ctl.abort());
+    panel.querySelectorAll('[data-cgo]').forEach((b) => (b.onclick = () => { b.blur(); goCand(cands().find((c) => c.id === b.closest('li').dataset.cid)); }));
+    panel.querySelectorAll('[data-ck]').forEach((b) => (b.onclick = () => { b.blur(); confirmCand(b.dataset.ck); }));
+    panel.querySelector('[data-cno]')?.addEventListener('click', (ev) => { ev.currentTarget.blur(); rejectCand(); });
+    panel.querySelector('[data-crep]')?.addEventListener('click', (ev) => { ev.currentTarget.blur(); const c = cands().find((x) => x.id === curCand); if (c) goCand(c); });
+    panel.querySelector('[data-cnext]')?.addEventListener('click', (ev) => { ev.currentTarget.blur(); stepCand(1); });
+    bindLinks();
+  }
+  async function runScan() {
+    const src = scanSrc(); const p = work.scan?.probe;
+    if (!src || !p) return;
+    const sel = [...panel.querySelectorAll('[data-det]:checked')].map((x) => x.value);
+    const use = DETECTORS.filter((d) => sel.includes(d.id) && !d.needs(p));
+    if (!use.length) { toast('쓸 수 있는 방식을 하나 이상 골라 주세요.'); return; }
+    if (cands().some((c) => c.state !== 'open') && !(await confirmBox('다시 찾으면 후보 목록이 새로 만들어져요. 이미 확정한 기록은 그대로 남아요. 다시 찾을까요?'))) return;
+    const ctl = new AbortController(); scanning = { ctl, label: '', p: 0 }; drawReview();
+    const T = performance.now(); const res = {};
+    try {
+      for (const d of use) {
+        scanning.label = d.label; scanning.p = 0;
+        res[d.id] = await d.run(src, p, {
+          signal: ctl.signal,
+          onProgress: (x) => { scanning.p = x; const r = panel.querySelector('[data-scanrow]'); if (!r) return; const i = r.querySelector('.p3-prog i'); if (i) i.style.width = `${Math.round(x * 100)}%`; const s = r.querySelector('[data-scanlbl]'); if (s) s.textContent = `${d.label} ${Math.round(x * 100)}%`; },
+        });
+      }
+      const cs = buildCands(res);
+      work.scan = { probe: p, ranAt: new Date().toISOString(), ms: Math.round(performance.now() - T), used: use.map((d) => d.label), vers: use.map((d) => d.ver),
+        dead: res.motion?.dead || null, camera: res.motion?.camera || null, whistle: res.whistle ? { th: res.whistle.th, n: res.whistle.hits.length } : null, cands: cs };
+      curCand = null; W.s.mode = 'assist'; logEdit('scan', null, { n: cs.length, vers: work.scan.vers });
+      await saveWork(post.id, work);
+      toast(`후보 ${cs.length}개를 찾았어요 (${fmtDur(work.scan.ms / 1000)}).`);
+    } catch (err) { if (err?.name === 'AbortError') toast('후보 찾기를 멈췄어요.'); else fail(err); }
+    scanning = null;
+    if (tab === 'review') drawReview();
+  }
+  function goCand(c, play = true) {
+    if (!c) return;
+    curCand = c.id;
+    if (video) { video.currentTime = Math.max(0, c.t0); if (play) video.play(); }
+    if (tab === 'review') drawReview();
+  }
+  function stepCand(d) {
+    const cs = cands(); if (!cs.length) return;
+    const i = cs.findIndex((c) => c.id === curCand);
+    if (d > 0) { const nx = cs.slice(i + 1).find((c) => c.state === 'open') || cs[i + 1]; if (nx) goCand(nx); else toast('마지막 후보예요. 남은 장면은 기록하기 탭에서 단축키로 더해요.'); }
+    else if (i > 0) goCand(cs[i - 1]);
+  }
+  function confirmCand(k) {
+    const c = cands().find((x) => x.id === curCand);
+    if (!c) { toast('먼저 L 키(또는 목록의 시각)로 후보로 가세요.'); return; }
+    snap();
+    const old = evOf(c);
+    if (c.state === 'ok' && old) { old.k = k; W.count('edits'); logEdit('cand-kind', old, { cand: c.id }); save(); }
+    else {
+      const now = t(); const at = now >= c.t0 - 1 && now <= c.t1 + 8 ? now : c.t; // 영상을 그 장면에서 멈췄으면 그 시각
+      const e = { id: uid(), t: +at.toFixed(1), half, team, k, x: null, y: null, src: 'ai', cand: c.id };
+      if (k === 'note') { const s0 = prompt('메모'); if (!s0) { undoS.pop(); return; } e.text = s0.slice(0, 80); }
+      c.state = 'ok'; c.ev = e.id; W.count('candOk'); logEdit('cand-ok', e, { cand: c.id });
+      addEvent(e, { nosnap: true });
+    }
+    W.s.mode = 'assist'; saveWork(post.id, work).catch(() => {});
+    toast(`${KIND[k].l}(으)로 확정했어요 · L 다음 후보`);
+    if (tab === 'review') drawReview();
+  }
+  function rejectCand() {
+    const c = cands().find((x) => x.id === curCand);
+    if (!c) return;
+    snap();
+    if (c.state === 'ok' && evOf(c)) { data.events = data.events.filter((x) => x.id !== c.ev); delete c.ev; save(); }
+    c.state = 'no'; W.count('candNo'); W.s.mode = 'assist'; logEdit('cand-no', null, { cand: c.id });
+    saveWork(post.id, work).catch(() => {});
+    stepCand(1);
+    if (tab === 'review') drawReview();
+  }
+  // 후보 검토 화면의 키: J 이전 · L 다음 · H 다시 보기 · N(또는 Backspace) 아님
+  function reviewKey(e) {
+    const c = e.code;
+    if (c === 'KeyL') { e.preventDefault(); stepCand(1); return true; }
+    if (c === 'KeyJ') { e.preventDefault(); stepCand(-1); return true; }
+    if (c === 'KeyH') { e.preventDefault(); const cc = cands().find((x) => x.id === curCand); if (cc) goCand(cc); return true; }
+    if (c === 'KeyN' || e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); rejectCand(); return true; }
+    return false;
+  }
+  // 선수 연결 (UID): 우리 팀 기록 중 선수가 없는 것만 모아서 번호로 빠르게
+  // 번호는 이 경기 날짜에 쓰던 번호로 찾음 (해가 바뀌어 번호가 바뀌어도 지난 영상은 그때 번호로)
+  const numOf = (m) => String(numberAt(m, post.date) || '');
+  const byNum = (n) => { const ms = roster.filter((m) => numOf(m) === String(n || '').trim()); return ms.length === 1 ? ms[0] : null; };
+  function linkHtml() {
+    if (!roster.length || !teams.includes('us')) return '';
+    const us = data.events.filter((e) => e.team === 'us'); const no = us.filter((e) => !e.uid);
+    return `<section class="card p3-card"><h4>선수 연결 <small class="muted">우리 팀 기록 ${us.length}개 중 ${us.length - no.length}개 연결 · 번호만 적고 Enter</small></h4>
+      ${!us.length ? '<p class="muted small">우리 팀 기록이 아직 없어요. 기록하면 여기서 번호로 선수와 연결해요.</p>' : no.length ? `<ul class="list p3-link">${no.slice(0, 40).map((e) => `<li data-lev="${e.id}"><button type="button" class="link-btn ma-min" data-go="${e.t}">${fmtT(e.t)}</button><span class="ma-tag" style="--c:${KIND[e.k].c}">${KIND[e.k].l}</span><input data-lnum inputmode="numeric" maxlength="3" placeholder="번호" value="${esc(e.num || '')}"><small data-lname class="muted">${e.num && byNum(e.num) ? esc(byNum(e.num).name) : ''}</small></li>`).join('')}</ul>${no.length > 40 ? `<p class="muted small">… ${no.length - 40}개 더 (위부터 채우면 이어서 보여요)</p>` : ''}` : '<p class="muted small">우리 팀 기록이 모두 선수와 연결됐어요.</p>'}</section>`;
+  }
+  function bindLinks() {
+    panel.querySelectorAll('.p3-link li').forEach((li) => {
+      const e = data.events.find((x) => x.id === li.dataset.lev); const inp = li.querySelector('[data-lnum]');
+      li.querySelector('[data-go]').onclick = (ev) => { ev.currentTarget.blur(); if (video) { video.currentTime = Math.max(0, e.t - 3); video.play(); } };
+      inp.oninput = () => { const m = byNum(inp.value); li.querySelector('[data-lname]').textContent = inp.value ? (m ? m.name : '이 번호의 선수가 없어요') : ''; };
+      inp.onkeydown = (ev) => {
+        ev.stopPropagation();
+        if (ev.key !== 'Enter') return;
+        const m = byNum(inp.value); if (!m) { toast('명단에 없는 번호예요.'); return; }
+        snap(); e.uid = m.id; e.num = numOf(m); W.count('edits'); logEdit('uid', e, { uid: m.id }); save();
+        const nx = li.nextElementSibling?.querySelector('[data-lnum]');
+        li.remove(); nx?.focus();
+        const h = panel.querySelector('.p3-link')?.closest('.p3-card')?.querySelector('h4 small');
+        if (h) { const us = data.events.filter((x) => x.team === 'us'); h.textContent = `우리 팀 기록 ${us.length}개 중 ${us.filter((x) => x.uid).length}개 연결 · 번호만 적고 Enter`; }
+      };
+    });
+  }
+  // 리포트 위: 확정 기록 기준 · 작업 시간 · 선수별(UID)
+  function p3ReportHtml() {
+    const ev = data.events; const ai = ev.filter((e) => e.src === 'ai').length; const nl = ev.filter((e) => !hasXY(e)).length;
+    const us = ev.filter((e) => e.team === 'us'); const linked = us.filter((e) => e.uid);
+    const ss = work.sessions.filter((s) => s.sec >= 5);
+    const vs = Math.round(video?.duration || ss.find((s) => s.videoSec)?.videoSec || 0);
+    const by = (m) => ss.filter((s) => s.mode === m).reduce((a, s) => a + s.sec, 0);
+    const cs = cands(); const ok = cs.filter((c) => c.state === 'ok').length; const no = cs.filter((c) => c.state === 'no').length;
+    const per = {};
+    linked.forEach((e) => { const b = (per[e.uid] ||= { n: 0, shot: 0, goal: 0, win: 0, loss: 0, ok: 0, fail: 0 }); b.n++; if (SHOT_KS.includes(e.k)) b.shot++; if (e.k === 'goal' || e.res === 'goal') b.goal++; if (WIN_KS.includes(e.k)) b.win++; if (e.k === 'loss') b.loss++; if (e.res === 'ok') b.ok++; if (e.res === 'fail') b.fail++; });
+    const rows = Object.entries(per).sort((a, b) => b[1].n - a[1].n);
+    return `<section class="card p3-rep"><h3>확정 기록 기준 <small class="muted">AI 후보 중 코치님이 맞다고 고른 것만 들어가요</small></h3>
+      <div class="rp-kpis"><div><b>${ev.length}</b><small>확정 기록</small></div><div><b>${ev.length - ai}</b><small>직접 기록</small></div><div><b>${ai}</b><small>AI 후보에서 확정</small></div><div><b>${nl}</b><small>위치 없음 (지도에서 빠짐)</small></div><div><b>${linked.length}/${us.length}</b><small>우리 팀 선수 연결</small></div>${cs.length ? `<div><b>${ok + no ? `${Math.round((ok / (ok + no)) * 100)}%` : '-'}</b><small>후보 맞은 비율 (${ok}/${ok + no})</small></div>` : ''}</div>
+      <h4>작업 시간 <small class="muted">영상이 재생 중이거나 45초 안에 손을 댄 시간만 · 이 화면에서 잰 값</small></h4>
+      ${ss.length ? `<table class="tbl p3-tbl"><tr><th>시작</th><th>방식</th><th>작업 시간</th><th>키 · 클릭</th><th>기록 추가 · 고침 · 지움</th><th>후보 맞음 · 아님</th><th>건너뛴 시간</th></tr>
+        ${ss.slice(-8).reverse().map((s) => `<tr><td>${fmtWhen(s.start)}</td><td>${s.mode === 'assist' ? '후보 검토' : '직접 기록'}</td><td><b>${fmtDur(s.sec)}</b></td><td>${s.keys} · ${s.clicks}</td><td>${s.adds} · ${s.edits} · ${s.dels}</td><td>${s.candOk} · ${s.candNo}</td><td>${fmtDur(s.skipSec || 0)}</td></tr>`).join('')}</table>
+        <p class="small">모두 <b>${fmtDur(by('manual') + by('assist'))}</b>${vs ? ` · 영상 ${fmtT(vs)} 기준 영상 1분당 <b>${((by('manual') + by('assist')) / (vs / 60)).toFixed(1)}분</b>` : ''}${by('manual') && by('assist') ? ` · 직접 기록 ${fmtDur(by('manual'))} / 후보 검토 ${fmtDur(by('assist'))}` : ''}</p>
+        <p class="muted small">비교는 같은 길이의 경기를 한 번은 직접 기록, 한 번은 후보 검토로 해 봐야 정확해요. 한 경기 안의 숫자만으로는 줄었다고 말할 수 없어요.</p>` : '<p class="muted small">아직 잰 작업 시간이 없어요. 기록하기 · AI 후보 탭에서 작업하면 자동으로 재요.</p>'}
+      ${rows.length ? `<h4>선수별 (연결된 기록) <small class="muted">선수를 누르면 그 선수의 성장 카드(IDP)로 가요</small></h4><table class="tbl p3-tbl"><tr><th>선수</th><th>관여</th><th>슈팅</th><th>골</th><th>성공/실패</th><th>탈취</th><th>뺏김</th></tr>${rows.map(([id, b]) => `<tr><td><a href="#/idp/${esc(id)}">${esc(nameOf(id) || id)}</a></td><td>${b.n}</td><td>${b.shot}</td><td>${b.goal}</td><td>${b.ok}/${b.fail}</td><td>${b.win}</td><td>${b.loss}</td></tr>`).join('')}</table>` : ''}
+    </section>`;
+  }
+
   // 영상 밑 키보드 그림: 실제 키보드 자리 그대로 · 눌러도 장면이 골라짐
   const KB_SHORT = { cross: '크로스 · 컷백', duel: '경합 · 태클', penalty: '페널티킥', offside: '오프사이드' };
   const KB_ROWS = [['1', '2', '3', '4', '5', '6'], ['Q', 'W', 'E', 'R', 'T'], ['A', 'S', 'D', 'F', 'G'], ['Z', 'X', 'C', 'V', 'B']];
@@ -556,14 +861,20 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     const kb = el.querySelector('[data-kb]');
     const tips = el.querySelector('[data-tips]');
     if (!kb) return;
-    kb.innerHTML = `<div class="kb-head"><b>단축키</b><span class="muted small">한글 · 영어 상관없이 이 자리를 누르면 돼요 · 그림을 눌러도 골라져요</span></div>
-      ${KB_ROWS.map((row, i) => `<div class="kb-row r${i}">${row.map((key) => { const k = KINDS.find((x) => x[2] === key); return k ? `<button type="button" class="kb-key g-${k[4]} ${k[0] === kind ? 'on' : ''}" data-kind="${k[0]}" style="--c:${k[3]}" title="${k[1]}"><b>${key}</b><span>${KB_SHORT[k[0]] || k[1]}</span></button>` : ''; }).join('')}</div>`).join('')}
+    const tk = P ? tplKinds() : null;
+    kb.innerHTML = `<div class="kb-head"><b>단축키</b><span class="muted small">${P && tab === 'review' ? '후보가 맞으면 그 장면 키를 누르세요 · <b>N</b> 아님 · <b>L</b> 다음' : '한글 · 영어 상관없이 이 자리를 누르면 돼요 · 그림을 눌러도 골라져요'}${tk ? ` · 목적 <b>${TEMPLATES.find(([k]) => k === tpl)[1]}</b>에 쓰는 키만 진하게` : ''}</span></div>
+      ${KB_ROWS.map((row, i) => `<div class="kb-row r${i}">${row.map((key) => { const k = KINDS.find((x) => x[2] === key); return k ? `<button type="button" class="kb-key g-${k[4]} ${k[0] === kind ? 'on' : ''} ${tk && !tk.has(k[0]) ? 'p3-dim' : ''}" data-kind="${k[0]}" style="--c:${k[3]}" title="${k[1]}"><b>${key}</b><span>${KB_SHORT[k[0]] || k[1]}</span></button>` : ''; }).join('')}</div>`).join('')}
       <div class="kb-row r4"><button type="button" class="kb-key fn" data-kbtab ${teams.length > 1 ? '' : 'disabled'}><b>Tab</b><span>${teams.length > 1 ? `지금 ${TEAM[team]} · 바꾸기` : `${TEAM[main]} 팀`}</span></button>
         <button type="button" class="kb-key fn space" data-kbplay><b>Space</b><span>재생 · 멈춤</span></button>
         <button type="button" class="kb-key fn" data-kbesc><b>Esc</b><span>취소</span></button>
         <button type="button" class="kb-key fn del ${delMode ? 'on' : ''}" data-kbdel><b>Del</b><span>기록 지우기</span></button></div>
       <div class="kb-legend">${KGROUPS.map(([g, gl]) => `<span><i style="background:${GCOLOR[g]}"></i>${gl}</span>`).join('')}<span class="muted">경기장 점에도 이 글자가 찍혀요 · ← → 5초 이동</span></div>`;
-    kb.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = () => { pickKind(b.dataset.kind); b.blur(); }));
+    kb.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = () => {
+      b.blur();
+      if (P && tab === 'review') { confirmCand(b.dataset.kind); return; }
+      pickKind(b.dataset.kind);
+      if (P && quick) quickAdd(b.dataset.kind);
+    }));
     kb.querySelector('[data-kbtab]').onclick = (ev) => { if (teams.length > 1) pickTeam(team === 'opp' ? 'us' : 'opp'); ev.currentTarget.blur(); };
     kb.querySelector('[data-kbplay]').onclick = (ev) => { if (video) (video.paused ? video.play() : video.pause()); ev.currentTarget.blur(); };
     kb.querySelector('[data-kbesc]').onclick = (ev) => { pending = null; delMode = false; drawHint(); drawTagPitch(); drawStatus(); ev.currentTarget.blur(); };
@@ -587,6 +898,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     box.innerHTML = !video ? '영상을 열면 기록할 수 있어요.'
       : delMode ? '<b class="ma-delhint">지우기</b> — 경기장에서 <b>지울 점</b>을 누르세요 (최근 30초 안의 기록이 보여요 · 예전 기록은 아래 목록의 ✕) · <kbd>Esc</kbd> 취소'
       : pending ? `<b>끝 지점</b>을 누르세요 — 공(또는 선수)이 간 곳 · <kbd>Esc</kbd> 취소`
+      : P && quick ? `<b>빠른 기록</b> — 단축키를 누르면 지금 영상 시각(${fmtT(t())})으로 <b>바로 기록</b>돼요. 위치를 남기려면 <b>6초 안에</b> 아래 경기장을 누르세요 (안 눌러도 돼요 · 지도에서만 빠져요)${(tpl === 'player' || tpl === 'gk') && tplUid ? ` · 우리 팀 기록은 <b>${esc(nameOf(tplUid))}</b> 선수로 연결` : ''}.`
         : `<b>${KIND[kind].l}</b>(${TEAM[team]})을 고른 채로 아래 경기장에서 <b>일어난 곳</b>을 누르세요${lineK ? ' — 공이 간 곳까지 보여 주려면 <b>누른 채 끝 지점까지 끌어서</b> 놓으세요' : ''}. 지금 영상 시각(${fmtT(t())})으로 기록돼요${detailOn ? ' — 아래에서 결과 · 발 · 번호를 더 고를 수 있어요' : ''}.`;
   }
   // 방금 기록한 장면: 결과 · 발 · 높이 · 번호를 바로 고름 (안 골라도 돼요)
@@ -597,17 +909,31 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     if (!e || (!detailOn && !box.dataset.force)) { box.innerHTML = ''; delete box.dataset.force; return; }
     delete box.dataset.force;
     const ds = DETAILS_OF[e.k] || [];
-    box.innerHTML = `<div class="ma-dhead"><span class="ma-tag" style="--c:${KIND[e.k].c}">${KIND[e.k].l}</span><b>${TEAM[e.team]}</b><small>${matchMin(e)} · ${third(e.x)} · ${channel(e.y)}${e.x2 != null ? ' · 끝 지점 있음' : ''}</small><span class="muted small">방금 기록 — 더 자세히 (안 골라도 돼요)</span></div>
+    box.innerHTML = `<div class="ma-dhead"><span class="ma-tag" style="--c:${KIND[e.k].c}">${KIND[e.k].l}</span><b>${TEAM[e.team]}</b><small>${matchMin(e)} · ${hasXY(e) ? `${third(e.x)} · ${channel(e.y)}` : '위치 없음'}${e.x2 != null ? ' · 끝 지점 있음' : ''}${e.src === 'ai' ? ' · AI 후보에서 확정' : ''}</small><span class="muted small">방금 기록 — 더 자세히 (안 골라도 돼요)</span></div>
       ${ds.map((d) => `<div class="ma-drow"><span>${DETAIL[d][0]}</span>${DETAIL[d][1].map(([v, l]) => `<button type="button" class="chip ${e[fieldOf(d)] === v ? 'active' : ''}" data-dv="${d}:${v}">${l}</button>`).join('')}</div>`).join('')}
-      <div class="ma-drow"><span>선수 번호</span><input data-dnum value="${esc(e.num || '')}" maxlength="3" inputmode="numeric" placeholder="예) 7"><span class="muted small">${e.team === 'us' ? '우리' : '상대'} 선수 번호를 적으면 리포트에 선수별로 모여요</span></div>
+      <div class="ma-drow"><span>선수 번호</span><input data-dnum value="${esc(e.num || '')}" maxlength="3" inputmode="numeric" placeholder="예) 7"><span class="muted small">${e.team === 'us' ? '우리' : '상대'} 선수 번호를 적으면 리포트에 선수별로 모여요${P && e.team === 'us' && roster.length ? ' · 우리 팀은 번호가 명단과 맞으면 선수와 자동 연결' : ''}</span></div>
+      ${P && e.team === 'us' && roster.length ? `<div class="ma-drow p3-who"><span>선수 연결</span>${roster.map((m) => `<button type="button" class="chip ${e.uid === m.id ? 'active' : ''}" data-duid="${m.id}">${esc(numOf(m) ? `${numOf(m)} ` : '')}${esc(m.name || '')}</button>`).join('')}</div>` : ''}
       ${e.k === 'note' || e.text ? `<div class="ma-drow"><span>메모</span><input data-dtext value="${esc(e.text || '')}" maxlength="80" placeholder="메모"></div>` : ''}`;
     box.querySelectorAll('[data-dv]').forEach((b) => (b.onclick = () => {
       const [d, v] = b.dataset.dv.split(':'); const f = fieldOf(d);
+      snap(); W?.count('edits');
       if (e[f] === v) delete e[f]; else e[f] = v;
+      logEdit('detail', e, { [f]: e[f] ?? null });
       save(); drawDetail(); drawLog(); drawLive();
     }));
+    box.querySelectorAll('[data-duid]').forEach((b) => (b.onclick = () => {
+      snap(); W.count('edits');
+      const m = roster.find((x) => x.id === b.dataset.duid);
+      if (e.uid === m.id) { delete e.uid; } else { e.uid = m.id; if (numOf(m)) e.num = numOf(m); }
+      logEdit('uid', e, { uid: e.uid || null }); save(); drawDetail(); drawLog();
+    }));
     const ni = box.querySelector('[data-dnum]');
-    ni.oninput = () => { const v = ni.value.trim().slice(0, 3); if (v) e.num = v; else delete e.num; save(); drawLog(); };
+    ni.onfocus = () => snap();
+    ni.oninput = () => {
+      const v = ni.value.trim().slice(0, 3); if (v) e.num = v; else delete e.num;
+      if (P && e.team === 'us') { const m = byNum(v); if (m) e.uid = m.id; else if (e.uid && !v) delete e.uid; }
+      save(); drawLog();
+    };
     ni.onkeydown = (ev) => { if (ev.key === 'Enter') ni.blur(); ev.stopPropagation(); };
     const ti = box.querySelector('[data-dtext]');
     if (ti) { ti.oninput = () => { e.text = ti.value.trim().slice(0, 80); save(); drawLog(); }; ti.onkeydown = (ev) => ev.stopPropagation(); }
@@ -655,7 +981,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     if (!box) return;
     const now = t();
     // 최근 30초의 기록은 화면 방향 그대로 점으로 (끝 지점이 있으면 화살표)
-    const shown = () => data.events.filter((e) => halfOf(e) === half && Math.abs(e.t - t()) <= 30);
+    const shown = () => data.events.filter((e) => hasXY(e) && halfOf(e) === half && Math.abs(e.t - t()) <= 30);
     const shownEv = shown();
     const recent = shownEv.map((e) => {
       const d0 = dirOf(halfOf(e));
@@ -705,12 +1031,25 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
         const near = shown().map((e) => { const [ex, ey] = toScreen(e.x, e.y, e.team, dirOf(halfOf(e))); return { e, d: Math.hypot((ex - sx) * 105, (ey - sy) * 68) }; }).sort((a, b) => a.d - b.d)[0];
         delMode = false;
         if (!near || near.d > 4) { toast('그 자리에 지울 점이 없어요. 점을 정확히 눌러 주세요.'); drawHint(); drawTagPitch(); drawStatus(); return; }
+        snap(); W?.count('dels'); logEdit('del', near.e);
         data.events = data.events.filter((x) => x.id !== near.e.id);
         if (lastId === near.e.id) lastId = null;
         save(); drawHint(); drawTagPitch(); drawDetail(); drawLog(); drawLive(); drawMarks();
         el.querySelector('.ma-h small').textContent = `${data.events.filter((x) => halfOf(x) === half).length}개`;
         flash = { ...near.e, del: true, at: Date.now() }; drawStatus(); setTimeout(drawStatus, 2600);
         return;
+      }
+      // 빠른 기록 뒤 6초 안: 방금 기록에 위치만 붙임
+      if (P && lastId && Date.now() - quickAt < 6000) {
+        const le = data.events.find((x0) => x0.id === lastId);
+        if (le && !hasXY(le)) {
+          snap();
+          const [lx, ly] = toStore(sx, sy, le.team, dirOf(halfOf(le))); le.x = r3(lx); le.y = r3(ly);
+          if (end) { const [x2, y2] = toStore(end[0], end[1], le.team, dirOf(halfOf(le))); le.x2 = r3(x2); le.y2 = r3(y2); }
+          quickAt = 0; W.count('edits'); logEdit('loc', le);
+          save(); drawHint(); drawTagPitch(); drawDetail(); drawLog(); drawLive();
+          return;
+        }
       }
       const [x, y] = toStore(sx, sy, team, dirOf(half));
       const e = { id: uid(), t: +t().toFixed(1), half, team, k: kind, x: r3(x), y: r3(y) };
@@ -719,7 +1058,13 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       addEvent(e);
     };
   }
-  function addEvent(e) {
+  function addEvent(e, { nosnap = false } = {}) {
+    if (P) {
+      if (!nosnap) snap();
+      // '선수 한 명' · '골키퍼' 템플릿: 우리 팀 기록은 고른 선수로 바로 연결
+      if ((tpl === 'player' || tpl === 'gk') && tplUid && e.team === 'us' && !e.uid) { e.uid = tplUid; const m = roster.find((x) => x.id === tplUid); if (m && numOf(m)) e.num = numOf(m); }
+      W.count('adds'); if (e.src !== 'ai') logEdit('add', e);
+    }
     // 후반 킥오프 시각을 맞춰 뒀으면 영상 시각으로 전반 · 후반을 자동으로
     const h2 = data.halfStart[2];
     if (h2 != null && h2 > (data.halfStart[1] || 0)) { e.half = e.t >= h2 ? 2 : 1; if (e.half !== half) { half = e.half; setTimeout(drawTag, 0); } }
@@ -727,7 +1072,8 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     data.events.sort((a, b) => a.t - b.t);
     lastId = e.id;
     save(); drawHint(); drawTagPitch(); drawDetail(); drawLog(); drawLive();
-    el.querySelector('.ma-h small').textContent = `${data.events.filter((x) => halfOf(x) === half).length}개`;
+    const hc = el.querySelector('.ma-h small'); if (hc) hc.textContent = `${data.events.filter((x) => halfOf(x) === half).length}개`;
+    if (P) { const u = el.querySelector('[data-p3undo]'); if (u) u.disabled = false; }
     tagged(e);
   }
   function drawLog() {
@@ -737,7 +1083,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     const mf = minuteFn(data.events, data.halfStart);
     box.innerHTML = list.map((e) => `<li data-ev="${e.id}" class="${e.id === lastId ? 'new' : ''}"><i class="ma-hf h${halfOf(e)}">${HALF[halfOf(e)][0]}</i><button class="link-btn ma-min" data-go="${e.t}" title="영상 ${fmtT(e.t)}">${Math.floor(mf(e))}′</button>
       <span class="ma-tag" style="--c:${KIND[e.k].c}">${KIND[e.k].l}</span><b>${TEAM[e.team]}</b>
-      <small>${third(e.x)} · ${channel(e.y)}${detailText(e) ? ` · ${esc(detailText(e))}` : ''}${e.text ? ` · ${esc(e.text)}` : ''}</small>${canEdit ? '<button class="link-btn small" data-pick>고치기</button><button class="link-btn small" data-rm>✕</button>' : ''}</li>`).join('') || '<li class="muted">아직 기록이 없어요.</li>';
+      <small>${hasXY(e) ? `${third(e.x)} · ${channel(e.y)}` : '위치 없음'}${detailText(e) ? ` · ${esc(detailText(e))}` : ''}${e.text ? ` · ${esc(e.text)}` : ''}${e.uid && nameOf(e.uid) ? ` · <b class="p3-name">${esc(nameOf(e.uid))}</b>` : ''}${e.src === 'ai' ? ' · <i class="p3-src">AI 후보에서</i>' : ''}</small>${canEdit ? '<button class="link-btn small" data-pick>고치기</button><button class="link-btn small" data-rm>✕</button>' : ''}</li>`).join('') || '<li class="muted">아직 기록이 없어요.</li>';
     // 새 기록이 보이게 — 페이지 전체가 아니라 기록 목록 안에서만 스크롤 (영상이 화면 밖으로 밀리지 않게)
     const li = box.querySelector('li.new');
     if (li && box.scrollHeight > box.clientHeight) box.scrollTop += li.getBoundingClientRect().top - box.getBoundingClientRect().top - box.clientHeight / 2;
@@ -745,6 +1091,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     box.querySelectorAll('[data-pick]').forEach((b) => (b.onclick = () => { lastId = b.closest('li').dataset.ev; panel.querySelector('[data-detail]').dataset.force = '1'; drawDetail(); drawLog(); panel.querySelector('[data-detail]').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }));
     box.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => {
       const id = b.closest('li').dataset.ev;
+      snap(); W?.count('dels'); logEdit('del', data.events.find((x) => x.id === id));
       data.events = data.events.filter((x) => x.id !== id);
       save(); drawTag(); drawMarks(); drawStatus();
     }));
@@ -766,19 +1113,28 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
   const toggleDel = () => { delMode = !delMode; pending = null; drawHint(); drawTagPitch(); drawStatus(); };
   const typing = (t0) => !!t0?.closest?.('textarea, [contenteditable], input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=button])');
   const onKey = (e) => {
-    if (tab !== 'tag' || typing(e.target) || document.querySelector('.modal-wrap')) return;
+    if (!(tab === 'tag' || (P && tab === 'review')) || typing(e.target) || document.querySelector('.modal-wrap')) return;
+    // 시제품: Ctrl(⌘)+Z 되돌리기 · Ctrl(⌘)+Shift+Z 또는 Ctrl+Y 다시 하기
+    if (P && (e.ctrlKey || e.metaKey) && !e.altKey && (e.code === 'KeyZ' || e.code === 'KeyY')) { e.preventDefault(); if (e.code === 'KeyY' || e.shiftKey) redo(); else undo(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    W?.count('keys');
     // 체크박스 · 속도 선택 · 버튼에 남은 포커스가 단축키를 먹지 않게
     const ae = document.activeElement;
     if (ae && ae !== document.body && ae.matches?.('button, select, input[type=checkbox], input[type=range]')) ae.blur();
     if (e.key === ' ' || e.code === 'Space') { if (!video) return; e.preventDefault(); if (!e.repeat) (video.paused ? video.play() : video.pause()); return; }
     if (e.key === 'ArrowRight' && video) { e.preventDefault(); video.currentTime = t() + 5; return; }
     if (e.key === 'ArrowLeft' && video) { e.preventDefault(); video.currentTime = Math.max(0, t() - 5); return; }
+    if (P && tab === 'review' && reviewKey(e)) return;
     if (e.key === 'Escape' && (pending || delMode)) { pending = null; delMode = false; drawHint(); drawTagPitch(); drawStatus(); return; }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); toggleDel(); return; }
-    if (e.key === 'Tab') { e.preventDefault(); if (teams.length > 1 && !e.repeat) pickTeam(team === 'opp' ? 'us' : 'opp'); return; }
+    if (e.key === 'Tab') { e.preventDefault(); if (teams.length > 1 && !e.repeat) { pickTeam(team === 'opp' ? 'us' : 'opp'); if (P && tab === 'review') { const c = panel.querySelector('[data-cur]'); if (c) c.innerHTML = curHtml(); bindReview(); } } return; }
     const hit = KEY_OF[e.code]; // e.code: 한글 자판이어도 'KeyQ'
-    if (hit) { e.preventDefault(); if (hit !== kind || pending) pickKind(hit); }
+    if (hit) {
+      e.preventDefault();
+      if (P && tab === 'review') { if (!e.repeat) confirmCand(hit); return; }
+      if (P && quick) { if (!e.repeat) { pickKind(hit); quickAdd(hit); } return; }
+      if (hit !== kind || pending) pickKind(hit);
+    }
   };
   if (canEdit) { document.addEventListener('keydown', onKey, true); state.cleanup.push(() => document.removeEventListener('keydown', onKey, true)); }
 
@@ -903,7 +1259,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
     // 전반 vs 후반 한눈에
     const cmp = [1, 2].map((h) => { const r0 = computeReport(data.events.filter((e) => halfOf(e) === h), rteam); return { h, atk: r0.atk.length, sh: r0.shots.length, g: r0.goals.length, xg: r0.xg, win: r0.wins.length, loss: r0.losses.length, set: r0.set.length, n: r0.ev.length }; });
     const lus = PHASES.filter(([ph]) => data.lineups?.[rteam]?.[ph]?.f);
-    const lineMap = (list, c) => list.filter((e) => e.x2 != null).map((e) => `<line x1="${(e.x * 105).toFixed(1)}" y1="${(e.y * 68).toFixed(1)}" x2="${(e.x2 * 105).toFixed(1)}" y2="${(e.y2 * 68).toFixed(1)}" stroke="${c}" stroke-width=".5" marker-end="url(#rp-ah)" opacity=".85"/>`).join('') + list.map((e) => dot(e.x, e.y, c, 1)).join('');
+    const lineMap = (list, c) => list.filter((e) => hasXY(e) && e.x2 != null).map((e) => `<line x1="${(e.x * 105).toFixed(1)}" y1="${(e.y * 68).toFixed(1)}" x2="${(e.x2 * 105).toFixed(1)}" y2="${(e.y2 * 68).toFixed(1)}" stroke="${c}" stroke-width=".5" marker-end="url(#rp-ah)" opacity=".85"/>`).join('') + list.filter(hasXY).map((e) => dot(e.x, e.y, c, 1)).join('');
     const ah = '<defs><marker id="rp-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M0 0L10 5L0 10z" fill="#fff"/></marker></defs>';
     const ranked = A.sections.find((x) => x.table)?.table || [];
     const rmf = minuteFn(data.events, data.halfStart); // 기록 목록: 경기 시간(킥오프 기준)
@@ -915,6 +1271,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
         <div><span class="eyebrow">MATCH REPORT</span><h2>${esc(post.title || '경기분석')}</h2><p class="muted small">${esc([post.opponent && `vs ${post.opponent}`, post.date, `${data.size} vs ${data.size}`].filter(Boolean).join(' · '))} · 기록 ${data.events.length}개</p></div>
         ${data.target === 'both' ? `<div class="rp-score"><span>우리</span><b>${gUs} : ${gOpp}</b><span>상대</span><small>전반 ${gOf('us', 1)}:${gOf('opp', 1)} · 후반 ${gOf('us', 2)}:${gOf('opp', 2)}</small></div>` : ''}
       </section>
+      ${P ? p3ReportHtml() : ''}
       ${!data.events.length ? empty('아직 기록이 없어요. 기록하기에서 장면을 기록하면 리포트가 자동으로 만들어져요.') : ''}
       ${rhalf === 'all' && data.events.length ? `<section class="card rp-cmp"><h3>전반 vs 후반 <small class="muted">${TEAM[rteam]} 팀</small></h3>
         <table class="tbl"><tr><th></th>${[['공격 장면', 'atk'], ['슈팅', 'sh'], ['득점', 'g'], ['기대 득점', 'xg'], ['공 따냄', 'win'], ['공 잃음', 'loss'], ['세트피스', 'set']].map(([l]) => `<th>${l}</th>`).join('')}</tr>
@@ -941,16 +1298,16 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
       <div class="ma-grid">
         <section class="card"><h3>공격 방향 <small>공격 장면 ${atk.length}개</small></h3>${bar('왼쪽', ch['왼쪽'])}${bar('가운데', ch['가운데'])}${bar('오른쪽', ch['오른쪽'])}</section>
         <section class="card"><h3>위험 지역 <small>공격이 많이 일어난 곳</small></h3>${pitchSvg(heatSvg)}</section>
-        <section class="card"><h3>슈팅 지도 <small>● 크기 = 기대 득점 · ★ 득점</small></h3>${pitchSvg(shots.map((e) => (e.k === 'goal' || e.res === 'goal' ? `<text x="${(e.x * 105).toFixed(1)}" y="${(e.y * 68 + 1.6).toFixed(1)}" class="star">★</text>` : dot(e.x, e.y, ['on', 'post'].includes(e.res) ? '#ffd400' : '#9a8a3a', 0.8 + xgOf(e) * 4))).join(''), { half: true })}</section>
+        <section class="card"><h3>슈팅 지도 <small>● 크기 = 기대 득점 · ★ 득점</small></h3>${pitchSvg(shots.filter(hasXY).map((e) => (e.k === 'goal' || e.res === 'goal' ? `<text x="${(e.x * 105).toFixed(1)}" y="${(e.y * 68 + 1.6).toFixed(1)}" class="star">★</text>` : dot(e.x, e.y, ['on', 'post'].includes(e.res) ? '#ffd400' : '#9a8a3a', 0.8 + xgOf(e) * 4))).join(''), { half: true })}</section>
         <section class="card"><h3>크로스 · 컷백 <small>끝 지점을 찍은 건 화살표</small></h3>${pitchSvg(ah + lineMap(crosses, '#ff9f0a'), { half: true })}</section>
         <section class="card"><h3>패스 · 돌파 경로 <small>끝 지점을 찍은 장면</small></h3>${pitchSvg(ah + lineMap(ev.filter((e) => [...PASS_KS, 'dribble', 'counter'].includes(e.k) && e.x2 != null), '#4ea1ff'))}</section>
-        <section class="card"><h3>공을 잃은 곳 <small>${opp ? '압박 포인트' : '보완할 곳'}</small></h3>${pitchSvg(losses.map((e) => dot(e.x, e.y, '#ff3b30', 1.2)).join(''))}</section>
-        <section class="card"><h3>공을 따낸 곳 <small>압박 · 탈취 · 인터셉트</small></h3>${pitchSvg(wins.map((e) => dot(e.x, e.y, '#bf5af2', 1.2)).join(''))}</section>
+        <section class="card"><h3>공을 잃은 곳 <small>${opp ? '압박 포인트' : '보완할 곳'}</small></h3>${pitchSvg(losses.filter(hasXY).map((e) => dot(e.x, e.y, '#ff3b30', 1.2)).join(''))}</section>
+        <section class="card"><h3>공을 따낸 곳 <small>압박 · 탈취 · 인터셉트</small></h3>${pitchSvg(wins.filter(hasXY).map((e) => dot(e.x, e.y, '#bf5af2', 1.2)).join(''))}</section>
         <section class="card"><h3>시간대별 공격 <small>${rhalf === 'all' ? '하프마다 15분' : `${HALF[rhalf]} 5분`} 단위 · ${TEAM[rteam]} / ${TEAM[other]}</small></h3>
           <div class="ma-flow">${flow.map((f, i) => { const a0 = f.es.filter((e) => e.team === rteam).length; const b0 = f.es.filter((e) => e.team === other).length; const mx = Math.max(1, ...flow.map((x) => x.es.length)); return `<div class="${i && f.h !== flow[i - 1].h ? 'ht' : ''}"><div class="cols"><i class="a" style="height:${(a0 / mx) * 100}%"></i><i class="b" style="height:${(b0 / mx) * 100}%"></i></div><small>${rhalf === 'all' ? `${f.from === 0 ? `${HALF[f.h]} ` : ''}${f.from}′` : `${f.from}′`}</small></div>`; }).join('')}</div></section>
       </div>
       <details class="card rp-log" ${canEdit ? '' : 'open'}><summary><b>전체 기록</b> <small class="muted">${ev.length}개 · ${TEAM[rteam]} 팀</small></summary>
-        <ul class="list ma-log rp-loglist">${ev.map((e) => `<li>${timeUrl(linkNow(), 0) ? `<a class="small ma-min" href="${esc(timeUrl(linkNow(), Math.max(0, Math.floor(e.t) - 3)))}" target="_blank" rel="noopener" title="영상 ${fmtT(e.t)} — 눌러서 이 장면 보기">${Math.floor(rmf(e))}′ ↗</a>` : `<span class="small ma-min" title="영상 ${fmtT(e.t)}">${Math.floor(rmf(e))}′</span>`}<i class="ma-hf h${halfOf(e)}">${HALF[halfOf(e)][0]}</i><span class="ma-tag" style="--c:${KIND[e.k].c}">${KIND[e.k].l}</span><small>${third(e.x)} · ${channel(e.y)}${detailText(e) ? ` · ${esc(detailText(e))}` : ''}${e.text ? ` · ${esc(e.text)}` : ''}</small></li>`).join('') || '<li class="muted">기록이 없어요.</li>'}</ul></details>`;
+        <ul class="list ma-log rp-loglist">${ev.map((e) => `<li>${timeUrl(linkNow(), 0) ? `<a class="small ma-min" href="${esc(timeUrl(linkNow(), Math.max(0, Math.floor(e.t) - 3)))}" target="_blank" rel="noopener" title="영상 ${fmtT(e.t)} — 눌러서 이 장면 보기">${Math.floor(rmf(e))}′ ↗</a>` : `<span class="small ma-min" title="영상 ${fmtT(e.t)}">${Math.floor(rmf(e))}′</span>`}<i class="ma-hf h${halfOf(e)}">${HALF[halfOf(e)][0]}</i><span class="ma-tag" style="--c:${KIND[e.k].c}">${KIND[e.k].l}</span><small>${hasXY(e) ? `${third(e.x)} · ${channel(e.y)}` : '위치 없음'}${detailText(e) ? ` · ${esc(detailText(e))}` : ''}${e.text ? ` · ${esc(e.text)}` : ''}</small></li>`).join('') || '<li class="muted">기록이 없어요.</li>'}</ul></details>`;
     panel.querySelectorAll('[data-rt]').forEach((b) => (b.onclick = () => { rteam = b.dataset.rt; drawReport(); }));
     panel.querySelectorAll('[data-rh]').forEach((b) => (b.onclick = () => { rhalf = b.dataset.rh === 'all' ? 'all' : +b.dataset.rh; drawReport(); }));
     panel.querySelector('[data-goto-f]')?.addEventListener('click', () => setTab('formation'));
@@ -1002,7 +1359,7 @@ export function tour(steps) {
 // 미니 리포트 HTML (상대 팀) — 기록하기 · 체험하기에서 실시간으로
 export function liveHtml(events, tm = 'opp', label = '') {
   const r = computeReport(events, tm);
-  const n = r.atk.length;
+  const n = r.atkL.length;
   const bar = (l) => `<div class="ma-bar"><span>${l}${l !== '가운데' ? `<small>${r.oursSide(l)}</small>` : ''}</span><div><i style="width:${r.pct(r.ch[l])}%"></i></div><b>${r.pct(r.ch[l])}%</b><small>${r.ch[l]}</small></div>`;
   return `<div class="card ma-livecard"><h4>실시간 리포트 <small>${label ? `${label} · ` : ''}${TEAM[tm]} 팀 · 기록 ${events.filter((e) => e.team === tm).length}개</small></h4>
     ${n ? `${bar('왼쪽')}${bar('가운데')}${bar('오른쪽')}${r.summary[0] ? `<p class="ma-livesum">${r.summary[0]}</p>` : ''}` : '<p class="muted small">상대 공격 · 크로스 · 슈팅을 기록하면 여기서 바로 공격 방향이 계산돼요.</p>'}</div>`;
@@ -1036,16 +1393,18 @@ export function computeReport(events, rteam, { hs = {}, view = 'all' } = {}) {
   const ev = events.filter((e) => e.team === rteam);
   const other = rteam === 'opp' ? 'us' : 'opp';
   const atk = ev.filter((e) => ATTACK_KS.includes(e.k));
+  const atkL = atk.filter(hasXY); // 위치를 찍은 공격 장면만 방향 · 지도에
   const ch = { 왼쪽: 0, 가운데: 0, 오른쪽: 0 };
-  atk.forEach((e) => { ch[channel(e.y)]++; });
-  const pct = (n) => (atk.length ? Math.round((n / atk.length) * 100) : 0);
+  atkL.forEach((e) => { ch[channel(e.y)]++; });
+  const pct = (n) => (atkL.length ? Math.round((n / atkL.length) * 100) : 0);
   const shots = ev.filter((e) => SHOT_KS.includes(e.k));
+  const shotsL = shots.filter(hasXY);
   const goals = ev.filter((e) => e.k === 'goal' || (SHOT_KS.includes(e.k) && e.res === 'goal'));
   const crosses = ev.filter((e) => e.k === 'cross' || e.k === 'cutback');
   const losses = ev.filter((e) => e.k === 'loss');
   const set = ev.filter((e) => SET_KS.includes(e.k));
   const wins = ev.filter((e) => WIN_KS.includes(e.k) || (['press', 'duel', 'gegen'].includes(e.k) && e.res === 'ok'));
-  const inBox = shots.filter((e) => e.x > 0.843 && e.y > 0.204 && e.y < 0.796).length;
+  const inBox = shotsL.filter((e) => e.x > 0.843 && e.y > 0.204 && e.y < 0.796).length;
   // 시간대: 전체는 하프마다 15분씩, 전반 · 후반만 볼 땐 5분씩
   const minOf = minuteFn(events, hs);
   const step = view === 'all' ? 15 : 5;
@@ -1058,22 +1417,22 @@ export function computeReport(events, rteam, { hs = {}, view = 'all' } = {}) {
   const peak = flow.reduce((b, f) => { const n0 = f.es.filter((e) => e.team === rteam).length; return n0 > b.n ? { f, n: n0 } : b; }, { f: null, n: 0 });
   // 위험 지역: 공격 · 크로스 · 슈팅 (6 × 4 칸)
   const heat = Array.from({ length: 4 }, () => Array(6).fill(0));
-  atk.forEach((e) => { heat[Math.min(3, Math.floor(e.y * 4))][Math.min(5, Math.floor(e.x * 6))]++; });
+  atkL.forEach((e) => { heat[Math.min(3, Math.floor(e.y * 4))][Math.min(5, Math.floor(e.x * 6))]++; });
   const hmax = Math.max(1, ...heat.flat());
   const heatSvg = heat.map((row, yi) => row.map((v, xi) => `<rect x="${xi * 17.5}" y="${yi * 17}" width="17.5" height="17" fill="rgba(255,59,48,${(v / hmax) * 0.75})"/>${v ? `<text x="${xi * 17.5 + 8.75}" y="${yi * 17 + 10}" class="hv">${v}</text>` : ''}`).join('')).join('');
   const oursSide = (c) => (c === '왼쪽' ? '우리 오른쪽' : c === '오른쪽' ? '우리 왼쪽' : '가운데');
   const mainCh = Object.entries(ch).sort((a, b) => b[1] - a[1])[0];
   const crossSide = crosses.length ? Object.entries(crosses.reduce((a, e) => ({ ...a, [channel(e.y)]: (a[channel(e.y)] || 0) + 1 }), {})).sort((a, b) => b[1] - a[1])[0] : null;
-  const lossZone = losses.length ? Object.entries(losses.reduce((a, e) => { const z = `${third(e.x)} ${channel(e.y)}`; return { ...a, [z]: (a[z] || 0) + 1 }; }, {})).sort((a, b) => b[1] - a[1])[0] : null;
-  const xg = shots.reduce((a, e) => a + xgOf(e), 0);
+  const lossZone = losses.filter(hasXY).length ? Object.entries(losses.filter(hasXY).reduce((a, e) => { const z = `${third(e.x)} ${channel(e.y)}`; return { ...a, [z]: (a[z] || 0) + 1 }; }, {})).sort((a, b) => b[1] - a[1])[0] : null;
+  const xg = shotsL.reduce((a, e) => a + xgOf(e), 0); // 위치 없는 슈팅은 기대 득점에서 빠짐
   const summary = [];
-  if (atk.length) summary.push(`${TEAM[rteam]} 공격은 <b>${mainCh[0]}</b>이 ${pct(mainCh[1])}%로 가장 많아요${rteam === 'opp' && mainCh[0] !== '가운데' ? ` → <b>${oursSide(mainCh[0])} 측면 수비</b>를 대비해야 해요` : ''}.`);
+  if (atkL.length) summary.push(`${TEAM[rteam]} 공격은 <b>${mainCh[0]}</b>이 ${pct(mainCh[1])}%로 가장 많아요${rteam === 'opp' && mainCh[0] !== '가운데' ? ` → <b>${oursSide(mainCh[0])} 측면 수비</b>를 대비해야 해요` : ''}.`);
   if (crossSide) summary.push(`크로스 ${crosses.length}개 중 ${crossSide[1]}개가 <b>${crossSide[0]}</b>에서 올라왔어요${rteam === 'opp' ? ` (${oursSide(crossSide[0])})` : ''}.`);
-  if (shots.length) summary.push(`슈팅 ${shots.length}개 중 박스 안 ${inBox}개 (${Math.round((inBox / shots.length) * 100)}%) · 기대 득점 <b>${xg.toFixed(1)}</b> · 실제 ${goals.length}골.`);
+  if (shots.length) summary.push(`슈팅 ${shots.length}개${shotsL.length ? ` · 위치를 찍은 ${shotsL.length}개 중 박스 안 ${inBox}개 (${Math.round((inBox / shotsL.length) * 100)}%) · 기대 득점 <b>${xg.toFixed(1)}</b>` : ''} · 실제 ${goals.length}골.`);
   if (peak.n >= 3) summary.push(`<b>${HALF[peak.f.h]} ${peak.f.from}~${peak.f.to}분</b>에 공격이 가장 많았어요 (${peak.n}번).`);
   if (lossZone) summary.push(`${TEAM[rteam]}가 공을 가장 많이 잃은 곳: <b>${lossZone[0]}</b> (${lossZone[1]}번)${rteam === 'opp' ? ' → 이곳에서 압박하면 효과적이에요' : ' → 이곳 빌드업을 보완해요'}.`);
   if (set.length) summary.push(`세트피스 ${set.length}번${set.filter((e) => e.res === 'shot').length ? ` · 슈팅까지 ${set.filter((e) => e.res === 'shot').length}번` : ''}.`);
-  return { ev, other, atk, ch, pct, shots, goals, crosses, losses, set, wins, inBox, flow, heatSvg, oursSide, summary, xg };
+  return { ev, other, atk, atkL, ch, pct, shots, shotsL, goals, crosses, losses, set, wins, inBox, flow, heatSvg, oursSide, summary, xg };
 }
 
 // ───────── 자동 분석 (기록한 장면만으로 아주 자세히) ─────────
@@ -1108,19 +1467,19 @@ export function deepAnalysis(events, rteam, opt = {}) {
       if (sw >= 3) it1.push(`<b>사이드 전환</b>이 잦아요 — ${opp ? '반대쪽 측면 커버를 빨리 해야 해요' : '반대쪽 공간을 잘 써요'}.`);
     }
   }
-  const lossBy = top(R.losses.filter((e) => e.x < 1 / 3), () => '수비 1/3');
+  const lossBy = top(R.losses.filter((e) => hasXY(e) && e.x < 1 / 3), () => '수비 1/3');
   if (lossBy.length && lossBy[0][1] >= 3) { it1.push(`<b>자기 진영(수비 1/3)</b>에서 공을 ${lossBy[0][1]}번 잃었어요 — ${opp ? '높은 압박이 통해요' : '빌드업 첫 패스가 불안해요'}.`); weak.push('자기 진영에서 볼 손실'); todo.push(opp ? '상대 빌드업 첫 패스에 높은 압박' : '골키퍼 · 센터백 빌드업 패턴 연습 (압박 탈출 3가지)'); }
   const rp0 = rate(passes);
-  S.push({ t: '공격 경로 · 빌드업', items: it1, k: [['패스로 만든 공격', passes.length], ['패스 성공률', rp0 ? `${rp0.p}%` : '-'], ['롱볼 비율', passes.length ? `${P(longs.length, passes.length)}%` : '-'], ['자기 진영 볼 손실', R.losses.filter((e) => e.x < 1 / 3).length]] });
+  S.push({ t: '공격 경로 · 빌드업', items: it1, k: [['패스로 만든 공격', passes.length], ['패스 성공률', rp0 ? `${rp0.p}%` : '-'], ['롱볼 비율', passes.length ? `${P(longs.length, passes.length)}%` : '-'], ['자기 진영 볼 손실', R.losses.filter((e) => hasXY(e) && e.x < 1 / 3).length]] });
 
   // 2. 측면 · 크로스 · 돌파
   const it2 = [];
-  const atkN = R.atk.length;
+  const atkN = R.atkL.length;
   if (atkN) it2.push(`공격 방향: 왼쪽 ${R.pct(R.ch['왼쪽'])}% · 가운데 ${R.pct(R.ch['가운데'])}% · 오른쪽 ${R.pct(R.ch['오른쪽'])}% (공격 장면 ${atkN}개).`);
   const mainSide = Object.entries(R.ch).sort((a, b) => b[1] - a[1])[0];
   if (atkN >= 6 && mainSide[1] / atkN >= 0.45) { it2.push(`<b>${side(mainSide[0])}</b>으로 쏠려요 (${R.pct(mainSide[1])}%).`); if (opp) todo.push(`${R.oursSide(mainSide[0])} 측면 수비 2v1 · 커버 연습`); }
   const drb = of('dribble'); const rd = rate(drb);
-  if (drb.length) { it2.push(`돌파 ${drb.length}번${rd ? ` · 성공률 ${rd.p}%` : ''}${top(drb, (e) => channel(e.y))[0] ? ` · 주로 ${side(top(drb, (e) => channel(e.y))[0][0])}` : ''}.`); if (rd && rd.n >= 4 && rd.p >= 60) strong.push(`1v1 돌파 (${rd.p}%)`); }
+  if (drb.length) { it2.push(`돌파 ${drb.length}번${rd ? ` · 성공률 ${rd.p}%` : ''}${top(drb, (e) => (hasXY(e) ? channel(e.y) : ''))[0] ? ` · 주로 ${side(top(drb, (e) => (hasXY(e) ? channel(e.y) : ''))[0][0])}` : ''}.`); if (rd && rd.n >= 4 && rd.p >= 60) strong.push(`1v1 돌파 (${rd.p}%)`); }
   const cr = R.crosses; const rc = rate(cr);
   if (cr.length) {
     const ft = top(cr, (e) => DLABEL[e.foot]); const hg = top(cr, (e) => DLABEL[e.height]);
@@ -1136,33 +1495,33 @@ export function deepAnalysis(events, rteam, opt = {}) {
   if (sh.length) {
     const on = sh.filter((e) => e.k === 'goal' || ['on', 'post', 'goal'].includes(e.res)).length;
     const decided = sh.filter((e) => e.k === 'goal' || e.res).length;
-    it3.push(`슈팅 ${sh.length}개 · 박스 안 ${R.inBox}개 (${P(R.inBox, sh.length)}%) · 득점 ${R.goals.length} · 기대 득점 <b>${R.xg.toFixed(2)}</b>.`);
+    it3.push(`슈팅 ${sh.length}개 · 박스 안 ${R.inBox}개 (${P(R.inBox, R.shotsL.length)}%) · 득점 ${R.goals.length} · 기대 득점 <b>${R.xg.toFixed(2)}</b>.`);
     if (decided >= 3) it3.push(`유효 슈팅 비율 <b>${P(on, decided)}%</b> (${on}/${decided}).`);
     const ft = top(sh, (e) => DLABEL[e.foot]);
     if (ft.length) it3.push(`슈팅 발: ${ft.map(([k, n]) => `${k} ${n}`).join(' · ')}${ft[0][0] === '왼발' && ft[0][1] >= 3 ? ' — <b>왼발</b> 슈팅이 많아요' : ''}.`);
     if (R.goals.length - R.xg >= 1) it3.push(`기대보다 <b>${(R.goals.length - R.xg).toFixed(1)}골 더</b> 넣었어요 — 결정력이 좋았어요.`);
     else if (R.xg - R.goals.length >= 1) { it3.push(`기대 득점보다 <b>${(R.xg - R.goals.length).toFixed(1)}골 적게</b> 넣었어요 — 찬스를 놓쳤어요.`); if (!opp) { weak.push('결정력 (기대 득점보다 적은 골)'); todo.push('박스 안 원터치 마무리 · 침착성 훈련'); } }
-    if (sh.length >= 4 && P(R.inBox, sh.length) < 40) it3.push(`박스 밖 <b>중거리 슈팅</b>이 많아요 — ${opp ? '박스 앞 선수에게 슈팅 각을 주지 마세요' : '박스 안까지 더 들어가야 해요'}.`);
+    if (sh.length >= 4 && P(R.inBox, R.shotsL.length) < 40) it3.push(`박스 밖 <b>중거리 슈팅</b>이 많아요 — ${opp ? '박스 앞 선수에게 슈팅 각을 주지 마세요' : '박스 안까지 더 들어가야 해요'}.`);
   }
   const chances = of('chance');
   if (chances.length) it3.push(`결정적 찬스 ${chances.length}번.`);
   const on0 = sh.filter((e) => e.k === 'goal' || ['on', 'post', 'goal'].includes(e.res)).length; const dec0 = sh.filter((e) => e.k === 'goal' || e.res).length;
-  S.push({ t: '마무리 · 슈팅', items: it3, k: [['슈팅', sh.length], ['유효 슈팅', dec0 ? `${P(on0, dec0)}%` : '-'], ['박스 안', sh.length ? `${P(R.inBox, sh.length)}%` : '-'], ['득점 / 기대 득점', `${R.goals.length} / ${R.xg.toFixed(1)}`]] });
+  S.push({ t: '마무리 · 슈팅', items: it3, k: [['슈팅', sh.length], ['유효 슈팅', dec0 ? `${P(on0, dec0)}%` : '-'], ['박스 안', sh.length ? `${P(R.inBox, R.shotsL.length)}%` : '-'], ['득점 / 기대 득점', `${R.goals.length} / ${R.xg.toFixed(1)}`]] });
 
   // 4. 수비 · 압박
   const it4 = [];
   const pr = of('press'); const rpr = rate(pr); const du = of('duel'); const rdu = rate(du);
   if (R.wins.length) {
-    const zone = top(R.wins, (e) => third(e.x));
-    it4.push(`공을 따낸 장면 ${R.wins.length}번 (탈취 ${of('win').length} · 인터셉트 ${of('intercept').length}) · 주로 <b>${zone[0][0]}</b>.`);
-    const high = R.wins.filter((e) => e.x > 2 / 3).length;
+    const zone = top(R.wins, (e) => (hasXY(e) ? third(e.x) : ''));
+    it4.push(`공을 따낸 장면 ${R.wins.length}번 (탈취 ${of('win').length} · 인터셉트 ${of('intercept').length})${zone[0] ? ` · 주로 <b>${zone[0][0]}</b>` : ''}.`);
+    const high = R.wins.filter((e) => hasXY(e) && e.x > 2 / 3).length;
     if (high >= 3) { it4.push(`상대 진영(공격 1/3)에서 ${high}번 따냈어요 — <b>높은 압박</b>이 통했어요.`); strong.push('높은 위치 볼 탈취'); }
   }
   if (rpr) it4.push(`압박 ${pr.length}번 · 성공 ${rpr.p}%.`);
   if (rdu) { it4.push(`경합 · 태클 ${du.length}번 · 이긴 비율 ${rdu.p}%.`); if (rdu.n >= 4 && rdu.p < 45) { weak.push(`경합 승률 ${rdu.p}%`); if (!opp) todo.push('1v1 수비 자세 · 몸싸움 훈련'); } }
   if (of('clear').length) it4.push(`클리어링 ${of('clear').length}번.`);
   if (of('save').length) it4.push(`골키퍼 선방 ${of('save').length}번.`);
-  S.push({ t: '수비 · 압박', items: it4, k: [['공 따냄', R.wins.length], ['높은 위치 탈취', R.wins.filter((e) => e.x > 2 / 3).length], ['압박 성공', rpr ? `${rpr.p}%` : '-'], ['경합 승률', rdu ? `${rdu.p}%` : '-']] });
+  S.push({ t: '수비 · 압박', items: it4, k: [['공 따냄', R.wins.length], ['높은 위치 탈취', R.wins.filter((e) => hasXY(e) && e.x > 2 / 3).length], ['압박 성공', rpr ? `${rpr.p}%` : '-'], ['경합 승률', rdu ? `${rdu.p}%` : '-']] });
 
   // 5. 공수 전환 (공을 잃은 뒤 · 따낸 뒤 15초)
   const it5 = [];

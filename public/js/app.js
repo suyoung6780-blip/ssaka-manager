@@ -1,16 +1,19 @@
-import { isConfigured, FREE_MODE } from './config.js';
+import { PRIVACY, isConfigured, FREE_MODE } from './config.js';
 import { installButton, bindInstall } from './install.js';
 import { attachHelp } from './help.js';
-import { versionLabel, CHANGELOG } from './version.js';
+import { versionLabel, CHANGELOG, VERSION } from './version.js';
+import { privacyNotice } from './pages/privacy.js';
+import { seasonPopup, gradPopup } from './proto/season.js';
 import { startNews, stopNews, markSeen, paint } from './news.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
 import { $, $$, esc, avatar, ROLES, pageHead, toast, modal, isQuota, quotaNotice, quotaHooks } from './ui.js';
 import {
-  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, freeMode, waitApproval, teamRestricted,
+  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, freeMode, waitApproval, teamRestricted, hasFeature,
 } from './store.js';
 import * as authPages from './pages/auth.js';
 import * as admin from './pages/admin.js';
 import * as support from './pages/support.js';
+import * as guide from './pages/guide.js';
 import * as privacy from './pages/privacy.js';
 import * as community from './pages/community.js';
 import * as home from './pages/home.js';
@@ -22,6 +25,8 @@ import * as data from './pages/data.js';
 import * as trainingDaily from './pages/trainingDaily.js';
 import * as analysis from './pages/analysis.js';
 import * as goals from './pages/goals.js';
+import * as idp from './pages/idp.js'; // 시제품 3.0 (팀 기능 proto3)
+import { refreshIdpFlag, homeIdpCard } from './proto/idpStatus.js';
 import * as personal from './pages/personal.js';
 import * as social from './pages/social.js';
 import * as notes from './pages/notes.js';
@@ -31,9 +36,9 @@ import { kakaoReturn } from './social.js';
 
 const app = $('#app');
 const PLAYER_DEMO = /[?&]as=player/.test(location.search); // 체험 모드: 선수로 보는 중
-const RESTRICT_OK = ['/', '/settings', '/support', '/support/qna', '/me', '/privacy', '/terms', '/pay', '/pricing', '/refund'];
+const RESTRICT_OK = ['/', '/settings', '/support', '/support/qna', '/support/guide', '/me', '/privacy', '/terms', '/pay', '/pricing', '/refund'];
 // 결제 전 · 이용기간이 끝난 팀에서도 열 수 있는 곳
-const PAY_OK = ['/settings', '/support', '/support/qna', '/me', '/privacy', '/terms', '/pay', '/pricing', '/refund'];
+const PAY_OK = ['/settings', '/support', '/support/qna', '/support/guide', '/me', '/privacy', '/terms', '/pay', '/pricing', '/refund'];
 
 // guard: auth(기본) / squad(팀원: 코치·선수) / coach / member / owner
 const routes = [
@@ -47,6 +52,8 @@ const routes = [
   ['/gamemodel', team.gameModel, 'squad'],
   ['/locker', team.locker, 'squad'],
   ['/goals', goals.page, 'squad'],
+  ['/idp', idp.page, 'squad'],
+  ['/idp/:uid', idp.page, 'squad'],
   ['/records', team.records, 'squad'],
   ['/data', data.page, 'squad'],
   ['/training', trainingDaily.daily, 'squad'],
@@ -84,6 +91,7 @@ const routes = [
   ['/community/:cat', community.page, 'coach'],
   ['/support', support.page],
   ['/support/qna', support.qna],
+  ['/support/guide', guide.guide],
 ];
 
 function match(path) {
@@ -111,7 +119,7 @@ function allowed(guard) {
   }
 }
 
-// 맨 밑 회사 정보 (통신판매업 신고번호는 나오면 여기에 추가)
+// 맨 밑 회사 정보 (결제사 · 카드사 심사에서 보는 항목 — 통신판매업 신고번호가 나오면 '신고 진행 중' 자리에)
 const FOOTER = `
 <footer class="site-foot">
   <div class="sf-top">
@@ -123,15 +131,24 @@ const FOOTER = `
       <a href="#/pricing">요금 안내</a>
       <a href="#/terms">이용약관</a>
       <a href="#/refund">환불정책</a>
-      <a href="#/privacy"><b>개인정보처리방침</b></a>
+      <a href="#/privacy"><b>개인정보처리방침</b>${privacyNotice() ? ' <small class="sf-new">개정 예정</small>' : ''}</a>
+      <a href="#/support/guide">사용 설명서</a>
       <a href="#/support">운영자 문의</a>
     </nav>
   </div>
-  <dl class="sf-info">
-    <div><dt>상호</dt><dd>싸카매니저</dd></div>
-    <div><dt>대표</dt><dd>유수영</dd></div>
-    <div><dt>사업자등록번호</dt><dd>451-15-03077</dd></div>
-  </dl>
+  <div class="sf-info2">
+    <div class="sf-biz">
+      <p class="sf-name">싸카매니저</p>
+      <p><span><em>대표 · 개인정보 보호책임자</em>유수영</span><span><em>사업자등록번호</em>451-15-03077</span></p>
+      <p><span><em>통신판매업 신고</em>신고 진행 중</span><span><em>이메일</em><a href="mailto:${PRIVACY.email}">${PRIVACY.email}</a></span></p>
+      <p><span><em>주소</em>경기도 안산시 단원구 사세충열로4길 6</span></p>
+    </div>
+    <div class="sf-cs">
+      <span class="sf-cs-h">CS CENTER</span>
+      <a class="sf-tel" href="tel:05068858701">050-6885-8701</a>
+      <dl class="sf-hours"><div><dt>상담 시간</dt><dd>평일 오전 10시 - 오후 7시</dd></div><div><dt>점심 시간</dt><dd>오후 12시 - 1시</dd></div><div><dd>주말 · 공휴일 휴무</dd></div></dl>
+    </div>
+  </div>
   <div class="sf-bottom">
     <span>© ${new Date().getFullYear()} 싸카매니저. All rights reserved. <button type="button" class="sf-ver" data-ver title="업데이트 내역">${versionLabel()}</button></span>
     <span class="sf-mark">SSAKA MANAGER</span>
@@ -186,6 +203,8 @@ async function route() {
 
   if (!$('.shell')) renderShell();
   startNews();
+  refreshIdpFlag(); // 시제품: 성장 평가 메뉴 점
+  document.documentElement.toggleAttribute('data-p3', hasFeature('proto3')); // 시제품: 작전판 새 도구 · 3D
   markSeen(path);
   updateShell(path);
   const view = $('#view');
@@ -221,22 +240,18 @@ async function route() {
 function navItems() {
   const items = [];
   const sec = (title, list) => list.length && items.push({ title, list });
-  sec('TEAM', isSquad() ? [
-    ['/', '홈'], ['/gamemodel', '게임모델'], ['/locker', '락커룸'], ...(isCoach() ? [['/tactics', '전술보드']] : []), ['/training', '훈련장'],
-    ['/meeting', '미팅룸'], ['/analysis', '분석실'], ['/goals', '목표'], ['/records', '경기 기록실'], ['/data', '데이터실'],
-  ] : [['/', '홈']]);
-  sec('MY', [
-    ['/me', '프로필'],
-    ...(isSquad() && !isCoach() ? [['/daily', '오늘 기록']] : []), // 오늘 기록은 선수만
-    ...(isCoach() ? [['/notes', '코치 노트']] : []), // 팀이 생긴 뒤부터
-    ...(isCoach() ? [['/journal-check', '일지검사']] : []),
-  ]);
-  sec('NOTICE', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄']] : []);
-  sec('COMMUNITY', isCoach() ? [['/community/training', '훈련 공유'], ['/community/talk', '지도자 게시판'], ['/chat', '팀 대화']] : []);
-  sec('NETWORK', [...(isCoach() ? [['/scout', '스카웃 노트']] : []), ['/support', '운영자 문의']]);
-  if (isAdmin()) sec('운영자', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '소통']]);
-  else if (isAdminEmail()) sec('운영자', [['/admin/verify', '운영자 인증']]);
-  if (isOwner()) sec('ADMIN', [['/settings', freeMode() ? '팀 설정' : '팀 설정 · 결제']]);
+  const coach = isCoach(); const squad = isSquad(); const player = squad && !coach;
+  // 메뉴 묶음 (영어 이름으로 통일) — 일하는 순서: 팀 운영 → 훈련 → 경기 → 성장 · 선수는 오늘 기록을 맨 위에
+  sec('HOME', [['/', '홈'], ...(player ? [['/daily', '오늘 기록']] : [])]);
+  sec('TEAM', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄'], ...(squad ? [['/locker', '락커룸']] : []), ...(coach ? [['/chat', '팀 대화']] : [])] : []);
+  sec('TRAINING', squad ? [['/training', '훈련장'], ...(coach ? [['/tactics', '전술보드']] : []), ['/meeting', '미팅룸'], ['/gamemodel', '게임모델']] : []);
+  sec('MATCH', squad ? [['/records', '경기 기록실'], ['/analysis', '분석실']] : []);
+  sec('GROWTH', squad ? [...(hasFeature('proto3') ? [['/idp', '성장 평가']] : []), ['/goals', '목표'], ['/data', '데이터실'], ...(coach ? [['/journal-check', '일지검사']] : [])] : []);
+  sec('MY', [['/me', '프로필'], ...(coach ? [['/notes', '코치 노트'], ['/scout', '스카웃 노트']] : [])]);
+  sec('COMMUNITY', coach ? [['/community/training', '훈련 공유'], ['/community/talk', '지도자 게시판']] : []);
+  sec('SUPPORT', [...(isOwner() ? [['/settings', freeMode() ? '팀 설정' : '팀 설정 · 결제']] : []), ['/support/guide', '사용 설명서'], ['/support', '운영자 문의']]);
+  if (isAdmin()) sec('ADMIN', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '소통']]);
+  else if (isAdminEmail()) sec('ADMIN', [['/admin/verify', '운영자 인증']]);
   return items;
 }
 
@@ -300,21 +315,40 @@ document.addEventListener('click', (e) => {
       <ul>${c.items.map((x) => (Array.isArray(x) ? `<li class="ver-it"><b>${esc(x[0])}</b><span>${esc(x[1])}</span></li>` : `<li>${esc(x)}</li>`)).join('')}</ul></section>`).join('')}</div>`);
 });
 
+// 새 버전이 올라간 뒤 처음 열면 '업데이트 되었어요' 창 (버전마다 한 번 · 처음 온 사람에겐 안 띄움)
+let verChecked = false;
+function updatePopup() {
+  if (verChecked) return null; verChecked = true;
+  const K = 'ssaka-seen-ver'; const force = new URLSearchParams(location.search).has('verpop');
+  let seen = null; try { seen = localStorage.getItem(K); localStorage.setItem(K, VERSION.no); } catch { return null; }
+  if (!force && (!seen || seen === VERSION.no)) return null;
+  const cmp = (a, b) => { const x = a.split('.').map(Number); const y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
+  const fresh = CHANGELOG.filter((c) => force || cmp(c.ver, seen) > 0).slice(0, force ? 1 : 3);
+  if (!fresh.length) return null;
+  const m = modal(`<span class="eyebrow">UPDATE</span><h2>업데이트 되었어요 <small class="muted">${versionLabel()}</small></h2>
+    <p class="muted small">${seen && !force ? `지난번(v${esc(seen)}) 이후 바뀐 점이에요.` : '새로 바뀐 점이에요.'}</p>
+    <div class="ver-list ver-pop">${fresh.map((c) => `<section><div class="ver-h"><b>v${esc(c.ver)}</b><small>${esc(c.date.replace(/-/g, '.'))}</small></div>
+      <ul>${c.items.map((x) => (Array.isArray(x) ? `<li class="ver-it"><b>${esc(x[0])}</b><span>${esc(x[1])}</span></li>` : `<li>${esc(x)}</li>`)).join('')}</ul></section>`).join('')}</div>
+    <div class="row end ver-acts"><button type="button" class="btn ghost" data-ver>전체 내역</button><button type="button" class="btn" data-ok>확인</button></div>`);
+  m.el.querySelector('[data-ok]').onclick = () => m.close();
+  m.el.querySelector('[data-ver]').addEventListener('click', () => m.close());
+  return m;
+}
+
 hooks.route = route;
 hooks.updateShell = updateShell;
 
-// 토스페이먼츠 successUrl / failUrl 로 돌아왔을 때 처리
 async function handlePaymentReturn() {
+  // 휴대폰: 포트원 결제 화면에서 ?pay=portone&paymentId=…(&code=…&message=…) 로 돌아옴
   const q = new URLSearchParams(location.search);
   if (!q.has('pay')) return;
   history.replaceState(null, '', location.pathname + location.hash);
-  if (q.get('pay') === 'fail') {
+  if (q.get('code') || !q.get('paymentId')) {
     toast(`결제가 취소되었거나 실패했습니다. ${q.get('message') || ''}`);
     return;
   }
-  await onboard.confirmPayment({
-    paymentKey: q.get('paymentKey'), orderId: q.get('orderId'), amount: Number(q.get('amount')),
-  });
+  if (auth.demo) { toast('체험 모드라 결제창까지만 확인했어요 (기간 연장은 실제 사이트에서).'); return; }
+  await onboard.confirmPayment({ paymentId: q.get('paymentId') });
 }
 
 if (!isConfigured) {
@@ -339,6 +373,9 @@ if (!isConfigured) {
     await route();
     // 결제창에서 돌아왔으면: 화면을 그린 뒤에 승인 (화면이 바뀔 때 창이 닫히지 않게)
     if (first && u) { first = false; await handlePaymentReturn(); }
+    const um = updatePopup();
+    const next = () => seasonPopup() || gradPopup(); // 새 시즌: 선수는 학년 · 등번호, 팀 대표는 졸업 정리
+    if (um) um.onClose = next; else next();
   });
   quotaHooks.isAdmin = isAdmin;
   // 어디서 났든 무료 사용량 초과 오류면 위에 안내 (운영자에게만)

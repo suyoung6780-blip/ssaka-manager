@@ -1,9 +1,11 @@
+import { homeIdpCard } from '../proto/idpStatus.js'; // 시제품 3.0: 홈에 성장 평가 현황 (팀 기능 proto3일 때만)
+import { homePlayerHero } from '../proto/homeHero.js'; // 시제품 3.0: 선수 홈 맨 위 내 선수 카드
 import { FREE_MODE } from '../config.js';
 import {
   db, collection, query, where, orderBy, limit, getDocs, doc, getDoc, addDoc, updateDoc, deleteDoc, serverTimestamp,
 } from '../fb.js';
 import { esc, fmtDate, todayStr, fail } from '../ui.js';
-import { state, inTeam, isSquad, isCoach, isOwner, teamActive, teamPlan, role, freeMode } from '../store.js';
+import { state, inTeam, isSquad, isCoach, isOwner, teamActive, teamPlan, role, freeMode, hasFeature } from '../store.js';
 import { calcStats } from './team.js';
 import { coachDesk, answersCard, recentLogs, teamMembers, quickBar, deskSkeleton } from './homeCoach.js';
 import { sleepOf } from '../sleep.js';
@@ -362,21 +364,28 @@ export async function render(el) {
     // 코치: 빠른 실행 → 오늘 할 것 4칸 (오늘 훈련 · 준비물 / 선수 상태 · 일지 / 답 안 한 질문 / 다음 경기) → 이번 주 → 할 일 · 공지
     el.innerHTML = `${head}
     ${quickBar()}
+    <div data-idp></div>
     <div class="home-grid cd-grid" data-desk>${deskSkeleton()}</div>
     ${weekCard}
     <div class="home-grid two"><div data-todo></div>${noticeCard}</div>`;
     startClock(el);
     todoPad(el.querySelector('[data-todo]'));
+    homeIdpCard(el.querySelector('[data-idp]'));
     await coachDesk(el.querySelector('[data-desk]'), { sched: schedAll, matches: allMatches, plans, players, logs: logs7 || [], todaySubmitted: submitted.length });
     return;
   }
   // 선수: 오늘 · 내 오늘 기록 · 코치님 답변 → 이번 주 → 할 일 · 공지
+  const hero = isSquad() && hasFeature('proto3'); // 선수 카드 (시제품)
   el.innerHTML = `${head}
+  ${hero ? '<div data-phero></div>' : ''}
+  <div data-idp></div>
   <div class="home-grid two">${todayCard}${myCard}</div>
   <div data-answers></div>
   ${weekCard}
   <div class="home-grid two"><div data-todo></div>${noticeCard}</div>`;
   startClock(el);
   todoPad(el.querySelector('[data-todo]'));
+  homeIdpCard(el.querySelector('[data-idp]'));
+  if (hero) homePlayerHero(el.querySelector('[data-phero]'));
   if (isSquad()) await answersCard(el.querySelector('[data-answers]'));
 }

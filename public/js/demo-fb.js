@@ -3,6 +3,7 @@ import { ADMIN_EMAILS } from './config.js';
 // 쓰는 곳: 실제 사이트의 demo.html (import map 으로 js/fb.js 를 이 파일로 바꿔 끼움) · 개발용 dev-server.py --demo
 // In-memory mock of the Firebase surface used by the app
 import { formationData, blank } from './tactic.js';
+import { monthItems, ymOf, ymAdd, TPL_VER, hexOf, POS, GROWTH } from './proto/idp.js';
 const store = new Map();
 class Ts { constructor(ms) { this._ms = ms; } toMillis() { return this._ms; } toDate() { return new Date(this._ms); } }
 const now = () => new Ts(Date.now());
@@ -33,7 +34,7 @@ seed('teams/T4/members/r1', { name: '한유망', role: 'player', affiliation: '�
 seed('teams/T4/members/r2', { name: '오수비', role: 'player', position: 'CB', number: '4', height: '152', weight: '41', birthYear: '2014' });
 seed('teams/T1/private/billing', { code: 'Xk7mQ2pR9a', paidUntil: later });
 seed('teamCodes/Xk7mQ2pR9a', { teamId: 'T1' });
-seed('system/features', { teams: { T1: { wellness: true } } }); // 데모: FC 블랙에 '컨디션 엑셀' 켜 둠
+seed('system/features', { teams: { T1: { wellness: true, ...(LOCAL ? { proto3: true } : {}) } } }); // 데모: FC 블랙에 '컨디션 엑셀' 켜 둠 · 이 컴퓨터에서만 시제품 3.0(proto3)
 [['T2', 'Wp4nHs8eKd'], ['T3', 'Gr7tYb2mQx'], ['T4', 'Rd5uNc9vJa']].forEach(([t, c]) => { seed(`teamCodes/${c}`, { teamId: t }); seed(`teams/${t}/private/billing`, { code: c }); });
 // 게임모델 패턴 (체험용): 빌드업 · 공격 · 수비 · 전환 · 세트피스 — 일부는 장면(움직임)까지
 const PATTERNS = (() => {
@@ -207,7 +208,49 @@ DEMO_TEAMS.forEach(([name, category, ownerName], i) => {
     authorName: '김코치', createdAt: now() }); }
 if (LOCAL) seed('teams/T1/posts/demo', { type: 'analysis', title: '연수구청U12 — 7번 수비 위치', opponent: '연수구청U12', date: '2026-03-14', video: { url: '/__media/demo.m4v', name: '연수구청U12 전력분석.m4v' }, createdAt: now(), tele: {"items":[{"id":"qwtgrlq","k":"spot","color":"#ffd400","t0":200,"t1":208,"hold":4,"p":{"tr":"onk11ig"},"size":0.025,"scale":1,"marker":true,"name":"7번"},{"id":"6bihjyc","k":"arrow","color":"#ffd400","t0":200,"t1":205,"hold":4,"a":{"tr":"onk11ig"},"b":{"x":0.66,"y":0.62},"style":"solid","c":{"x":0.55615,"y":0.74405}},{"id":"outarw","k":"arrow","color":"#4ea1ff","t0":200,"t1":204,"hold":4,"a":{"x":0.6,"y":0.62},"b":{"x":0.9,"y":0.27},"style":"solid","c":{"x":0.8,"y":0.5}}],"trackers":[{"id":"onk11ig","name":"선수 1","path":[[200,0.4523,0.8764,0.2239],[200.083,0.4518,0.8607,0.2227],[200.167,0.4519,0.8518,0.2157],[200.25,0.452,0.8597,0.2152],[200.333,0.452,0.8525,0.2145],[200.417,0.452,0.8632,0.2174],[200.5,0.4522,0.8558,0.2166],[200.583,0.4522,0.8611,0.2169],[200.667,0.4522,0.8519,0.2153],[200.75,0.452,0.8597,0.2145],[200.833,0.4522,0.8527,0.2145],[200.917,0.4518,0.8616,0.215],[201,0.4522,0.8525,0.2143],[201.083,0.4518,0.8598,0.2137],[201.167,0.4522,0.8513,0.2129],[201.25,0.4518,0.8603,0.2135],[201.333,0.4517,0.8602,0.2135],[201.417,0.4517,0.8602,0.2132],[201.5,0.4517,0.8603,0.2133],[201.583,0.4518,0.8591,0.2114],[201.667,0.4519,0.8601,0.2113],[201.75,0.4519,0.8595,0.2101],[201.833,0.4517,0.86,0.2114],[201.917,0.4517,0.8593,0.2114],[202,0.4512,0.8582,0.2143],[202.083,0.452,0.8675,0.2201],[202.167,0.452,0.8544,0.2159],[202.25,0.4516,0.8599,0.2147],[202.333,0.4518,0.867,0.2199],[202.417,0.4522,0.8544,0.2151],[202.5,0.4518,0.859,0.2143],[202.583,0.4518,0.8532,0.2131],[202.667,0.4517,0.8614,0.2145],[202.75,0.452,0.8523,0.2134],[202.833,0.4516,0.8607,0.2139],[202.917,0.4522,0.8524,0.2135],[203,0.4591,0.8454,0.2127],[203.083,0.4669,0.8477,0.2154],[203.167,0.4748,0.8506,0.2257],[203.25,0.4882,0.8403,0.2217],[203.333,0.4939,0.8315,0.2161],[203.417,0.5097,0.8199,0.2091],[203.5,0.5154,0.8073,0.2003],[203.583,0.5195,0.7931,0.1983],[203.667,0.5229,0.7717,0.1767],[203.75,0.5287,0.7788,0.1786],[203.833,0.5291,0.7547,0.1695],[203.917,0.5309,0.7416,0.1597],[204,0.5358,0.7364,0.1577],[204.083,0.5296,0.7155,0.1477],[204.167,0.5242,0.7008,0.1361],[204.25,0.5206,0.7009,0.1406],[204.333,0.5213,0.6966,0.1469],[204.417,0.5094,0.6808,0.1417],[204.5,0.5078,0.6773,0.1375],[204.583,0.5079,0.6658,0.1314],[204.667,0.4928,0.6497,0.1233],[204.75,0.4896,0.6535,0.1248],[204.833,0.4887,0.6471,0.1285],[204.917,0.48,0.6376,0.1277],[205,0.4705,0.6305,0.1265],[205.083,0.4645,0.6164,0.1243],[205.167,0.4598,0.6075,0.117],[205.25,0.4513,0.6068,0.117],[205.333,0.4485,0.6044,0.1193],[205.417,0.4381,0.5892,0.1141],[205.5,0.4354,0.5898,0.1135],[205.583,0.4327,0.5854,0.1162],[205.667,0.425,0.5716,0.1116],[205.75,0.4199,0.5667,0.1083],[205.833,0.4162,0.5613,0.1058],[205.917,0.4164,0.5617,0.1059],[206,0.407,0.5583,0.107],[206.083,0.3893,0.5323,0.1082],[206.167,0.4039,0.547,0.1034],[206.25,0.3888,0.5363,0.1074],[206.333,0.3885,0.5326,0.1106],[206.417,0.3882,0.5299,0.1088],[206.5,0.384,0.5237,0.106],[206.583,0.3816,0.5155,0.1037],[206.667,0.3822,0.5205,0.1024],[206.75,0.3783,0.5198,0.1017],[206.833,0.377,0.519,0.1034],[206.917,0.3771,0.5009,0.0953],[207,0.3667,0.5078,0.0899],[207.083,0.3713,0.5146,0.0927],[207.167,0.3579,0.5071,0.0885],[207.25,0.3559,0.5141,0.0887],[207.333,0.3545,0.511,0.0873],[207.417,0.3534,0.5038,0.0828],[207.5,0.3505,0.5048,0.0798],[207.583,0.3495,0.506,0.0764],[207.667,0.346,0.5112,0.0789],[207.75,0.343,0.5116,0.0775],[207.833,0.3417,0.5089,0.0765],[207.917,0.341,0.5051,0.0752],[208,0.3367,0.5092,0.075]],"h":0.075,"ar":0.325,"manual":false}],"set":{"chroma":true,"hue":100,"hueManual":false,"tol":40,"dur":5,"durEnd":false,"hold":2,"autoTrack":true}} });
 seed('teams/T1/posts/d', { type: 'analysis', title: 'vs A', videoUrl: 'https://youtu.be/dQw4w9WgXcQ', timeline: '1:20 압박', createdAt: now() });
-seed('teams/T1/matches/m0', { date: '2025-11-08', matchType: '대회', ageGroup: 'U13', opponent: '성남FC U13', gf: 3, ga: 2, scorers: [{ name: '이선수', goals: 1 }], assists: [] });
+
+// ───────── 시제품 3.0 가짜 데이터 (이 컴퓨터에서만 · 실제 선수 아님) ─────────
+if (LOCAL) {
+  // p1 ~ p6 은 원래 데모 선수 (최선수 CM · 정선수 CB · 강선수 RW · 윤선수 LB) — 아래는 더한 가상 선수
+  [['p7', '서수미', 'CDM', '6'], ['p8', '윤공미', 'CAM', '10'], ['p9', '장센터', 'CB', '5'], ['p10', '문윙', 'LW', '11'], ['p11', '권풀백', 'RB', '2'], ['p12', '배스트', 'ST', '19']]
+    .forEach(([id, name, position, number]) => seed(`teams/T1/members/${id}`, { name, role: 'player', position, number, affiliation: '가상 선수 (시제품)' }));
+  // IDP: 3개월 확정 + 이번 달 (제출 · 작성 중 · 확정 섞어서)
+  let sd = 7; const rnd = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+  const ym0 = ymOf(new Date()); const clamp = (v) => Math.max(1, Math.min(5, Math.round(v))); // 가짜 데이터는 늘 실제 오늘 기준
+  const people = [['p1', '박선수', 'ST'], ['p2', '이선수', 'GK'], ['p4', '정선수', 'CB'], ['p5', '강선수', 'W'], ['p3', '최선수', 'CM'], ['p6', '윤선수', 'FB']];
+  people.forEach(([uid, name, pg], pi) => {
+    const abs = [...hexOf(pg).map((a) => a.id), ...(POS[pg]?.items || []).map(([id]) => id), ...GROWTH.map((g) => g.id)];
+    const base = Object.fromEntries(abs.map((a) => [a, 2 + rnd() * 2]));
+    const drift = Object.fromEntries(abs.map((a) => [a, (rnd() - 0.35) * 0.6]));
+    for (let k = 3; k >= 0; k--) {
+      const m = ymAdd(ym0, -k);
+      const sc = Object.fromEntries(abs.map((a) => [a, clamp(base[a] + drift[a] * (3 - k) + (rnd() - 0.5) * 0.6)]));
+      const items = monthItems(pg, m);
+      const answers = {}; items.forEach((it) => { const v = sc[it.ab]; answers[it.id] = it.rev ? 6 - v : v; });
+      const id = `${uid}_${m}`;
+      let st = 'confirmed';
+      if (k === 0) st = ['submitted', 'submitted', 'submitted', 'submitted', 'confirmed', 'draft'][pi];
+      if (k === 3 && pi === 5) continue; // 윤선수: 처음 쓰는 선수
+      if (k > 0 && pi === 5) st = k === 1 ? 'confirmed' : 'confirmed';
+      if (k === 0 && pi === 0) answers[items.find((it) => it.ab === 'scan').id] = Math.min(5, sc.scan + 2); // 박선수: 스캐닝을 크게 올려 씀 → 확인 표시
+      if (k === 0 && pi === 3) items.forEach((it) => { answers[it.id] = 4; }); // 강선수: 모두 4 → 확인 표시
+      if (k === 0 && pi === 5) items.slice(9).forEach((it) => { delete answers[it.id]; }); // 윤선수: 작성 중
+      const doc0 = { uid, name, month: m, mode: 'base', pg, tplVer: TPL_VER, status: st, answers, notes: k === 0 && pi === 0 ? { [items.find((it) => it.ab === 'scan').id]: '토요일 경기 후반에 어깨 너머 보기를 계속 했어요' } : {}, rev: st === 'confirmed' ? 1 : 0, submittedAt: `${m}-24T19:0${pi}:00` };
+      if (st === 'confirmed') {
+        doc0.coach = { scores: sc, reasons: {}, feedback: k === 0 ? '압박 받을 때 첫 터치 방향이 좋아졌어요. 다음 달은 공 받기 전 어깨 너머 보기를 한 번 더.' : `${+m.slice(5)}월: 기본기 안정. 수비 복귀 속도를 더 올리자.`, goalHint: k === 1 ? { ab: abs[3], text: '공 받기 전 고개 2번 돌리기' } : null };
+        Object.assign(doc0, { confirmedBy: U, confirmedByName: '김코치', confirmedAt: `${m}-26T21:00:00` });
+        seed(`teams/T1/idp/${id}/history/1`, { by: U, byName: '김코치', at: `${m}-26T21:00:00`, what: 'confirm', changes: [], feedback: doc0.coach.feedback });
+      }
+      seed(`teams/T1/idp/${id}`, doc0);
+    }
+  });
+  // 경기분석: 우리 팀 기록 일부를 가상 선수와 연결 (IDP 근거 연결 예시)
+  const m1 = store.get('teams/T1/posts/match1');
+  if (m1) { const pick = (a) => a[Math.floor(rnd() * a.length)]; m1.events.forEach((e) => { if (e.team !== 'us') return; const p = e.k === 'shot' || e.k === 'goal' ? pick(['p1', 'p1', 'p12', 'p8']) : e.k === 'loss' ? pick(['p6', 'p7', 'p3', 'p4']) : pick(['p5', 'p6', 'p8', 'p10', 'p1']); if (rnd() < 0.7) { e.uid = p; e.num = { p1: '9', p3: '8', p4: '4', p5: '7', p6: '3', p7: '6', p8: '10', p10: '11', p12: '19' }[p]; } }); }
+  // 실험용 경기분석: 실제 U12 경기 영상 (이 컴퓨터의 파일 · public/__media 는 저장소에 올라가지 않음)
+  seed('teams/T1/posts/p3match', { type: 'analysis', mode: 'match', title: '실험) U12 전반 — 자동 카메라 영상', opponent: '실험 경기', date: '2025-02-27', oppDir: 'right', target: 'both', size: 11,
+    video: { url: '/__media/u12a.mp4', name: 'u12a.mp4' }, events: [], halfStart: {}, authorName: '김코치', createdAt: now() });
+}seed('teams/T1/matches/m0', { date: '2025-11-08', matchType: '대회', ageGroup: 'U13', opponent: '성남FC U13', gf: 3, ga: 2, scorers: [{ name: '이선수', goals: 1 }], assists: [] });
 seed('teams/T1/matches/m00', { date: '2025-09-20', matchType: '연습경기', ageGroup: 'U15', opponent: '수원 U15', gf: 1, ga: 1, scorers: [], assists: [] });
 seed('teams/T1/matches/m1', { date: today, matchType: '리그', ageGroup: 'U15', opponent: 'A', gf: 2, ga: 1, scorers: [{ name: '박선수', goals: 2 }], assists: [] });
 seed('teams/T1/matches/m2', { date: (() => { const d = new Date(); d.setDate(d.getDate() - 3); return ymd(d); })(), matchType: '스토브리그', ageGroup: 'U14', opponent: 'B', gf: 0, ga: 0, scorers: [], assists: [] });
@@ -217,6 +260,24 @@ seed('teams/T1/goals/g4', { scope: 'team', title: '빌드업에서 롱볼 대신
 seed('teams/T1/goals/g5', { scope: 'team', title: '훈련 지각 0명', category: '태도 · 팀문화', period: '분기', target: 0, status: 'done', ownerUid: U, createdAt: now() });
 seed('teams/T1/goals/g2', { scope: 'personal', title: '왼발 패스 정확하게', category: '기술', why: '왼쪽에서 받으면 자꾸 오른발로 바꿔서 늦어요', how: '매일 벽 패스 왼발 50개', due: '2026-10-31', progress: 40, status: 'doing', ownerUid: 'p1', ownerName: '박선수', coachComment: '좋은 목표야! 훈련 끝나고 같이 해보자', coachChecked: true, createdAt: now() });
 seed('teams/T1/goals/g6', { scope: 'personal', title: '공중볼 캐칭 자신감', category: '마음가짐', why: '크로스 올 때 무서워요', how: '매일 하이볼 캐칭 20개', progress: 20, status: 'doing', ownerUid: 'p2', ownerName: '이선수', createdAt: now() });
+if (LOCAL) {
+  // 목표: 만든 지 시간이 지난 목표 + 진행 기록(hist) — 진행 속도 · 추세선 보기용
+  { const ago = (d) => Timestamp.fromMillis(Date.now() - d * 864e5); const dd = (d) => ymd(new Date(Date.now() + d * 864e5));
+    const hist = (vals) => vals.map((v, i) => ({ d: ymd(new Date(Date.now() - (vals.length - 1 - i) * 7 * 864e5)), v }));
+    const up = (id, o) => { const g = store.get(`teams/T1/goals/${id}`); if (g) Object.assign(g, o); };
+    up('g1', { createdAt: ago(80), due: dd(35), hist: hist([0, 0, 40, 60, 60]) });
+    up('g3', { createdAt: ago(90), due: dd(60), hist: hist([10, 20, 20, 30, 40]) });
+    up('g4', { createdAt: ago(20), due: dd(10), hist: hist([20, 40, 60]) });
+    up('g2', { createdAt: ago(40), due: dd(5), hist: hist([0, 10, 20, 30, 40]) });
+    up('g6', { createdAt: ago(30), due: dd(30), hist: hist([0, 10, 20]) });
+    seed('teams/T1/goals/g7', { scope: 'team', title: '공식전 30골', category: '경기력', period: '시즌', due: dd(70), target: 30, current: 17, unit: '골', status: 'doing', ownerUid: U, createdAt: ago(110), hist: hist([20, 30, 40, 47, 57]) });
+    seed('teams/T1/goals/g8', { scope: 'team', title: '훈련 출석률 90%', category: '태도 · 팀문화', period: '월', due: dd(5), target: 90, current: 86, unit: '%', status: 'doing', ownerUid: U, createdAt: ago(25), hist: hist([80, 91, 96]) });
+    seed('teams/T1/goals/g9', { scope: 'team', title: '세트피스 수비 실점 0', category: '기술 · 전술', period: '분기', due: dd(-3), progress: 50, status: 'doing', ownerUid: U, createdAt: ago(88), hist: hist([30, 40, 50]) });
+    [['g10', 'p3', '최선수', '전술 이해', '공 받기 전 어깨 너머 2번 보기', 70, 45, 30], ['g11', 'p4', '정선수', '체력', '30m 달리기 기록 0.2초 줄이기', 20, 50, 40], ['g12', 'p5', '강선수', '기술', '약한 발 크로스 10개 중 6개', 60, 20, 40],
+      ['g13', 'p7', '서수미', '생활 습관', '밤 11시 전에 자기', 90, 14, 20], ['g14', 'p8', '윤공미', '마음가짐', '실수해도 다음 공을 달라고 하기', 30, 30, 10], ['g15', 'p1', '박선수', '체력', '경기 끝까지 같은 속도로 뛰기', 10, 60, 50]]
+      .forEach(([id, uid, nm, cat, t, prog, age, due]) => seed(`teams/T1/goals/${id}`, { scope: 'personal', title: t, category: cat, how: '', why: '', due: dd(due), progress: prog, status: 'doing', ownerUid: uid, ownerName: nm, createdAt: ago(age), coachChecked: prog >= 50, hist: hist([Math.max(0, prog - 30), Math.max(0, prog - 15), prog]) }));
+  }
+}
 seed(`teams/T1/logs/p1_${today}`, {
   uid: 'p1', name: '박선수', date: today, condition: 2, sleep: 5.5, rpe: 7, trainMin: 90, sleepQ: 2, injury: 6, injuryPart: '발목', bedtime: '01:00', wakeTime: '06:30',
   kind: 'match', submitted: true, submittedAt: now(),
@@ -333,6 +394,10 @@ const setUser = (u) => { auth.currentUser = u; setTimeout(() => authCb(u), 0); }
 const PROF_KEY = 'ssaka.demo.profiles';
 try { Object.entries(JSON.parse(localStorage.getItem(PROF_KEY) || '{}')).forEach(([k, v]) => store.set(k, v)); } catch { /* */ }
 const saveProfiles = () => { try { localStorage.setItem(PROF_KEY, JSON.stringify(Object.fromEntries([...store].filter(([k]) => /^users\/u-[^/]+$/.test(k))))); } catch { /* */ } };
+// 시제품 3.0: 이 컴퓨터에서 고친 IDP · 경기분석 작업 기록 · 목표는 새로고침해도 남게 (처음 상태로: 주소 끝에 ?p3reset=1)
+const P3_KEY = 'ssaka-demo-p3'; const P3_RE = /^teams\/T1\/(idp\/|idpConfig\/|matchWork\/|goals\/|matches\/|logs\/|posts\/(p3match|match1)$)/;
+if (LOCAL) { try { if (QS.has('p3reset')) localStorage.removeItem(P3_KEY); else Object.entries(JSON.parse(localStorage.getItem(P3_KEY) || '{}')).forEach(([k, v]) => store.set(k, v)); } catch { /* */ } }
+const saveP3 = () => { if (!LOCAL) return; try { localStorage.setItem(P3_KEY, JSON.stringify(Object.fromEntries([...store].filter(([k]) => P3_RE.test(k))))); } catch { /* */ } };
 const authErr = (code) => Object.assign(new Error(code), { code });
 auth.demo = true;
 export const onAuthStateChanged = (_a, cb) => { authCb = cb; setTimeout(() => cb(auth.currentUser), 0); return () => {}; };
@@ -442,10 +507,10 @@ function run(q) {
 export const getDocs = async (q) => run(q);
 export const onSnapshot = (q, cb) => { setTimeout(() => cb(run(q)), 0); return () => {}; };
 const merge = (a, b) => { for (const k in b) { if (b[k] && typeof b[k] === 'object' && !Array.isArray(b[k]) && b[k]._ms === undefined && a[k] && typeof a[k] === 'object') merge(a[k], b[k]); else a[k] = b[k]; } return a; };
-export const setDoc = async (r, d, o) => { store.set(r.path, o?.merge && store.has(r.path) ? merge(store.get(r.path), d) : d); saveProfiles(); };
-export const addDoc = async (c, d) => { const r = doc(c); store.set(r.path, d); return r; };
-export const updateDoc = async (r, d) => { if (!store.has(r.path)) throw new Error('no doc ' + r.path); Object.assign(store.get(r.path), d); saveProfiles(); };
-export const deleteDoc = async (r) => { store.delete(r.path); };
+export const setDoc = async (r, d, o) => { store.set(r.path, o?.merge && store.has(r.path) ? merge(store.get(r.path), d) : d); saveProfiles(); saveP3(); };
+export const addDoc = async (c, d) => { const r = doc(c); store.set(r.path, d); saveP3(); return r; };
+export const updateDoc = async (r, d) => { if (!store.has(r.path)) throw new Error('no doc ' + r.path); Object.assign(store.get(r.path), d); saveProfiles(); saveP3(); };
+export const deleteDoc = async (r) => { store.delete(r.path); saveP3(); };
 export const serverTimestamp = now;
 export const writeBatch = () => { const ops = []; return {
   set(r, d, o) { ops.push(() => setDoc(r, d, o)); }, update(r, d) { ops.push(() => updateDoc(r, d)); }, delete(r) { ops.push(() => deleteDoc(r)); },

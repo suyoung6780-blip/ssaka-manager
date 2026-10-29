@@ -68,16 +68,38 @@ export async function loadContext() {
   // 운영자가 이 팀에만 켜 준 추가 기능 (system/features)
   try { state.features = (await getDoc(doc(db, 'system', 'features'))).data()?.teams?.[teamId] || {}; } catch { state.features = {}; }
 }
-export const hasFeature = (k) => !!state.features?.[k];
+// 3.0 기능(proto3)은 2026-10-29부터 모든 팀에 켬 — 다른 기능 스위치는 그대로 팀마다
+export const hasFeature = (k) => k === 'proto3' || !!state.features?.[k];
 // 운영자가 방금 켠 기능도 바로 보이도록 (오늘 기록 · 일지검사 들어갈 때 다시 읽음)
 export async function refreshFeatures() {
   if (!state.team) return;
   try { state.features = (await getDoc(doc(db, 'system', 'features'))).data()?.teams?.[state.team.id] || {}; } catch { /* 그대로 */ }
 }
 
+// 등번호는 해(시즌)마다 바뀔 수 있음 — 바뀔 때마다 numbers: [{ no, from: 'YYYY-MM-DD' }] 로 남겨서
+// 지난 경기 · 영상은 그 날짜의 번호로 봄 (기록은 모두 UID로 이어져 있어 번호가 바뀌어도 기록은 그대로)
+const ymd = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export function numberAt(m, date) {
+  const h = m?.numbers || [];
+  if (!date || !h.length) return m?.number || '';
+  const x = h.filter((e) => (e.from || '') <= String(date)).pop();
+  return x ? x.no : '';
+}
+export function nextNumbers(prev, no) {
+  const h = [...(prev?.numbers || [])];
+  const old = h.length ? h[h.length - 1].no : prev?.number || '';
+  if (String(old || '') === String(no || '')) return h.length ? h : null;
+  if (!h.length && old) h.push({ no: String(old), from: '' }); // 처음 바꿀 때: 그 전 번호는 처음부터 쓰던 것
+  const today = ymd();
+  if (h.length && h[h.length - 1].from === today) h.pop(); // 같은 날 여러 번 바꾸면 마지막 것만
+  h.push({ no: String(no || ''), from: today });
+  return h;
+}
+
 // 프로필 변경 시 팀 멤버 문서(공개 프로필)에도 반영할 필드
 export const publicProfile = (p) => ({
-  name: p.name || '', photo: p.photo || '', position: p.position || '', number: p.number || '',
+  name: p.name || '', photo: p.photo || '', position: p.position || '', number: p.number || '', ...(p.numbers ? { numbers: p.numbers } : {}), ...(p.numYear ? { numYear: p.numYear } : {}),
+  grade: p.grade || '', ...(p.gradeYear ? { gradeYear: p.gradeYear } : {}),
   height: p.height || '', weight: p.weight || '', foot: p.foot || '', birthYear: p.birthYear || '', affiliation: p.affiliation || '',
   // 지도자
   coachTitle: p.coachTitle || '', duty: p.duty || '', licenses: p.licenses || '', licenseEtc: p.licenseEtc || '',

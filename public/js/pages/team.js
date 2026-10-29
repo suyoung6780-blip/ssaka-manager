@@ -305,18 +305,7 @@ export async function locker(el) {
   async function transfer(m, to, md) {
     if (!(await confirmBox(`${m.name}님을 ${to.name} 팀으로 이적 보낼까요? 우리 팀에서 바로 빠지고, ${to.name} 대표가 승인하면 그 팀에 들어가요.`))) return;
     try {
-      const old = (await getDoc(tdoc('members', m.id))).data() || {};
-      const nm = { ...old };
-      ['approvedBy', 'approvedAt', 'code', 'transferFrom', 'transferFromName'].forEach((k) => delete nm[k]);
-      const b = writeBatch(db);
-      b.set(doc(db, 'transfers', m.id), {
-        uid: m.id, name: m.name || '', role: m.role, fromTeam: state.team.id, fromTeamName: state.team.name,
-        toTeam: to.id, toTeamName: to.name, by: state.user.uid, byName: state.profile.name, at: serverTimestamp(),
-      });
-      b.set(doc(db, 'teams', to.id, 'members', m.id), { ...nm, approved: false, joinedAt: serverTimestamp(), transferFrom: state.team.id, transferFromName: state.team.name });
-      b.update(doc(db, 'users', m.id), { teamId: to.id });
-      b.delete(tdoc('members', m.id));
-      await b.commit();
+      await transferMember(m, to);
       md?.close();
       toast(`${m.name}님을 ${to.name} 팀으로 보냈어요. 그 팀 대표가 승인하면 들어가요.`);
       locker(el);
@@ -325,9 +314,26 @@ export async function locker(el) {
 
   async function kick(m) {
     if (!(await confirmBox(`${m.name}님을 팀에서 내보낼까요?`))) return;
-    try { await deleteDoc(tdoc('members', m.id)); toast('내보냈습니다.'); locker(el); } catch (e) { fail(e); }
+    try { await removeMember(m); toast('내보냈습니다.'); locker(el); } catch (e) { fail(e); }
   }
 }
+
+// 이적 · 내보내기 (선수단 창 · 새 시즌 졸업 정리 창에서 같이 씀) — 팀 대표만
+export async function transferMember(m, to) {
+  const old = (await getDoc(tdoc('members', m.id))).data() || {};
+  const nm = { ...old };
+  ['approvedBy', 'approvedAt', 'code', 'transferFrom', 'transferFromName'].forEach((k) => delete nm[k]);
+  const b = writeBatch(db);
+  b.set(doc(db, 'transfers', m.id), {
+    uid: m.id, name: m.name || '', role: m.role, fromTeam: state.team.id, fromTeamName: state.team.name,
+    toTeam: to.id, toTeamName: to.name, by: state.user.uid, byName: state.profile.name, at: serverTimestamp(),
+  });
+  b.set(doc(db, 'teams', to.id, 'members', m.id), { ...nm, approved: false, joinedAt: serverTimestamp(), transferFrom: state.team.id, transferFromName: state.team.name });
+  b.update(doc(db, 'users', m.id), { teamId: to.id });
+  b.delete(tdoc('members', m.id));
+  await b.commit();
+}
+export async function removeMember(m) { await deleteDoc(doc(db, 'teams', state.team.id, 'members', m.id)); }
 
 export function playerCard(m, { manage = false, extra = '' } = {}) {
   const pg = m.role === 'coach' ? '' : posGroup(m.position);
@@ -513,7 +519,8 @@ export async function records(el) {
       <div data-rows>${arr.map((s) => pickRow(s)).join('')}</div>
       <button type="button" class="link-btn small" data-add>+ 추가</button>
     </fieldset>`;
-  const pickRow = (s = {}) => `<div class="pick"><select><option value="">선수 선택</option>${options([...players].sort(byName).map((p) => p.name), s.name)}<option value="자책골" ${s.name === '자책골' ? 'selected' : ''}>상대 자책골</option></select>
+  // 선수는 UID로 고름 (이름도 함께 저장 · 예전 기록은 이름이 같은 선수로 표시)
+  const pickRow = (s = {}) => `<div class="pick"><select><option value="">선수 선택</option>${[...players].sort(byName).map((p) => `<option value="${esc(p.id)}" ${s.uid ? (s.uid === p.id ? 'selected' : '') : s.name === p.name ? 'selected' : ''}>${esc(p.number ? `${p.number} ` : '')}${esc(p.name)}</option>`).join('')}<option value="자책골" ${s.name === '자책골' ? 'selected' : ''}>상대 자책골</option></select>
     <input type="number" min="1" max="20" value="${esc(s.goals || 1)}"><button type="button" class="link-btn" data-rm>✕</button></div>`;
 
   function matchForm(m = {}) {
@@ -545,7 +552,7 @@ export async function records(el) {
       e.preventDefault();
       const d = formData(f);
       const read = (key) => [...f.querySelectorAll(`[data-key="${key}"] .pick`)]
-        .map((r) => ({ name: r.querySelector('select').value, goals: +r.querySelector('input').value || 1 }))
+        .map((r) => { const v = r.querySelector('select').value; const p = players.find((x) => x.id === v); return p ? { uid: p.id, name: p.name, goals: +r.querySelector('input').value || 1 } : { name: v, goals: +r.querySelector('input').value || 1 }; })
         .filter((s) => s.name);
       const data = { ...d, gf: +d.gf, ga: +d.ga, scorers: read('scorers'), assists: read('assists') };
       try {

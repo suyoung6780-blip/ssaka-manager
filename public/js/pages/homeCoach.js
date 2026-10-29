@@ -5,6 +5,7 @@ import { esc, todayStr, empty } from '../ui.js';
 import { state, go } from '../store.js';
 import { sleepOf, SHORT_SLEEP } from '../sleep.js';
 import { calcStats } from './team.js';
+import { coachSeasonCard } from '../proto/season.js';
 
 const addDays = (s, n) => { const d = new Date(`${s}T00:00`); d.setDate(d.getDate() + n); return todayStr(d); };
 const md = (s) => `${+s.slice(5, 7)}/${+s.slice(8)}`;
@@ -35,12 +36,12 @@ export async function recentLogs(tid) {
   try { sessionStorage.setItem(k, JSON.stringify({ at: Date.now(), day: todayStr(), logs })); } catch { /* */ }
   return logs;
 }
-// 팀원 목록 (3분 보관 · 이름 · 번호 · 역할만)
+// 팀원 목록 (3분 보관 · 이름 · 번호 · 역할 · 새 시즌 학년 · 번호 확인)
 export async function teamMembers(tid) {
   const k = `ssaka.homeMem.${tid}`;
   if (!auth.demo) try { const c = JSON.parse(sessionStorage.getItem(k) || 'null'); if (c && Date.now() - c.at < 3 * 60e3) return c.list; } catch { /* */ }
   const snap = await getDocs(collection(db, 'teams', tid, 'members')).catch(() => null);
-  const list = snap ? snap.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, number: x.number, role: x.role, approved: x.approved }; }) : [];
+  const list = snap ? snap.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, number: x.number, role: x.role, approved: x.approved, numYear: x.numYear, grade: x.grade, gradeYear: x.gradeYear, gradePrev: x.gradePrev, gradKeep: x.gradKeep }; }) : [];
   try { sessionStorage.setItem(k, JSON.stringify({ at: Date.now(), list })); } catch { /* */ }
   return list;
 }
@@ -143,7 +144,7 @@ export async function coachDesk(box, { sched, matches, plans, players, logs, tod
       : `<p class="muted small">${todays.length ? '오늘 훈련 안내는 아직 없어요.' : '오늘은 일정 · 훈련이 없어요.'}</p>`}
   </section>`;
 
-  box.innerHTML = `${trainCard}${statusCard}${qCard}${nextCard}`;
+  box.innerHTML = `${coachSeasonCard(players)}${trainCard}${statusCard}${qCard}${nextCard}`;
 
   box.querySelectorAll('[data-q]').forEach((li) => (li.onclick = () => {
     const [date, uid] = li.dataset.q.split('|');
@@ -156,35 +157,46 @@ export async function coachDesk(box, { sched, matches, plans, players, logs, tod
   }));
 }
 
-// ───────── 선수 홈: 코치님 답변 ─────────
+// ───────── 선수 홈: 코치님 피드백 (지난 일지 코멘트 · 질문 답변) ─────────
+// 선수가 전날 쓴 일지를 코치가 다음 날 검사 · 코멘트 → 선수 홈에서 바로 보이게 (오늘 일지 코멘트는 '내 오늘 기록' 칸에)
 const SEEN = () => `ssaka.ans.${state.user.uid}`;
 export async function answersCard(box) {
   const tid = state.team.id;
+  const today = todayStr();
+  const yd = (() => { const d = new Date(`${today}T00:00`); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
   // 최근 10개 일지만 · 5분 보관
-  const ck = `ssaka.homeAns.${tid}.${state.user.uid}`;
-  let qs = null;
-  if (!auth.demo) try { const c = JSON.parse(sessionStorage.getItem(ck) || 'null'); if (c && Date.now() - c.at < 5 * 60e3) qs = c.qs; } catch { /* */ }
+  const ck = `ssaka.homeAns2.${tid}.${state.user.uid}`;
+  let qs = null; let fbs = null;
+  if (!auth.demo) try { const c = JSON.parse(sessionStorage.getItem(ck) || 'null'); if (c && Date.now() - c.at < 5 * 60e3) ({ qs, fbs } = c); } catch { /* */ }
   if (!qs) {
     const snap = await getDocs(query(collection(db, 'teams', tid, 'logs'), where('uid', '==', state.user.uid), orderBy('date', 'desc'), limit(10))).catch(() => null);
-    qs = snap ? snap.docs.flatMap((d) => questionsOf(d.data(), d.id)) : [];
-    try { sessionStorage.setItem(ck, JSON.stringify({ at: Date.now(), qs })); } catch { /* */ }
+    const docs = snap ? snap.docs : [];
+    qs = docs.flatMap((d) => questionsOf(d.data(), d.id));
+    fbs = docs.map((d) => d.data()).filter((l) => (l.coachComment || '').trim() && l.date < today)
+      .map((l) => ({ date: l.date, text: l.coachComment.trim(), by: l.checkedBy || '코치' }));
+    try { sessionStorage.setItem(ck, JSON.stringify({ at: Date.now(), qs, fbs })); } catch { /* */ }
   }
   const answered = qs.filter((q) => q.ans?.text);
   const waiting = qs.filter((q) => !q.ans?.text);
   let seen = [];
   try { seen = JSON.parse(localStorage.getItem(SEEN()) || '[]'); } catch { /* */ }
   const sk = (q) => `${q.id}:${q.key}`;
-  const fresh = answered.filter((q) => !seen.includes(sk(q)));
-  if (!qs.length) { box.innerHTML = ''; return; }
+  const fk = (f) => `fb:${f.date}:${f.text.length}`;
+  const fresh = answered.filter((q) => !seen.includes(sk(q))).length + fbs.filter((f) => !seen.includes(fk(f))).length;
+  if (!qs.length && !fbs.length) { box.innerHTML = ''; return; }
+  const dayLabel = (d) => (d === yd ? `어제 ${md(d)}` : md(d));
   box.innerHTML = `<section class="card hcard cd-ans">
-    <div class="card-head"><h3>코치님 답변 ${fresh.length ? `<b class="cd-badge">${fresh.length}</b>` : ''}</h3>${waiting.length ? `<small class="muted">답변 기다리는 중 ${waiting.length}</small>` : ''}</div>
-    ${answered.length ? `<ul class="cd-chat">${answered.slice(0, 4).map((q) => `<li class="${seen.includes(sk(q)) ? '' : 'new'}" data-go="${esc(q.date)}">
+    <div class="card-head"><h3>코치님 피드백 ${fresh ? `<b class="cd-badge">${fresh}</b>` : ''}</h3>${waiting.length ? `<small class="muted">답변 기다리는 중 ${waiting.length}</small>` : ''}</div>
+    ${fbs.length ? `<h4 class="cd-sub">일지 코멘트</h4><ul class="cd-chat">${fbs.slice(0, 3).map((f) => `<li class="${seen.includes(fk(f)) ? '' : 'new'}" data-go="${esc(f.date)}">
+      <small>${esc(dayLabel(f.date))} 일지${seen.includes(fk(f)) ? '' : ' <b class="cd-new">새 피드백</b>'}</small>
+      <p class="coach"><b>${esc(f.by)}</b> ${esc(cut(f.text, 140))}</p></li>`).join('')}</ul>` : ''}
+    ${qs.length ? `${fbs.length ? '<h4 class="cd-sub">질문 답변</h4>' : ''}${answered.length ? `<ul class="cd-chat">${answered.slice(0, 4).map((q) => `<li class="${seen.includes(sk(q)) ? '' : 'new'}" data-go="${esc(q.date)}">
       <small>${md(q.date)} · ${esc(q.where)}${seen.includes(sk(q)) ? '' : ' <b class="cd-new">새 답변</b>'}</small>
       <p class="me">${esc(cut(q.ask, 60))}</p><p class="coach"><b>${esc(q.ans.by || '코치')}</b> ${esc(cut(q.ans.text, 90))}</p></li>`).join('')}</ul>`
-      : '<p class="muted small">아직 답변이 온 질문이 없어요. 코치님이 곧 답해 주실 거예요.</p>'}
+      : '<p class="muted small">아직 답변이 온 질문이 없어요. 코치님이 곧 답해 주실 거예요.</p>'}` : ''}
   </section>`;
-  // 보면 '새 답변' 표시는 다음부터 없어짐
-  try { localStorage.setItem(SEEN(), JSON.stringify([...new Set([...seen, ...answered.map(sk)])].slice(-200))); } catch { /* */ }
+  // 보면 '새' 표시는 다음부터 없어짐
+  try { localStorage.setItem(SEEN(), JSON.stringify([...new Set([...seen, ...answered.map(sk), ...fbs.map(fk)])].slice(-300))); } catch { /* */ }
   box.querySelectorAll('[data-go]').forEach((li) => (li.onclick = () => {
     try { sessionStorage.setItem('ssaka.daily.date', li.dataset.go); } catch { /* */ }
     go('/daily');

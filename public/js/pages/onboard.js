@@ -1,7 +1,7 @@
 import {
   auth, db, collection, doc, getDoc, getDocs, setDoc, updateDoc, serverTimestamp, writeBatch,
 } from '../fb.js';
-import { TOSS_CLIENT_KEY, FREE_MODE, PLANS, LEGEND, CYCLES, planPrice, TRIAL_DAYS, DEMO_PLAN } from '../config.js';
+import { PAY_TEST, FREE_MODE, PLANS, LEGEND, CYCLES, planPrice, TRIAL_DAYS, DEMO_PLAN } from '../config.js';
 import {
   esc, toast, fail, formData, options, pageHead, modal, confirmBox, fmtDate, CATEGORIES, normCat, ROLES,
 } from '../ui.js';
@@ -186,7 +186,7 @@ export function pricing(el) {
       <ul>
         <li>자동 결제가 아니에요. 이용기간이 끝나기 전에 팀 대표가 직접 연장 결제해요 (남은 기간에 이어서 늘어나요).</li>
         <li>12개월 결제는 10개월 값이에요 — 두 달이 무료인 셈이에요.</li>
-        <li>결제는 토스페이먼츠로 안전하게 처리돼요 (카드 · 간편결제).</li>
+        <li>결제는 KG이니시스(포트원 결제 연동)로 안전하게 처리돼요 (신용 · 체크카드).</li>
         <li>결제하지 않아도 팀 기록은 지워지지 않아요. 다시 결제하면 그대로 이어서 써요.</li>
         <li>환불은 <a href="#/refund">환불정책</a>을 따라요 — 결제 후 7일 안에 쓰지 않았으면 전액 환불돼요.</li>
       </ul>
@@ -213,6 +213,8 @@ export async function pay(el) {
   let cycle = 'month';
   let chosen = (pl.kind === 'paid' && PLANS.find((p) => p.id === pl.plan && need.players <= p.players && need.coaches <= p.coaches)?.id) || rec?.id || null;
   const cur = () => { const p = PLANS.find((x) => x.id === chosen); return p ? { p, price: planPrice(p, cycle) } : null; };
+  const fmtTel = (d) => (d.length > 7 ? `${d.slice(0, 3)}-${d.slice(3, d.length - 4)}-${d.slice(-4)}` : d);
+  let payTel = fmtTel(String(state.profile?.payPhone || ''));
   const draw = () => {
     const c = cur();
     const start = Math.max(Date.now(), pl.kind === 'paid' ? pl.until : 0);
@@ -241,71 +243,83 @@ export async function pay(el) {
       <div class="kv"><span>이용기간</span><strong>${c ? `${fmtDate(new Date(start))} ~ ${fmtDate(new Date(end))}${pl.kind === 'paid' ? ' (남은 기간에 이어서)' : ''}` : '-'}</strong></div>
       ${c && need.players ? `<div class="kv"><span>선수 한 명당</span><strong>월 ${won(perHead(c.p, need.players, cycle))}</strong></div>` : ''}
       <div class="price-box"><span>결제 금액 (부가세 포함)</span><strong>${c ? won(c.price) : '-'}</strong></div>
+      <label class="pay-tel">구매자 휴대폰 번호 <small class="muted">(필수 · 결제 확인 · 영수증 안내용, KG이니시스 · 포트원에 전달)</small>
+        <input type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" placeholder="010-1234-5678" data-paytel value="${esc(payTel)}"></label>
       <label class="pay-agree"><input type="checkbox" data-agree> <span>[필수] 결제 내용 · <a href="#/terms" target="_blank">이용약관</a> · <a href="#/refund" target="_blank">환불정책</a>을 확인했고 동의합니다</span></label>
       <p class="muted small">자동 결제가 아니에요 — 한 번만 결제되고, 끝나기 전에 직접 연장해요. 결제 후 7일 안에 쓰지 않았으면 전액 환불돼요.</p>
-      <button type="button" class="btn full" data-paybtn ${c ? '' : 'disabled'}>${c ? `토스로 ${won(c.price)} 결제하기` : '요금제를 골라 주세요'}</button>
-      ${TOSS_CLIENT_KEY.startsWith('test_') ? '<p class="muted small center">테스트 모드 — 실제로 돈이 나가지 않아요.</p>' : ''}
+      <button type="button" class="btn full" data-paybtn ${c ? '' : 'disabled'}>${c ? `${won(c.price)} 결제하기` : '요금제를 골라 주세요'}</button>
+      ${PAY_TEST ? '<p class="muted small center">테스트 모드 — 실제로 돈이 나가지 않아요.</p>' : ''}
     </section>
     <p class="muted small center"><a href="#/pricing">요금 안내</a> · <a href="#/refund">환불정책</a> · <a href="#/support">결제 문의</a></p>`;
     el.querySelectorAll('[data-cycle]').forEach((b) => (b.onclick = () => { cycle = b.dataset.cycle; draw(); }));
     el.querySelectorAll('[name=plan]').forEach((r) => { r.checked = r.value === chosen; r.onchange = () => { chosen = r.value; draw(); }; });
-    el.querySelector('[data-paybtn]').onclick = () => {
+    const telIn = el.querySelector('[data-paytel]');
+    telIn.oninput = () => { const d = telIn.value.replace(/\D/g, '').slice(0, 11); telIn.value = d.length > 7 ? `${d.slice(0, 3)}-${d.slice(3, d.length - 4)}-${d.slice(-4)}` : d.length > 3 ? `${d.slice(0, 3)}-${d.slice(3)}` : d; payTel = telIn.value; };
+    el.querySelector('[data-paybtn]').onclick = (e) => {
       if (!cur()) return;
+      const tel = payTel.replace(/\D/g, '');
+      if (!/^01[016789]\d{7,8}$/.test(tel)) { el.querySelector('[data-paytel]').focus(); return toast('구매자 휴대폰 번호를 확인해 주세요 (예: 010-1234-5678).'); }
       if (!el.querySelector('[data-agree]').checked) return toast('결제 내용 · 이용약관 · 환불정책 동의에 체크해 주세요.');
-      tossCheckout(t, cur(), cycle);
+      if (tel !== String(state.profile.payPhone || '')) { state.profile.payPhone = tel; updateDoc(doc(db, 'users', state.user.uid), { payPhone: tel }).catch(() => {}); } // 다음 결제 때 미리 채움 (본인 · 운영자만 보는 개인 계정에만)
+      portoneCheckout(t, cur(), cycle, e.currentTarget);
     };
   };
   draw();
 }
 
-// '결제하기'를 누르면: 토스 결제 창 (결제 수단 고르기 → 토스 결제)
-function tossCheckout(t, { p, price }, cycle) {
-  if (auth.demo) return toast('체험 모드에서는 결제되지 않아요.');
-  if (typeof window.TossPayments !== 'function') return toast('결제 모듈을 불러오지 못했어요. 새로고침해 주세요.');
-  const m = modal(`<span class="eyebrow">TOSS PAYMENTS</span><h2>${esc(p.name)} · ${CYCLES[cycle].label}</h2>
-    <div class="price-box"><span>결제 금액 (부가세 포함)</span><strong>${won(price)}</strong></div>
-    <p class="muted small center" data-tload>결제 수단 불러오는 중…</p><div id="toss-methods"></div><div id="toss-agree"></div>
-    <button type="button" class="btn full" data-go disabled>${won(price)} 결제하기</button>`, { wide: true });
-  let widgets = null;
-  (async () => {
-    try {
-      widgets = window.TossPayments(TOSS_CLIENT_KEY).widgets({ customerKey: state.user.uid });
-      await widgets.setAmount({ currency: 'KRW', value: price });
-      await Promise.all([
-        widgets.renderPaymentMethods({ selector: '#toss-methods', variantKey: 'DEFAULT' }),
-        widgets.renderAgreement({ selector: '#toss-agree', variantKey: 'AGREEMENT' }),
-      ]);
-      m.el.querySelector('[data-tload]')?.remove();
-      m.el.querySelector('[data-go]').disabled = false;
-    } catch (err) { m.el.querySelector('[data-tload]')?.remove(); m.el.querySelector('#toss-methods').innerHTML = `<p class="plan-alert">결제 창을 불러오지 못했어요 (${esc(err.message || err)})</p>`; }
-  })();
-  m.el.querySelector('[data-go]').onclick = async (e) => {
-    const btn = e.currentTarget; btn.disabled = true;
-    try {
-      const back = location.origin + location.pathname;
-      await widgets.requestPayment({
-        orderId: `${t.id}-${p.id}-${cycle}-${Date.now()}`,
-        orderName: `싸카매니저 ${p.name} ${CYCLES[cycle].label}`,
-        successUrl: `${back}?pay=success#/pay`,
-        failUrl: `${back}?pay=fail#/pay`,
-        customerEmail: state.user.email || undefined,
-        customerName: state.profile.name,
-      });
-    } catch (err) {
-      btn.disabled = false;
-      if (err?.code !== 'USER_CANCEL') fail(err);
-    }
-  };
+// '결제하기'를 누르면: 포트원(PortOne V2) 결제창 — KG이니시스 채널 (포트원 콘솔에서 테스트 채널 → 심사 후 실연동 채널)
+//  서버가 주문을 먼저 만들고(금액은 서버가 정함) → 결제창 → 끝나면 서버가 포트원에서 결제를 직접 읽어 확인 · 이용기간 연장
+//  PC: 이 화면 위의 결제창 · 휴대폰 · 태블릿: 결제 화면으로 넘어갔다가 ?pay=portone 으로 돌아옴
+const PORTONE_SDK = 'https://cdn.portone.io/v2/browser-sdk.js';
+const loadScript = (src) => new Promise((ok, no) => {
+  if ([...document.scripts].some((s) => s.src === src)) return ok();
+  const s = document.createElement('script'); s.src = src; s.onload = () => ok(); s.onerror = () => no(new Error('결제 모듈을 불러오지 못했어요. 새로고침해 주세요.'));
+  document.head.appendChild(s);
+});
+async function portoneCheckout(t, { p }, cycle, btn) {
+  // 체험 모드: 이 컴퓨터의 데모 서버에서만 포트원 테스트 결제창까지 열어 봄 (기간 연장 없음)
+  if (auth.demo && !/^(localhost|127\.)/.test(location.hostname)) return toast('체험 모드에서는 결제되지 않아요.');
+  const label = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '결제창 여는 중…'; }
+  try {
+    const token = auth.demo ? 'demo' : await auth.currentUser.getIdToken();
+    const [r] = await Promise.all([
+      fetch('/api/pay?step=start', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ teamId: t.id, plan: p.id, cycle }) }),
+      loadScript(PORTONE_SDK),
+    ]);
+    const o = await r.json().catch(() => ({}));
+    if (!r.ok || !o.ok) throw new Error(o.message || '결제창을 열지 못했어요. 잠시 후 다시 해 주세요.');
+    if (typeof window.PortOne?.requestPayment !== 'function') throw new Error('결제 모듈을 불러오지 못했어요. 새로고침해 주세요.');
+    const res = await window.PortOne.requestPayment({
+      storeId: o.storeId, channelKey: o.channelKey, paymentId: o.paymentId,
+      orderName: o.orderName, totalAmount: o.totalAmount, currency: 'KRW', payMethod: 'CARD',
+      // KG이니시스: 이름 필수 · PC는 휴대폰 번호 · 이메일도 필수
+      customer: { fullName: state.profile.name || '지도자', phoneNumber: (state.profile.payPhone || '').replace(/\D/g, ''), email: state.user.email || undefined },
+      redirectUrl: `${location.origin}${location.pathname}?pay=portone#/pay`, // 휴대폰: 결제 화면에서 이 주소로 돌아옴
+    });
+    if (!res) return; // 휴대폰은 위 주소로 넘어감
+    if (res.code) throw new Error(res.message || '결제가 취소되었어요.');
+    if (auth.demo) return toast('체험 모드라 결제창까지만 확인했어요 (기간 연장은 실제 사이트에서). 테스트 결제는 포트원이 자동으로 취소해요.');
+    await confirmPayment({ paymentId: o.paymentId });
+  } catch (err) {
+    fail(err);
+  } finally {
+    if (btn?.isConnected) { btn.disabled = false; btn.textContent = label; }
+  }
 }
 
-// 결제창에서 돌아오면: 서버(/api/pay)가 토스에 승인 요청 · 금액 확인 → 팀 이용기간 연장
-export async function confirmPayment(params) {
-  const m = modal('<div class="loading">결제 승인 중… 창을 닫지 마세요</div>');
+// 결제창이 끝나면 (PC: 바로 · 휴대폰: ?pay=portone&paymentId= 로 돌아온 뒤): 서버가 포트원에서 확인 · 이용기간 연장 → 결과 창
+export async function confirmPayment({ paymentId }) {
+  const m = modal('<div class="loading">결제 확인 중… 창을 닫지 마세요</div>');
   try {
     const token = await auth.currentUser.getIdToken();
-    const r = await fetch('/api/pay', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(params) });
+    const h = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+    const c = await fetch('/api/pay?step=complete', { method: 'POST', headers: h, body: JSON.stringify({ paymentId }) });
+    const cr = await c.json().catch(() => ({}));
+    if (!c.ok || !cr.ok) throw new Error(cr.message || '결제를 확인하지 못했어요. 돈이 나갔다면 운영자에게 문의해 주세요.');
+    const r = await fetch(`/api/pay?step=result&paymentId=${encodeURIComponent(paymentId || '')}`, { headers: h });
     const res = await r.json().catch(() => ({}));
-    if (!r.ok || !res.ok) throw new Error(res.message || '결제를 승인하지 못했어요. 돈이 나갔다면 운영자에게 문의해 주세요.');
+    if (!r.ok || !res.ok) throw new Error(res.message || '결제 결과를 확인하지 못했어요. 돈이 나갔다면 운영자에게 문의해 주세요.');
     await loadContext();
     m.close();
     await hooks.route(); // 막혀 있던 화면이 풀리게 다시 그림

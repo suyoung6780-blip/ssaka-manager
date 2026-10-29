@@ -17,6 +17,8 @@ import { matchStudio, sampleMatch, computeReport, TARGETS, linkOf, LINK_HELP, VE
 
 // 손가락으로 쓰는 화면(휴대폰 · 태블릿)
 const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+// 휴대폰만 (태블릿은 화면 짧은 쪽이 600px 넘어서 컴퓨터처럼 씀)
+const PHONE = COARSE && typeof screen === 'object' && Math.min(screen.width || 9999, screen.height || 9999) < 600;
 
 // 무료(파일 저장소 없음): 영상은 코치 컴퓨터에서 바로 열어 분석 — 이 창을 닫기 전까지만 기억
 const localFiles = new Map(); // 분석 id → File
@@ -26,7 +28,7 @@ const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart
 const fmtT1 = (s) => `${fmtT(s)}.${Math.floor((s * 10) % 10)}`; // 0:12.5
 
 // ───────── 목록 ─────────
-// 코치: 움직이는 소개 카드(부분분석 · 경기분석) + 내 분석 목록 · 선수: 경기분석만
+// 코치: 움직이는 소개 카드(선수분석 · 경기분석) + 내 분석 목록 · 선수: 경기분석만
 let listTab = 'match';
 export async function list(el) {
   const snap = await getDocs(query(col(), where('type', '==', 'analysis'), orderBy('createdAt', 'desc'), limit(100)));
@@ -38,8 +40,8 @@ export async function list(el) {
   el.innerHTML = coach ? `${pageHead('ANALYSIS ROOM', '분석실', '<button class="btn" data-new>+ 새 분석</button>')}
     ${heroHtml(all.length > 0)}
     ${all.length ? `<h2 class="an-libh">내 분석</h2>
-      <nav class="tabs admin-tabs">${[['match', '경기분석'], ['clip', '부분분석']].map(([k, l]) => `<a href="javascript:void 0" class="${k === listTab ? 'active' : ''}" data-ltab="${k}">${l} <small>${all.filter((p) => (k === 'match' ? isMatch(p) : !isMatch(p))).length}</small></a>`).join('')}</nav>
-      ${rows.length ? libGrid(rows) : empty(listTab === 'match' ? '아직 경기분석이 없어요. 위에서 영상을 넣고 시작해 보세요.' : '아직 부분분석이 없어요.')}` : ''}`
+      <nav class="tabs admin-tabs">${[['match', '경기분석'], ['clip', '선수분석']].map(([k, l]) => `<a href="javascript:void 0" class="${k === listTab ? 'active' : ''}" data-ltab="${k}">${l} <small>${all.filter((p) => (k === 'match' ? isMatch(p) : !isMatch(p))).length}</small></a>`).join('')}</nav>
+      ${rows.length ? libGrid(rows) : empty(listTab === 'match' ? '아직 경기분석이 없어요. 위에서 영상을 넣고 시작해 보세요.' : '아직 선수분석이 없어요. + 새 분석에서 영상을 넣고 선수를 눌러 시작해 보세요.')}` : ''}`
     : `${pageHead('ANALYSIS ROOM', '분석실')}
     <p class="lead">코치님이 만든 <b>경기분석</b>이에요. 상대 팀의 <b>체크 포인트 → 포메이션 → 리포트</b> 순서로 보면 돼요.</p>
     ${rows.length ? libGrid(rows) : `${empty('아직 올라온 경기분석이 없어요.')}
@@ -86,8 +88,9 @@ function heroHtml(compact) {
           <text y="-14" class="an-tag">AI</text></g>
         <path class="an-draw" d="M96 44 C 110 38, 122 36, 136 40" fill="none" stroke="#ffd400" stroke-width="2"/><path class="an-draw-head" d="M136 40 l-6 -3.5 l.5 6.5 z" fill="#ffd400"/>
         <path class="an-zone" d="M100 52 L146 52 L150 80 L96 80 Z" fill="rgba(78,161,255,.25)" stroke="#4ea1ff" stroke-width=".6" stroke-dasharray="2 1.5"/></svg></div>
-      <div class="an-htext"><span class="eyebrow">부분분석</span><h3>장면 하나를 그림으로 설명</h3>
-        <p>선수를 누르면 <b>AI가 끝까지 따라가고</b>, 화살표 · 영역 · 거리를 그려서 <b>mp4 영상</b>으로 카톡에 보내요.</p>
+      <div class="an-htext"><span class="eyebrow">선수분석</span><h3>선수의 움직임을 영상으로 설명</h3>
+        <p>선수를 누르면 <b>AI가 뒤에서 끝까지 따라가요</b>. 화살표 · 영역 · 선수 연결 · 스포트라이트 · 오프사이드 선을 그리고, 원하는 장면에 <b>멈춤 · 천천히</b>를 넣어 <b>mp4 영상</b>으로 내보내요.</p>
+        <ol class="an-steps"><li>영상 넣기 → <b>선수 누르기</b> (따라가는 동안에도 계속 그릴 수 있어요)</li><li>왼쪽 도구로 <b>그리기</b> · 그림마다 나오는 시간과 끝나는 시간</li><li>아래 <b>타임라인</b>에서 멈춤 · 천천히 길이를 끌어서 맞추기</li><li><b>영상으로 내보내기</b> → 만들기 전 점검 → mp4 저장 · 카톡 공유</li></ol>
 </div>
     </div>
     <div class="an-hcard">
@@ -103,20 +106,20 @@ function heroHtml(compact) {
     </div>
   </section>`;
 }
-// 영상을 넣으면(또는 + 새 분석): 부분분석 / 경기분석 고르기
+// 영상을 넣으면(또는 + 새 분석): 선수분석 / 경기분석 고르기
 function chooseMode(file) {
   const m = modal(`<span class="eyebrow">NEW ANALYSIS</span><h2>어떤 분석을 할까요?</h2>
     ${file ? `<p class="muted">${esc(file.name)} · ${Math.round(file.size / 1e6)}MB — 서버에 올리지 않아요</p>` : ''}
     <div class="an-choose">
-      <button data-m="clip"><b>부분분석</b><span>장면을 골라 트래킹 · 화살표로 설명하고 mp4로 공유</span></button>
-      <button data-m="match"><b>경기분석</b><span>경기를 보며 기록해서 상대 팀 리포트 · 포메이션 만들기</span></button>
+      <button data-m="clip"><b>선수분석</b><span>선수를 AI로 따라가며 화살표 · 멈춤 · 천천히로 설명하고 mp4로 공유</span></button>
+      <button data-m="match"><b>경기분석</b><span>경기를 보며 단축키로 기록해서 상대 · 우리 팀 리포트 · 포메이션 만들기</span></button>
     </div>`);
   m.el.querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => { m.close(); listTab = b.dataset.m; if (b.dataset.m === 'match') createMatchModal(file); else createModal(file); }));
 }
 
 // 경기분석 만들기: 상대 · 날짜 · 영상(내 컴퓨터) · 전반에 상대가 공격하는 방향
 function createMatchModal(preset = null) {
-  const m = modal(`<span class="eyebrow">MATCH ANALYSIS</span><h2>경기 분석 만들기</h2>
+  const m = modal(`<span class="eyebrow">MATCH ANALYSIS</span><h2>경기분석 만들기</h2>
     <form class="stack">
       <div class="grid2"><label>상대팀<input name="opponent" required maxlength="30" placeholder="예) 성남FC U15"></label>
         <label>경기일<input type="date" name="date" value="${todayStr()}"></label></div>
@@ -158,7 +161,7 @@ function createMatchModal(preset = null) {
 
 function createModal(preset = null) {
   const m = modal(`
-    <span class="eyebrow">NEW ANALYSIS</span><h2>영상 분석 만들기</h2>
+    <span class="eyebrow">PLAYER ANALYSIS</span><h2>선수분석 만들기</h2>
     <form class="stack">
       ${preset ? `<p class="muted small">영상: <b>${esc(preset.name)}</b></p>` : ''}
       <label>제목<input name="title" required maxlength="80" placeholder="예) 27R vs 화성FC 전반 빌드업"></label>
@@ -657,14 +660,14 @@ export async function studio(el, { id, mode }) {
   const studio = el.querySelector('.studio');
   const landQ = matchMedia('(orientation: landscape)');
   const PH_OK = 'ssaka.st.portraitOk';
-  const portraitHint = COARSE ? Object.assign(document.createElement('div'), { className: 'st-rotate', innerHTML: '<span><b>⟲ 가로로 돌리면</b> 영상이 화면 가득 커지고 도구가 옆에 붙어요</span><button type="button" class="btn ghost sm" data-strot-no>이대로 보기</button>' }) : null;
+  const portraitHint = PHONE ? Object.assign(document.createElement('div'), { className: 'st-rotate', innerHTML: '<span><b>⟲ 가로로 돌리면</b> 영상이 화면 가득 커지고 도구가 옆에 붙어요</span><button type="button" class="btn ghost sm" data-strot-no>이대로 보기</button>' }) : null;
   if (portraitHint) {
     el.querySelector('.st-stage').prepend(portraitHint);
     portraitHint.querySelector('[data-strot-no]').onclick = () => { try { localStorage.setItem(PH_OK, '1'); } catch { /* */ } portraitHint.hidden = true; };
   }
   function syncPhone() {
     if (!studio.isConnected) { landQ.removeEventListener('change', syncPhone); return; }
-    const on = COARSE && landQ.matches;
+    const on = PHONE && landQ.matches;
     studio.classList.toggle('st-phone', on);
     if (!on) studio.classList.remove('st-tl-open', 'st-side-open');
     syncPhBtns();
@@ -685,7 +688,7 @@ export async function studio(el, { id, mode }) {
   const mainEl = el.querySelector('.studio-main');
   const stageEl = el.querySelector('.st-stage');
   function setFull(on) {
-    const can = edit && !COARSE && window.innerWidth > 860;
+    const can = edit && !PHONE && window.innerWidth > 860; // 휴대폰은 따로 (가로 화면 st-phone)
     on = on && can;
     studio.classList.toggle('st-full', on);
     document.documentElement.classList.toggle('st-lock', on);
@@ -1572,6 +1575,14 @@ export async function studio(el, { id, mode }) {
     drawTimeline();
     tlS.scrollLeft = at * pps - w / 2; // 재생 위치를 가운데에 두고
   }
+  // 멈춘 채로 다른 시간으로 옮기거나 타임라인을 처음 열 때: 재생 위치가 안 보이면 그쪽으로 (그림 줄이 비어 보이지 않게)
+  function followPlayhead() {
+    if (!pps || !tlS.clientWidth) return;
+    const x = t() * pps;
+    if (x < tlS.scrollLeft || x > tlS.scrollLeft + tlS.clientWidth - 30) tlS.scrollLeft = Math.max(0, x - tlS.clientWidth / 3);
+  }
+  video.addEventListener('seeked', () => { if (video.paused) followPlayhead(); });
+  if (typeof ResizeObserver === 'function') { let w0 = 0; new ResizeObserver(() => { const w = tlS.clientWidth; if (w && !w0) requestAnimationFrame(followPlayhead); w0 = w; }).observe(tlS); }
   function movePlayhead() {
     if (!pps) return;
     const x = t() * pps;
@@ -1908,6 +1919,7 @@ export async function studio(el, { id, mode }) {
           if (!moved || mode === 'move') goScene(it.t0);
           setHint();
           drawSide(); render();
+          if (!moved) openSide(); // 휴대폰: 누르기만 하면 그 그림 설정이 바로 열림
         };
       };
     });
@@ -3002,9 +3014,9 @@ export async function studio(el, { id, mode }) {
   // 돌려주는 값: true = 끝까지 함(또는 AI 없이 재생해도 됨), false = 멈춤 · 놓침
   // 휴대폰에서 무거운 작업을 시작할 때 한 번 알려줌 (계속할 수 있음)
   async function heavyOk(what) {
-    if (!COARSE) return true;
+    if (!PHONE) return true; // 컴퓨터 · 태블릿은 그대로 진행
     try { if (sessionStorage.getItem('ssaka.st.heavyOk') === '1') return true; } catch { /* */ }
-    const ok = await confirmBox(`${what}은(는) 컴퓨터 · 태블릿이 더 빨라요. 휴대폰에서는 시간이 오래 걸리고 배터리를 많이 써요.\n\n휴대폰에서 계속할까요?`);
+    const ok = await confirmBox(`${what}${/[가-힣]/.test(what.slice(-1)) && (what.charCodeAt(what.length - 1) - 0xac00) % 28 ? '은' : '는'} 컴퓨터 · 태블릿이 더 빨라요. 휴대폰에서는 시간이 오래 걸리고 배터리를 많이 써요.\n\n휴대폰에서 계속할까요?`);
     if (ok) try { sessionStorage.setItem('ssaka.st.heavyOk', '1'); } catch { /* */ }
     return ok;
   }

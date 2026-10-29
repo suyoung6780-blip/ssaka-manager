@@ -18,6 +18,9 @@ const sectionOf = (path) => SECTIONS.filter((s) => path === s || path.startsWith
 const current = () => sectionOf(location.hash.slice(1) || '/');
 
 export const hasNew = (sec) => (latest[sec] || 0) > (seen[sec] || 0);
+// 따로 켜는 점 (예: 시제품 성장 평가 — 이번 달 자기평가를 안 냄 · 검토 대기)
+const flags = {};
+export function setFlag(path, on) { flags[path] = !!on; paint(); }
 
 export function markSeen(path) {
   const sec = sectionOf(path);
@@ -31,9 +34,9 @@ export function markSeen(path) {
 export function paint() {
   document.querySelectorAll('.nav-list a[href]').forEach((a) => {
     const sec = sectionOf(a.getAttribute('href').slice(1));
-    a.classList.toggle('has-new', !!sec && hasNew(sec));
+    a.classList.toggle('has-new', (!!sec && hasNew(sec)) || !!flags[a.getAttribute('href').slice(1)]);
   });
-  const n = SECTIONS.filter(hasNew).length;
+  const n = SECTIONS.filter(hasNew).length + Object.values(flags).filter(Boolean).length;
   document.querySelector('[data-toggle="nav-open"]')?.classList.toggle('has-new', n > 0);
   try { if ('setAppBadge' in navigator) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } catch { /* */ }
 }

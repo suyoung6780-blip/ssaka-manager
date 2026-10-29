@@ -183,6 +183,44 @@ service cloud.firestore {
         allow delete: if (isMember(t) && resource.data.uid == uid()) || isAdmin(); // 회원 탈퇴 · 운영자 내보내기 때 일지 삭제
       }
 
+      // 시제품 3.0 — IDP (선수 자기평가 → 코치 확정). 문서 ID = {uid}_{YYYY-MM}
+      //  선수: 확정 전까지 자기 답만 · 코치 칸(coach)은 못 씀 / 코치: coach · 상태만, 원래 답(answers)은 못 고침
+      //  코치가 확정할 때마다 rev 가 1씩 늘고, 같은 번호의 바꾼 기록(history)이 함께 있어야 함 · 지우기는 운영자만
+      match /idp/{d} {
+        allow get: if isCoach(t) || (isMember(t) && d.split('_')[0] == uid());
+        allow list: if isCoach(t) || (isMember(t) && resource.data.uid == uid());
+        allow create: if isSquad(t) && !isCoach(t) && request.resource.data.uid == uid()
+          && d == uid() + '_' + request.resource.data.month
+          && request.resource.data.status in ['draft', 'submitted']
+          && request.resource.data.get('rev', 0) == 0
+          && !request.resource.data.keys().hasAny(['coach', 'confirmedBy', 'confirmedByName', 'confirmedAt']);
+        allow update: if (isSquad(t) && !isCoach(t) && resource.data.uid == uid()
+            && resource.data.status in ['draft', 'submitted']
+            && request.resource.data.status in ['draft', 'submitted']
+            && !changed().hasAny(['uid', 'month', 'tplVer', 'rev', 'coach', 'confirmedBy', 'confirmedByName', 'confirmedAt']))
+          || (isCoach(t) && resource.data.status in ['submitted', 'confirmed']
+            && changed().hasOnly(['coach', 'status', 'rev', 'confirmedBy', 'confirmedByName', 'confirmedAt'])
+            && request.resource.data.status == 'confirmed' && request.resource.data.confirmedBy == uid()
+            && request.resource.data.rev == resource.data.get('rev', 0) + 1
+            && existsAfter(/databases/$(database)/documents/teams/$(t)/idp/$(d)/history/$(string(request.resource.data.rev))));
+        allow delete: if isAdmin();
+        match /history/{h} {
+          allow read: if isCoach(t) || (isMember(t) && d.split('_')[0] == uid());
+          allow create: if request.resource.data.by == uid()
+            && (isCoach(t) || (isSquad(t) && d.split('_')[0] == uid() && request.resource.data.what == 'submit'));
+          // update · delete 없음 = 고치거나 지울 수 없음
+        }
+      }
+      // 시제품 3.0 — IDP 설정 (한 달에 묻는 양). 팀원이 읽고 코치만 바꿈
+      match /idpConfig/{c} {
+        allow read: if isSquad(t);
+        allow write: if isCoach(t);
+      }
+      // 시제품 3.0 — 경기분석 작업 기록 (AI 후보 · 바꾼 기록 · 작업 시간). 분석 게시물(posts)은 선수도 읽으므로 따로, 코치만
+      match /matchWork/{w} {
+        allow read, write: if isCoach(t);
+      }
+
       // 상담실은 없앰 — 남은 글은 운영자가 한 번에 지울 수 있게 (운영자 페이지)
       match /counsel/{c} {
         allow read: if isCoach(t) || (isMember(t) && resource.data.authorUid == uid()) || isAdmin();

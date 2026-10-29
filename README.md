@@ -1,6 +1,6 @@
 # 싸카매니저 (SSAKA MANAGER)
 
-축구팀 매니지먼트 웹앱. Firebase(로그인·DB·파일·서버 함수) + 토스페이먼츠(팀 월 이용권 결제).
+축구팀 매니지먼트 웹앱. Firebase(로그인·DB·파일·서버 함수) + KG이니시스(팀 이용권 결제, Vercel 서버 함수 api/pay.py).
 
 > **지금은 무료 운영 모드**(`js/config.js` 의 `FREE_MODE = true`)입니다. 결제 없이 지도자가 팀을 만들면 바로
 > 10자리 팀 코드(대문자·소문자·숫자 섞음, 대소문자 구분, 매번 새로 생성)가 발급됩니다. Cloud Functions 없이 동작합니다.
@@ -27,7 +27,7 @@ python3 dev-server.py          # 실제 Firebase 연결 (config.js 설정 후)
 public/                 ← 웹사이트 (Firebase Hosting 으로 배포)
   index.html
   css/style.css         블랙앤화이트 디자인
-  js/config.js          ★ Firebase 설정 · 토스 클라이언트 키 · 요금
+  js/config.js          ★ Firebase 설정 · 결제 테스트 모드 · 요금
   js/app.js             라우터 · 레이아웃 · 메뉴
   js/store.js           로그인 사용자/팀 상태
   js/tactic.js          작전판 (필드·그리드 편집, 선수·콘·골대·영역·화살표)
@@ -89,15 +89,12 @@ storage.rules           미팅 자료 업로드 권한
 6. 프로젝트 설정 → 내 앱 → 웹 앱 추가 → 나오는 `firebaseConfig` 값을 **`public/js/config.js`** 에 붙여넣기
 7. **`.firebaserc`** 의 `YOUR_PROJECT` 를 프로젝트 ID 로 변경
 
-### 3. 토스페이먼츠
-- 테스트: `config.js` 에 문서용 테스트 클라이언트 키가 들어 있습니다. 짝이 되는 시크릿 키를 서버에 등록:
-  ```
-  firebase functions:secrets:set TOSS_SECRET_KEY
-  # 입력값: test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R
-  ```
-  (안 되면 https://developers.tosspayments.com 가입 후 내 테스트 키 사용)
-- 실제 결제: 사업자등록 → 토스페이먼츠 가맹 계약 → 라이브 키(`live_ck_…` / `live_sk_…`)로 교체
-- 요금 변경: `public/js/config.js` 의 `PLAN.price` 와 `functions/index.js` 의 `PLAN_PRICE` 를 **같이** 수정
+### 3. KG이니시스 결제
+- 흐름: 결제하기 → `/api/pay?step=start`(팀 대표 · 금액 확인, 주문 `payOrders/{oid}` 기록, 서명) → 이니시스 결제창(PC 웹표준결제 · 휴대폰 모바일 결제)
+  → `/api/pay?step=return` / `mreturn`(승인 · 금액 다시 확인 · 이용기간 연장, 실패하면 자동 취소) → 사이트 `?pay=success&oid=…`
+- 테스트: 환경 변수가 없으면 이니시스 공개 테스트 상점 `INIpayTest` 로 열려요 (실제 돈이 나가지 않음)
+- 실제 결제: KG이니시스 가맹 계약 → Vercel 환경 변수 `INICIS_MID` · `INICIS_SIGNKEY` · `INICIS_APIKEY` 등록 → `config.js` 의 `PAY_TEST` 를 `false`
+- 요금 변경: `public/js/config.js` 의 `PLANS` 와 `api/pay.py` 의 `PLANS` 를 **같이** 수정
 
 ### 3-1. 분석실 영상 (Storage CORS)
 분석실의 트래킹 · 크로마키는 브라우저가 영상 픽셀을 읽어야 해서, Storage 버킷에 CORS 설정이 한 번 필요합니다.
@@ -153,5 +150,5 @@ firebase deploy
 - 서버는 10분마다 새로 수집합니다.
 
 ## 참고
-- 월 이용권은 **30일 단건 결제 후 연장** 방식입니다. 매달 자동 청구(정기결제)는 토스 자동결제(빌링) 별도 계약 후 추가할 수 있습니다.
+- 월 이용권은 **30일 단건 결제 후 연장** 방식입니다. 매달 자동 청구(정기결제)는 KG이니시스 빌링 별도 계약 후 추가할 수 있습니다.
 - 프로필 사진은 흑백으로 변환·축소되어 저장됩니다.

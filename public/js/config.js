@@ -11,10 +11,10 @@ export const firebaseConfig = {
 // Cloud Functions 리전 (functions/index.js 와 같아야 함)
 export const FUNCTIONS_REGION = 'asia-northeast3';
 
-// ② 토스페이먼츠 '결제위젯 연동 키'의 클라이언트 키 (토스 개발자센터 › API 키 › 결제위젯 연동 키)
-//    아래는 토스 공식 문서용 공개 테스트 키 — 실제 돈이 나가지 않아요.
-//    가맹점 심사 후 내 상점의 live_gck_... 로 바꾸고, Vercel 환경 변수 TOSS_SECRET_KEY 에 짝이 되는 live_gsk_... 를 넣으세요.
-export const TOSS_CLIENT_KEY = 'test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm';
+// ② 결제: 포트원(PortOne V2) · KG이니시스 채널 — 서버 api/pay.py 가 Vercel 환경 변수
+//    PORTONE_STORE_ID · PORTONE_CHANNEL_KEY · PORTONE_API_SECRET 을 읽음 (테스트 채널 → 심사 후 실연동 채널 키로 바꿈)
+//    실연동 채널로 바꾸면 아래도 false 로 (결제 화면의 '테스트 모드' 안내가 사라짐)
+export const PAY_TEST = true;
 
 // ③ 요금제 — api/pay.py 의 PLANS 와 반드시 같은 값이어야 합니다 (서버가 금액을 다시 확인)
 //    인원은 '승인된' 팀원 기준. 연 이용권 = 10개월 값으로 12개월 (365일)
@@ -31,7 +31,7 @@ export const planPrice = (p, cycle) => p.month * CYCLES[cycle].mult;
 export const TRIAL_DAYS = 10;
 export const FREE_UNTIL = '2026-11-23T00:00:00+09:00';
 
-// ④ 무료 운영 모드 — true: 지금은 모든 팀 무료 (베타). 요금 안내 · 결제 화면 · 환불정책은 그대로 보이고 결제도 됨 (토스 심사용)
+// ④ 무료 운영 모드 — true: 지금은 모든 팀 무료 (베타). 요금 안내 · 결제 화면 · 환불정책은 그대로 보이고 결제도 됨 (결제사 심사용)
 //    false: 결제 사용 (새 팀은 체험 10일 뒤 결제 · 예전 팀은 FREE_UNTIL 까지 무료) — 바꾸기 30일 전에 회원에게 알리기
 export const FREE_MODE = true;
 // 지금 무료 기간 안내 카드 (요금 안내 맨 앞)
@@ -49,7 +49,11 @@ export const FEEDS_URL = '';
 export const ADMIN_EMAILS = ['suyoung6780@gmail.com'];
 
 // ⑦ 개인정보 처리방침 — 보호책임자 연락처 · 시행일 (바꾸면 처리방침 화면에 바로 반영)
-export const PRIVACY = { officer: '유수영 (대표)', email: 'suyoung6780@gmail.com', effective: '2026-10-23' };
+// 개인정보처리방침: 바꿀 때는 notice(공지일) · effective(시행일, 공지 7일 뒤) · changes(바뀌는 내용)를 같이 — 시행일 전까지 방침 맨 위 · 맨 아래 링크에 '개정 예정' 안내
+export const PRIVACY = {
+  officer: '유수영 (대표)', email: 'suyoung6780@gmail.com', effective: '2026-11-05', notice: '2026-10-29',
+  changes: ['결제 처리 위탁 업체: 토스페이먼츠(주) → (주)케이지이니시스 · 코리아포트원 주식회사(포트원)', '유료 이용권 결제 때 구매자 휴대폰 번호를 받아요 (결제 확인 · 영수증 안내, 결제사에 전달)'],
+};
 
 // ⑧ 파일 저장소(Cloud Storage) — Firebase Blaze 요금제에서만 켤 수 있음.
 //    false: 분석실은 '내 컴퓨터 영상'으로 분석 + 유튜브 공유, 미팅룸은 자료 링크로 (무료)

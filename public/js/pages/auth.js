@@ -162,6 +162,7 @@ const playerFields = (p) => `
       <label>포지션<select name="position"><option value="">-</option>${options(POSITIONS, p.position)}</select></label>
       <label>등번호<input name="number" type="number" min="0" max="99" value="${esc(p.number || '')}"></label>
       <label>주발<select name="foot">${options([['', '-'], ['R', '오른발'], ['L', '왼발'], ['B', '양발']], p.foot)}</select></label>
+      <label>학년<select name="grade"><option value="">-</option>${['초1', '초2', '초3', '초4', '초5', '초6', '중1', '중2', '중3', '고1', '고2', '고3', '대학', '성인'].map((g) => `<option ${g === p.grade ? 'selected' : ''}>${g}</option>`).join('')}</select></label>
       <label>출생연도<input name="birthYear" type="number" min="1940" max="2025" value="${esc(p.birthYear || '')}"></label>
     </div>
     <label>소속 <small class="muted">(학교 · 학년 · 클럽)</small><input name="affiliation" maxlength="40" placeholder="예) OO초등학교 6학년, OO중 축구부" value="${esc(p.affiliation || '')}"></label>

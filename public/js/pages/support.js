@@ -83,6 +83,7 @@ export async function page(el, { tab } = {}) {
   const cur = tab || (canTalk ? 'talk' : 'qna');
   el.innerHTML = `${pageHead('SUPPORT', '운영자 문의')}
     <div class="tabs admin-tabs">
+      <a href="#/support/guide">사용 설명서</a>
       ${canTalk ? `<a href="#/support" class="${cur === 'talk' ? 'active' : ''}">운영자와 대화</a>` : ''}
       <a href="#/support/qna" class="${cur === 'qna' ? 'active' : ''}">Q&A · 개선 제안</a>
     </div>

@@ -3,7 +3,7 @@ import {
 } from '../fb.js';
 import {
   esc, text, toast, fail, formData, modal, confirmBox, todayStr, pageHead, empty, avatar, ROLES, MATCH_TYPES, options, sortGroups, sortBar, bindSortBar, getSort } from '../ui.js';
-import { state, inTeam, isOwner, loadContext, publicProfile, go, hooks, hasFeature, isCoach, refreshFeatures } from '../store.js';
+import { state, inTeam, isOwner, loadContext, publicProfile, nextNumbers, go, hooks, hasFeature, isCoach, refreshFeatures } from '../store.js';
 import { exportModal, dailyFields, SLEEP_Q } from '../wellness.js';
 import { profileFields, bindPhoto, profileData } from './auth.js';
 import { withdraw } from './privacy.js';
@@ -16,6 +16,7 @@ import { sleepMin, sleepOf, fmtSleep, sleepLong, SHORT_SLEEP } from '../sleep.js
 export function profile(el) {
   const p = state.profile;
   el.innerHTML = `${pageHead('PROFILE', '내 프로필')}
+  ${hasFeature('proto3') && inTeam() && p.role === 'player' ? '<a class="card narrow p3-melink" href="#/idp"><b>내 성장 카드</b><span>OVR · 능력치 · 훈련일지 · 경기 기록 · 목표 · 경기분석이 한 곳에 모여 있어요</span><em>열기 →</em></a>' : ''}
   <form class="card narrow">
     <div class="kv"><span>계정 유형</span><strong>${ROLES[p.role]}</strong></div>
     <div class="kv"><span>이메일</span><strong>${esc(p.email)}</strong></div>
@@ -31,6 +32,7 @@ export function profile(el) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const d = profileData(form);
+    if (state.profile.role === 'player' && 'number' in d) { const h = nextNumbers(state.profile, d.number); if (h) d.numbers = h; d.numYear = new Date().getFullYear(); if (d.grade) d.gradeYear = d.numYear; }
     try {
       await updateDoc(doc(db, 'users', state.user.uid), d);
       Object.assign(state.profile, d);

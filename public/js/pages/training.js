@@ -7,7 +7,7 @@ import {
   esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, resizeImage, kpiStrip, toDate,
 } from '../ui.js';
 import { state, isCoach, go } from '../store.js';
-import { createPad, blank } from '../tactic.js';
+import { createPad, blank, FULL_DEF } from '../tactic.js';
 import { keepDraft, fillFields, draftStrip } from '../drafts.js';
 
 const AGES = ['U8', 'U10', 'U12', 'U15', 'U18', '성인'];
@@ -76,13 +76,18 @@ export async function board(el) {
     </div>
     <div class="tb-pad" data-pad></div>`;
   const box = el.querySelector('[data-pad]');
-  const fresh = () => blank('full'); // 처음엔 경기장 전체 (경기장 버튼으로 반 코트 · 직접 크기)
+  const fresh = () => { const d = blank('full'); [d.field.w, d.field.h] = FULL_DEF.h; return d; }; // 처음엔 경기장 전체 100×70 (경기장 버튼으로 반 코트 · 직접 크기)
   let pad = createPad(box, init || fresh(), { motion: true, draft: BOARD_KEY(), exportTitle: '작전판' });
   const vidBtn = el.querySelector('[data-tb-vid]');
 
-  el.querySelector('[data-tb-img]').onclick = (e) => exportPad('image', pad.getData(), '작전판', e.currentTarget);
+  el.querySelector('[data-tb-img]').onclick = async (e) => {
+    const img3d = await pad.image3d?.(); // 3D 보기면 3D 그림 그대로 저장
+    if (img3d) { const a = document.createElement('a'); a.href = img3d; a.download = '작전판 (중계 화면).png'; document.body.appendChild(a); a.click(); a.remove(); toast('중계 화면 그대로 이미지로 저장했어요.'); return; }
+    exportPad('image', pad.getData(), '작전판', e.currentTarget);
+  };
   vidBtn.onclick = (e) => {
     if (!padMoves(pad.getData())) { toast('영상은 움직임이 있어야 해요 — 장면을 2개 이상 만들거나 화살표를 그려 주세요.'); return; }
+    if (pad.video3d?.('작전판', e.currentTarget)) return; // 중계 화면이면 그대로 녹화
     exportPad('video', pad.getData(), '작전판', e.currentTarget);
   };
   el.querySelector('[data-tb-save]').onclick = () => editor({ pad: pad.getData() }, () => { pad.clearDraft(); go('/tactics/programs'); }, null, { lockPad: true });
@@ -255,6 +260,7 @@ export function present(p) {
     else if (['ArrowLeft', 'ArrowUp'].includes(e.key)) { e.preventDefault(); pad.reset(); }
   };
   document.addEventListener('keydown', onKey);
+  state.cleanup.push(close); // 뒤로가기 · 다른 화면으로 가면 같이 닫힘 (아이폰은 전체 화면이 없어서 남아 있던 문제)
   wrap.querySelector('[data-close]').onclick = close;
   wrap.requestFullscreen?.().catch(() => {});
   document.addEventListener('fullscreenchange', function f() {
