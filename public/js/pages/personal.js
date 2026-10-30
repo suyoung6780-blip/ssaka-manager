@@ -11,12 +11,14 @@ import { installButton, bindInstall } from '../install.js';
 import { loadPrograms, present } from './training.js';
 import { createPad, blank } from '../tactic.js';
 import { sleepMin, sleepOf, fmtSleep, sleepLong, SHORT_SLEEP } from '../sleep.js';
+import * as GL from '../proto/goalLog.js';
+import { AGE_GROUPS } from './team.js';
 
 // ───────── 프로필 ─────────
 export function profile(el) {
   const p = state.profile;
   el.innerHTML = `${pageHead('PROFILE', '내 프로필')}
-  ${hasFeature('proto3') && inTeam() && p.role === 'player' ? '<a class="card narrow p3-melink" href="#/idp"><b>내 성장 카드</b><span>OVR · 능력치 · 훈련일지 · 경기 기록 · 목표 · 경기분석이 한 곳에 모여 있어요</span><em>열기 →</em></a>' : ''}
+  ${hasFeature('proto3') && inTeam() && p.role === 'player' ? '<a class="card narrow p3-melink" href="#/idp"><b>내 성장 카드</b><span>OVR · 능력치 · 훈련일지 · 경기 기록 · 목표 · 경기 영상이 한 곳에 모여 있어요</span><em>열기 →</em></a>' : ''}
   <form class="card narrow">
     <div class="kv"><span>계정 유형</span><strong>${ROLES[p.role]}</strong></div>
     <div class="kv"><span>이메일</span><strong>${esc(p.email)}</strong></div>
@@ -175,7 +177,8 @@ export async function daily(el, _p, date0) {
   await refreshFeatures();
   const tid = state.team.id;
   const base = ['teams', tid, 'logs'];
-  const [cur, hist, ps, programs, allPlans, ms, sc] = await Promise.all([
+  const glOn = hasFeature('proto3');
+  const [cur, hist, ps, programs, allPlans, ms, sc, mem] = await Promise.all([
     getDoc(doc(db, ...base, `${state.user.uid}_${date}`)),
     getDocs(query(collection(db, ...base), where('uid', '==', state.user.uid), orderBy('date', 'desc'), limit(60))),
     getDocs(query(collection(db, 'teams', tid, 'posts'), where('type', '==', 'daily'), where('date', '==', date))),
@@ -183,7 +186,9 @@ export async function daily(el, _p, date0) {
     getDocs(query(collection(db, 'teams', tid, 'posts'), where('type', '==', 'daily'), orderBy('date', 'desc'), limit(120))),
     getDocs(query(collection(db, 'teams', tid, 'matches'), where('date', '==', date))),
     getDocs(query(collection(db, 'teams', tid, 'posts'), where('type', '==', 'schedule'), where('date', '==', date))),
+    glOn ? getDocs(collection(db, 'teams', tid, 'members')).catch(() => null) : null,
   ]);
+  const mates = mem ? mem.docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => m.role === 'player' && m.approved !== false).sort((a, b) => (+a.number || 99) - (+b.number || 99)) : [];
   const l = cur.data() || {};
   const myLogs = hist.docs.map((d) => d.data());
   const logs = myLogs.slice(0, 14).reverse();
@@ -220,10 +225,15 @@ export async function daily(el, _p, date0) {
     <button class="btn ghost sm" data-go="${todayStr()}">오늘</button>
     ${planDates.length ? `<div class="day-chips"><small>최근 훈련일</small>${[...planDates].reverse().slice(0, 8).map((d) => `<button class="chip ${d === date ? 'active' : ''}" data-go="${d}">${d.slice(5).replace('-', '.')}</button>`).join('')}</div>` : ''}
   </section>
+  <nav class="dsteps" data-dsteps aria-label="오늘 기록 순서">
+    <a href="javascript:void 0" data-step="body"><b>1</b><span>몸 상태<small data-st="body"></small></span></a>
+    <a href="javascript:void 0" data-step="journal"><b>2</b><span>${tabNow === 'match' ? '경기 일지' : '훈련 일지'}<small data-st="journal"></small></span></a>
+    <a href="javascript:void 0" data-step="submit"><b>3</b><span>제출<small data-st="submit"></small></span></a>
+  </nav>
   <form class="daily">
-    <div class="grid2 top">
-      <section class="card">
-        <h3>몸 상태</h3>
+    <div class="dbody">
+      <section class="card" data-sec="body">
+        <h3 class="dsec-h"><b>1</b>몸 상태</h3>
         <h4>오늘 컨디션</h4>
         ${scale('condition', 5, l.condition, CONDITION)}
         <div class="grid2">
@@ -246,13 +256,10 @@ export async function daily(el, _p, date0) {
         ${scale('injury', 11, l.injury ?? 0)}
         <label>부상 부위<input name="injuryPart" value="${esc(l.injuryPart || '')}" placeholder="예) 왼쪽 발목"></label>
       </section>
-      <section class="card">
-        <h3>최근 14일</h3>
-        ${logs.length ? trend(logs) : empty('기록이 쌓이면 추이가 보입니다.')}
-      </section>
     </div>
 
-    <section class="card journal">
+    <section class="card journal" data-sec="journal">
+      <h3 class="dsec-h"><b>2</b>오늘 일지 <small class="muted">훈련 또는 경기를 고르고 적어요</small></h3>
       <div class="jstatus ${status[0]}"><span>${status[1]}</span>${l.submittedAt ? `<small>제출 ${fmtTime(l.submittedAt)}</small>` : ''}</div>
       <div class="kind-pick"><span>오늘은</span>
         <label><input type="radio" name="kind" value="train" ${tabNow === 'train' ? 'checked' : ''} data-jtab="train"><b>훈련${hasPlan ? '<small>훈련 안내 있음</small>' : ''}</b></label>
@@ -284,7 +291,8 @@ export async function daily(el, _p, date0) {
             <label>경기 형태<select name="m_type">${options(MATCH_TYPES, mj.type)}</select></label>
             <label>우리 득점<input type="number" min="0" name="m_gf" value="${esc(mj.gf ?? '')}"></label>
             <label>상대 득점<input type="number" min="0" name="m_ga" value="${esc(mj.ga ?? '')}"></label>
-          </div><p class="muted small">경기 기록실에 이 날 경기가 등록되어 있으면 자동으로 불러와요.</p>`}
+          </div><p class="muted small">기록실에 이 날 경기가 있으면 자동으로 불러와요.</p>`}
+        ${glOn ? '<div data-gl-journal></div>' : ''}
         <div class="grid4">
           <label>출전 시간 (분)<input type="number" min="0" max="120" name="m_minutes" value="${esc(mj.minutes ?? '')}"></label>
           <label>포지션<input name="m_position" maxlength="10" value="${esc(mj.position || state.profile.position || '')}"></label>
@@ -305,6 +313,10 @@ export async function daily(el, _p, date0) {
       </div>
       ${l.checked ? `<div class="coach-note"><span class="tag solid">코치 검사 완료</span>${l.coachComment ? `<p>${text(l.coachComment)}</p>` : ''}</div>` : ''}
     </section>
+    <section class="card">
+      <h3>최근 14일</h3>
+      ${logs.length ? trend(logs) : empty('기록이 쌓이면 추이가 보입니다.')}
+    </section>
     <section class="card mylogs">
       <div class="card-head"><h3>내 일지 모아보기</h3><small class="muted">${myLogs.length}개</small></div>
       ${myLogs.length ? `<div class="ml-tools">
@@ -324,7 +336,7 @@ export async function daily(el, _p, date0) {
           <span class="tag ${x.checked ? 'solid' : ''}">${st}</span></li>`;
       }).join('')}</ul>` : empty('아직 쓴 일지가 없어요.')}
     </section>
-    <div class="row end daily-save"><button class="btn ghost" data-save>임시 저장</button><button class="btn" data-submit>${l.submitted ? '다시 제출' : '제출하기'}</button></div>
+    <div class="row end daily-save" data-sec="submit"><span class="dsave-st" data-save-st></span><button class="btn ghost" data-save>임시 저장</button><button class="btn" data-submit>${l.submitted ? '다시 제출' : '제출하기'}</button></div>
   </form>`;
 
   const form = el.querySelector('form');
@@ -379,6 +391,25 @@ export async function daily(el, _p, date0) {
     const ds = picks();
     saveJournalsPdf(myLogs.filter((x) => ds.includes(x.date)).sort((a, b) => a.date.localeCompare(b.date)));
   });
+  // 1 몸 상태 → 2 일지 → 3 제출: 어디까지 썼는지 위 단계와 아래 저장 줄에 보여 줌
+  const syncSteps = () => {
+    const on = (n) => !!form.querySelector(`[name="${n}"]:checked`);
+    const kind = form.querySelector('[name=kind]:checked')?.value || 'train';
+    const part = el.querySelector(`[data-part="${kind}"]`);
+    const typed = (box) => [...box.querySelectorAll('textarea')].some((x) => x.value.trim());
+    const body = on('condition') && form.bedtime.value && form.wakeTime.value;
+    const jour = kind === 'match' ? on('m_rating') || typed(part) || !!part.querySelector('.gl-row')
+      : typed(part.querySelector('[data-mysess]') || part) || !!part.querySelector('[data-mysess] input[type=radio]:checked');
+    const st = { body: [body, body ? '다 썼어요' : '컨디션 · 잠'], journal: [jour, jour ? '쓰는 중' : '아직'], submit: [!!l.submitted, l.checked ? '검사 완료' : l.submitted ? '제출함' : '아직'] };
+    Object.entries(st).forEach(([k, [ok, t]]) => { const a = el.querySelector(`[data-step="${k}"]`); a.classList.toggle('ok', !!ok); a.querySelector('small').textContent = t; });
+    const nxt = !body ? 'body' : !jour ? 'journal' : 'submit';
+    el.querySelectorAll('[data-step]').forEach((a) => a.classList.toggle('now', a.dataset.step === nxt));
+    el.querySelector('[data-step="journal"] span').firstChild.textContent = kind === 'match' ? '경기 일지' : '훈련 일지';
+    const ss = el.querySelector('[data-save-st]');
+    if (ss) ss.textContent = !body ? '1 몸 상태부터 적어요' : !jour ? `2 ${kind === 'match' ? '경기' : '훈련'} 일지를 적어요` : l.submitted ? '고쳤으면 다시 제출' : '다 쓰면 제출하기';
+  };
+  form.addEventListener('input', syncSteps); form.addEventListener('change', syncSteps); form.addEventListener('click', () => setTimeout(syncSteps, 0));
+  el.querySelectorAll('[data-step]').forEach((a) => (a.onclick = () => el.querySelector(`[data-sec="${a.dataset.step}"]`)?.scrollIntoView({ behavior: 'smooth', block: a.dataset.step === 'submit' ? 'end' : 'start' })));
   el.querySelectorAll('[data-jtab]').forEach((a) => (a.onchange = () => {
     dailyTab[date] = a.value;
     el.querySelectorAll('[data-part]').forEach((x) => { x.hidden = x.dataset.part !== a.value; });
@@ -386,6 +417,9 @@ export async function daily(el, _p, date0) {
     const lb = el.querySelector('[data-tmin-label]'); if (lb) lb.textContent = a.value === 'match' ? '경기 시간' : '훈련 시간';
     const tm = form.querySelector('[name=trainMin]'); if (tm) tm.placeholder = a.value === 'match' ? '예) 60' : '예) 90';
   }));
+  // 시제품 3.0: 골 · 도움 · 실점 장면 (경기 기록실로 모임)
+  const glBox = el.querySelector('[data-gl-journal]');
+  const getGL = glBox ? GL.mountJournal(glBox, { mj, players: mates, games, groups: AGE_GROUPS[state.team.category] || [], me: state.user.uid }) : null;
   // 경기 장면: 작전판 + 설명
   const scenes = [];
   const sceneBox = el.querySelector('[data-scenes]');
@@ -440,6 +474,7 @@ export async function daily(el, _p, date0) {
     if (padBox && prog?.pad) createPad(padBox, prog.pad, { editable: false });
     v.onclick = () => present(prog);
   });
+  syncSteps();
   form.onsubmit = async (e) => {
     e.preventDefault();
     const submit = !!e.submitter?.hasAttribute('data-submit');
@@ -451,7 +486,9 @@ export async function daily(el, _p, date0) {
       delete d[k];
       match[k.slice(2)] = ['rating', 'minutes', 'gf', 'ga'].includes(k.slice(2)) ? (v === '' ? null : +v) : v;
     }
-    if (games.length) Object.assign(match, { opponent: games[0].opponent, type: games[0].matchType, gf: +games[0].gf, ga: +games[0].ga });
+    if (getGL) Object.assign(match, getGL());
+    const g0 = games.find((g) => g.id === match.gameId) || games[0];
+    if (g0) Object.assign(match, { opponent: g0.opponent, type: g0.matchType, gf: +g0.gf, ga: +g0.ga });
     match.scenes = scenes.filter((x) => x.wrap.isConnected).map((x) => ({ key: x.key, pad: x.pad.getData(), note: x.wrap.querySelector('[data-scene-note]').value, ask: x.wrap.querySelector('[data-scene-ask]').value.trim(),
       ...Object.fromEntries([...x.wrap.querySelectorAll('[data-sf]')].map((f) => [f.dataset.sf, f.value.trim()])) }))
       .filter((sc) => sc.note.trim() || sc.ask || sc.title || sc.good || sc.bad || sc.next || (sc.pad?.items || []).length); // 빈 장면은 빼고
@@ -531,11 +568,12 @@ export async function daily(el, _p, date0) {
 export function matchHtml(l, coachAns = false) {
   if (l.kind === 'train') return '';
   const m = l.match || {};
-  const has = m.good || m.bad || m.learned || m.next || m.rating || (m.scenes || []).length;
+  const has = m.good || m.bad || m.learned || m.next || m.rating || (m.scenes || []).length || (m.goals || []).length || (m.conceded || []).length || (m.assistsMine || []).length;
   if (!has) return '';
   return `<h4>경기 일지</h4>
     <div class="mj-game"><span class="tag solid">${esc(m.type || '경기')}</span><strong>vs ${esc(m.opponent || '-')}</strong><b>${m.gf ?? '-'} : ${m.ga ?? '-'}</b><small>${m.minutes != null ? `${m.minutes}분 출전` : ''} ${esc(m.position || '')}</small></div>
     ${m.rating ? `<div class="kv"><span>나의 평점</span><strong>${m.rating} / 10</strong></div>` : ''}
+    ${GL.journalSummary(m)}
     ${m.good ? `<p><b>잘한 플레이</b><br>${text(m.good)}</p>` : ''}${m.bad ? `<p><b>아쉬운 플레이</b><br>${text(m.bad)}</p>` : ''}
     ${m.learned ? `<p><b>배운 점</b><br>${text(m.learned)}</p>` : ''}${m.next ? `<p><b>다음 경기 각오</b><br>${text(m.next)}</p>` : ''}
     ${(m.scenes || []).map((sc, i) => `<div class="mj-scene read"><strong>장면 ${i + 1}${sc.title ? ` · ${esc(sc.title)}` : ''}</strong><div data-view-pad="${i}"></div>${sc.note ? `<p><b>상황</b> ${text(sc.note)}</p>` : ''}${sc.good ? `<p><b>잘된 점</b> ${text(sc.good)}</p>` : ''}${sc.bad ? `<p><b>아쉬웠던 점</b> ${text(sc.bad)}</p>` : ''}${sc.next ? `<p><b>다음엔</b> ${text(sc.next)}</p>` : ''}${askBlock(sc.ask, sc.key ? `m_${sc.key}` : '', l.answers || {}, coachAns)}</div>`).join('')}`;

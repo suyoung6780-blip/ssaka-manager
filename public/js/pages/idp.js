@@ -9,6 +9,10 @@ import { loadCfg, refreshIdpFlag } from '../proto/idpStatus.js';
 import { loadLinks, hubHtml, monthLinkRows } from '../proto/links.js';
 import { seasonData, mountSeason } from '../proto/seasonStats.js';
 import { buildDigest, digestHtml, bodyOf } from '../proto/digest.js';
+import { computePeer, savePeer, loadPeer, MIN_N } from '../proto/peer.js'; // 같은 포지션 · 학년 · 팀 평균
+import * as GL from '../proto/goalLog.js';
+import { page as dataPage, lineChart } from './data.js';
+import { pct as gPct, pace as gPace } from './goals.js';
 import { loadTeamLogs, overviewRows, overviewHtml } from '../proto/idpOverview.js'; // 한눈에 보기 // 자동 정리 (무료 · 규칙)
 
 const col = () => collection(db, 'teams', state.team.id, 'idp');
@@ -58,6 +62,7 @@ async function coachView(el, ym = NOW()) {
   const [ms, all, cfg] = await Promise.all([members(), idpOf(null), loadCfg()]);
   const mode = cfg.mode; const deadline = I.dueOf(ym, cfg.due); const closed = !I.canWrite(ym) && ym < NOW();
   const players = ms.filter((m) => m.role === 'player').sort((a, b) => (+a.number || 99) - (+b.number || 99));
+  savePeer(computePeer(players, all)); // 선수 화면 비교 그래프용 평균 (이름 없이)
   const byU = (u, m) => all.find((d) => d.uid === u && d.month === m);
   const lastConf = (u, m) => all.filter((d) => d.uid === u && d.status === 'confirmed' && d.month < m).pop();
   const rows = players.map((p) => { const d = byU(p.id, ym); const f = d && d.status === 'submitted' ? I.flagsOf(d, lastConf(p.id, ym)) : null; return { p, d, f, st: d?.status || 'none' }; });
@@ -214,7 +219,7 @@ async function playerView(el, uid, ym = NOW()) {
   const last = series[series.length - 1];
   const prevConf = conf.filter((d) => d.month < ym).pop();
   const hist = cur ? await historyOf(cur.id) : [];
-  // 경기분석 연결 (참고만): 확정된 경기 기록 중 이 선수로 연결된 것
+  // 경기 영상 연결 (참고만): 확정된 경기 기록 중 이 선수로 연결된 것
   let evid = [];
   try {
     const ps = await getDocs(query(collection(db, 'teams', state.team.id, 'posts'), where('type', '==', 'analysis')));
@@ -225,6 +230,11 @@ async function playerView(el, uid, ym = NOW()) {
   try { const gs = await getDocs(query(collection(db, 'teams', state.team.id, 'goals'), where('ownerUid', '==', uid))); goals = gs.docs.map((s) => ({ id: s.id, ...s.data() })).filter((g) => g.scope === 'personal'); } catch { goals = []; }
 
   const links = await loadLinks(uid, ms.filter((m) => m.role === 'player'));
+  // 비교: 코치는 팀 전체 성장 평가로 바로 계산(이름까지) · 선수는 코치가 저장해 둔 평균만
+  const roster = ms.filter((m) => m.role === 'player');
+  const teamDocs = coach ? await idpOf(null) : [];
+  const peer = coach ? computePeer(roster, teamDocs) : await loadPeer();
+  if (coach) savePeer(peer);
   const body0 = bodyOf(list.filter((d) => d.month !== ym), links.logs, me); // 지난 몸 기록 (이번 달 칸 미리 채움)
   const dg = buildDigest({ logs: links.logs, idpList: list, member: me, ym });
   const digestSec = `<section class="card p3-card">${digestHtml(dg, { title: `${I.ymLabel(ym)} 자동 정리` })}</section>`;
@@ -257,16 +267,21 @@ async function playerView(el, uid, ym = NOW()) {
   const monthHtml = `<section class="card p3-card p3-survey" data-month>${monthCard()}</section>`;
   const reviewFirst = coach && st === 'submitted';
   // 성장 카드는 3칸으로 나눔: 요약(카드 · 자동 정리 · 이번 달) · 능력치(세부 · 포지션 · 성장 · 월별) · 연결 기록(일지 · 경기 · 목표 · 피드백 · 바꾼 기록)
-  const PT = [['sum', '요약'], ['ab', '능력치'], ['season', '시즌 기록'], ['link', '연결 기록']];
-  el.innerHTML = `${pageHead('IDP', coach ? `${esc(me.name || '')} 성장 카드` : '내 성장 카드', coach ? '<a class="btn ghost sm" href="#/idp">팀 전체</a>' : '')}${banner()}
+  const PT = [['sum', '요약'], ['body', '몸 상태'], ['ab', '능력치 · 비교'], ['goal', '목표'], ['season', '경기'], ['link', '일지 · 피드백']];
+  if (!PT.some(([k]) => k === ptab)) ptab = 'sum';
+  el.innerHTML = `${coach ? pageHead('PLAYER', [`${me.number ? `${me.number} ` : ''}${me.name || ''}`, posNow, me.grade].filter(Boolean).join(' · '), `<button type="button" class="btn ghost sm" data-prof>프로필 · 관리</button><a class="btn ghost sm" href="#/idp">성장 평가 전체</a>`) : pageHead('MY PAGE', '내 성장 카드')}${banner()}
     <nav class="tabs p3-ptabs">${PT.map(([k, l]) => `<a href="javascript:void 0" data-ptab="${k}" class="${ptab === k ? 'on' : ''}">${l}${k === 'sum' && reviewFirst ? ' <span class="p3-badge">검토</span>' : ''}</a>`).join('')}</nav>
     <div data-pt="sum" ${ptab === 'sum' ? '' : 'hidden'}>
+    ${hubHtml(links, goals, evid, uid, { tabs: true })}
     ${reviewFirst ? digestSec + monthHtml : ''}
     ${heroHtml}
     ${reviewFirst ? '' : digestSec}
     ${reviewFirst ? '' : monthHtml}
     </div>
+    <div data-pt="body" data-body-embed ${ptab === 'body' ? '' : 'hidden'}></div>
+    <div data-pt="goal" ${ptab === 'goal' ? '' : 'hidden'}>${goalsTab()}</div>
     <div data-pt="ab" ${ptab === 'ab' ? '' : 'hidden'}>
+    ${peerHtml({ me, pgNow, hex, series, peer, coach, teamDocs, roster, uid })}
     ${pgNow ? subsHtml(hex, last, list.filter((d) => d.pg === pgNow && d.tplVer === I.TPL_VER && d.status !== 'draft')) : ''}
     <section class="card p3-card p3-abd" data-abd><p class="muted small">능력치 · 막대 · 그래프 선을 누르면 그 능력의 월별 점수 · 코치가 바꾼 이유 · 관련 경기 장면이 여기 모이고, 다른 차트에서도 같이 강조돼요.</p></section>
     <div class="p3-grid">
@@ -278,12 +293,12 @@ async function playerView(el, uid, ym = NOW()) {
     </div>
     <section class="card p3-card"><h3>월별 기록 <small class="muted">같은 포지션 묶음 · 같은 템플릿(${I.TPL_VER})의 확정 점수만 이어요</small></h3>${chartSvg(series, hex)}${monthTable(series, hex, links)}</section>
     </div>
-    <div data-pt="season" data-season ${ptab === 'season' ? '' : 'hidden'}></div>
+    <div data-pt="season" ${ptab === 'season' ? '' : 'hidden'}><div data-season></div>${goalMapHtml()}</div>
     <div data-pt="link" ${ptab === 'link' ? '' : 'hidden'}>
-    ${hubHtml(links, goals, evid, uid)}
+    ${logsHtml()}
     <div class="p3-grid">
       <section class="card p3-card"><h3>코치 피드백 · 목표</h3>${feedbackHtml()}</section>
-      <section class="card p3-card"><h3>경기분석에서 연결된 장면 <small class="muted">참고만 · 점수에 자동으로 들어가지 않아요</small></h3>${evidHtml()}</section>
+      <section class="card p3-card"><h3>경기 영상에서 연결된 장면 <small class="muted">참고만 · 점수에 자동으로 들어가지 않아요</small></h3>${evidHtml()}</section>
     </div>
     ${cur ? `<section class="card p3-card"><h3>바꾼 기록 <small class="muted">${I.ymLabel(cur.month)} · 지우지 않고 쌓여요</small></h3>${hist.length ? `<ul class="list p3-hist">${hist.map((h) => `<li><b>${esc(h.byName || '')}</b> <small class="muted">${when(h.at)} · ${{ confirm: '확정', reconfirm: '다시 확정', 'batch-confirm': '한 번에 확정', submit: '제출' }[h.what] || esc(h.what)}</small>${(h.changes || []).filter((c) => c.from !== c.to || c.reason).map((c) => `<div class="small">${esc(abName(c.ab))}: ${c.from ?? '-'} → <b>${c.to}</b>${c.reason ? ` · ${esc(c.reason)}` : ''}</div>`).join('')}</li>`).join('')}</ul>` : '<p class="muted small">아직 없어요.</p>'}</section>` : ''}
     </div>`;
@@ -351,6 +366,35 @@ async function playerView(el, uid, ym = NOW()) {
         <input data-gtext maxlength="60" placeholder="예) 공 받기 전 어깨 너머 2번 보기" value="${esc(cur.coach?.goalHint?.text || '')}"></div>
       <div class="row"><button class="btn" data-confirm>${st === 'confirmed' ? '고친 내용으로 다시 확정' : '확정하기'}</button><span class="muted small">선수 원래 답은 바뀌지 않아요 · 바꾼 점수와 이유는 기록으로 남아요</span></div>`;
   }
+  // 목표 칸: 진행 중 → 끝난 것
+  function goalsTab() {
+    if (!goals.length) return `<section class="card p3-card"><p class="muted">아직 목표가 없어요.${coach ? '' : ' <a href="#/goals">목표</a>에서 만들 수 있어요.'}</p></section>`;
+    const doing = goals.filter((g) => (g.status || 'doing') === 'doing'); const rest = goals.filter((g) => (g.status || 'doing') !== 'doing');
+    const row = (g) => { const p = gPct(g); const pc = gPace(g); return `<li><div class="p3-gl-t"><b>${esc(g.title)}</b><small class="muted">${esc([g.category, g.due ? `기한 ${g.due}` : '', g.idp ? 'IDP 추천' : ''].filter(Boolean).join(' · '))}</small></div>
+      <div class="p3-meter"><i style="width:${p}%"></i></div><b class="p3-num">${p}%</b><em class="ga-st k-${pc.k}">${g.status === 'done' ? '달성' : g.status === 'miss' ? '미달' : pc.l}</em></li>`; };
+    return `<section class="card p3-card"><h3>진행 중 <small class="muted">${doing.length}개 · 평균 ${doing.length ? Math.round(doing.reduce((s, g) => s + gPct(g), 0) / doing.length) : 0}%</small></h3>${doing.length ? `<ul class="p3-glist">${doing.map(row).join('')}</ul>` : '<p class="muted small">진행 중인 목표가 없어요.</p>'}</section>
+      ${rest.length ? `<section class="card p3-card"><h3>끝난 목표 <small class="muted">${rest.length}개 · 달성 ${rest.filter((g) => g.status === 'done').length}</small></h3><ul class="p3-glist">${rest.map(row).join('')}</ul></section>` : ''}
+      <p class="muted small">목표는 <a href="#/goals">목표</a> 화면에서 ${coach ? '선수가 직접 관리해요' : '고치고 진행률을 올려요'}.</p>`;
+  }
+  // 최근 일지 (코치 한마디 · 질문)
+  function logsHtml() {
+    const ls = [...links.logs].reverse().slice(0, 12);
+    if (!ls.length) return '<section class="card p3-card"><h3>최근 일지</h3><p class="muted small">아직 일지가 없어요.</p></section>';
+    return `<section class="card p3-card"><h3>최근 일지 <small class="muted">${links.logs.length}개 중 12개</small></h3><ul class="list p3-loglist">${ls.map((l) => { const k = l.kind || (l.match ? 'match' : 'train'); const asks = [...Object.values(l.sessions || {}), ...(l.match?.scenes || [])].filter((x) => x?.ask).length; return `<li><span class="date-badge">${esc(l.date.slice(5).replace('-', '.'))}</span><div><strong>${k === 'match' ? `경기${l.match?.opponent ? ` vs ${esc(l.match.opponent)}` : ''}` : '훈련'} <small class="muted">컨디션 ${l.condition ?? '-'} · ${l.injury ? `부상도 ${l.injury}` : '부상 없음'}${asks ? ` · 질문 ${asks}` : ''}</small></strong>
+      <small class="${l.coachComment ? 'ml-cc' : 'muted'}">${l.coachComment ? `코치 한마디: ${esc(l.coachComment.slice(0, 80))}` : l.checked ? '검사 완료' : l.submitted ? '제출 · 검사 대기' : '작성 중'}</small></div></li>`; }).join('')}</ul>
+      ${coach ? '<a class="btn ghost sm" href="#/journal-check">일지검사로</a>' : '<a class="btn ghost sm" href="#/daily">오늘 기록으로</a>'}</section>`;
+  }
+  // 이 선수 득점 지도 (기록실 장면 중 이 선수 골 · 도움)
+  function goalMapHtml() {
+    const ev = links.games.flatMap((m) => (m.events || []).filter((e) => e.side === 'for' && (e.uid === uid || e.assistUid === uid)).map((e) => ({ ...e, m })));
+    const gs = ev.filter((e) => e.uid === uid); const as = ev.filter((e) => e.assistUid === uid);
+    if (!ev.length) return '<section class="card p3-card"><h3>득점 지도</h3><p class="muted small">기록실 장면(분 · 위치 · 루트)에 이 선수 골 · 도움이 생기면 여기에 지도로 보여요.</p></section>';
+    const top = (arr) => GL.tally(arr.filter(Boolean)).slice(0, 3).map(([k, n]) => `${esc(k)} ${n}`).join(' · ') || '-';
+    return `<section class="card p3-card"><h3>득점 지도 <small class="muted">골 ${gs.length} · 도움 ${as.length} · 장면이 적힌 경기 기준</small></h3>
+      <div class="p3-grid"><div>${GL.pitchSvg('for', [...as.map((e) => ({ ...e, cls: 'b', t: `도움 ${e.m.date} ${e.name || ''}` })), ...gs.map((e) => ({ ...e, cls: 'f', t: `${e.m.date} vs ${e.m.opponent} ${e.min ?? ''}′ ${e.route || ''}` }))])}<p class="gl-legend"><i class="gl-k f"></i>골 <i class="gl-k b"></i>도움 준 골</p></div>
+      <ul class="gl-kv"><li><span>주 지역</span><b>${top(gs.filter((e) => e.x != null).map((e) => GL.zoneOf(e.x, e.y)))}</b></li><li><span>주 루트</span><b>${top(gs.map((e) => e.route))}</b></li><li><span>도움 받은 선수</span><b>${top(gs.map((e) => e.assistName))}</b></li><li><span>도움 준 선수</span><b>${top(as.map((e) => e.name))}</b></li></ul></div>
+      <a class="btn ghost sm" href="#/analysis/goals">분석실에서 더 보기</a></section>`;
+  }
   function feedbackHtml() {
     const src = cur?.status === 'confirmed' ? cur : last;
     const gh = src?.coach?.goalHint;
@@ -361,13 +405,13 @@ async function playerView(el, uid, ym = NOW()) {
       <p class="muted small">목표는 <a href="#/goals">목표</a> 화면에서 선수가 직접 관리해요.</p>`;
   }
   function evidHtml() {
-    if (!evid.length) return '<p class="muted small">이 선수와 연결된 경기 기록이 아직 없어요. 분석실에서 우리 팀 기록에 선수를 연결하면 여기에 모여요.</p>';
+    if (!evid.length) return '<p class="muted small">이 선수와 연결된 경기 기록이 아직 없어요. 필름룸 경기 영상에서 우리 팀 기록에 선수를 연결하면 여기에 모여요.</p>';
     const cnt = {}; evid.forEach((e) => { cnt[e.k] = (cnt[e.k] || 0) + 1; });
     const names = { attack: '공격 전개', through: '스루패스', long: '롱볼', dribble: '돌파', cross: '크로스', shot: '슈팅', goal: '득점', press: '압박', win: '볼 탈취', clear: '클리어링', save: '선방', duel: '경합', loss: '볼 뺏김', counter: '역습', gegen: '역압박', corner: '코너킥', freekick: '프리킥', penalty: '페널티킥', foul: '파울', note: '메모', offside: '오프사이드' };
     const posts = [...new Set(evid.map((e) => e.post))];
     return `<p class="small">확정된 경기 기록 <b>${evid.length}개</b> · 경기 ${posts.length}개</p>
       <div class="p3-chips">${Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<span class="tag">${esc(names[k] || k)} ${n}</span>`).join('')}</div>
-      <ul class="list small">${posts.map((p) => `<li><a href="#/analysis/${esc(p)}">${esc(evid.find((e) => e.post === p).title || '경기분석')}</a> <span class="muted">${evid.filter((e) => e.post === p).length}개</span></li>`).join('')}</ul>
+      <ul class="list small">${posts.map((p) => `<li><a href="#/analysis/${esc(p)}">${esc(evid.find((e) => e.post === p).title || '경기 영상')}</a> <span class="muted">${evid.filter((e) => e.post === p).length}개</span></li>`).join('')}</ul>
       <p class="muted small">코치가 검토할 때 근거로 보는 자료예요. 기록이 많다고 능력치가 오르지 않아요 (경기마다 기록한 양이 달라서요).</p>`;
   }
 
@@ -393,7 +437,7 @@ async function playerView(el, uid, ym = NOW()) {
         <div><h4>월별 확정 점수</h4>${pts.length ? `<div class="p3-chips">${pts.map((d) => `<span class="tag">${I.ymLabel(d.month)} <b>${I.stat(d.coach.scores[on])}</b></span>`).join('')}</div>` : '<p class="muted small">아직 확정 점수가 없어요.</p>'}
           ${ans ? `<p class="small">이번 달 선수 답: <b>${ans[1]}</b>${cur.notes?.[ans[0]] ? ` · 메모 "${esc(cur.notes[ans[0]])}"` : ''}</p>` : ''}</div>
         <div><h4>코치가 바꾼 이유</h4>${reasons.length ? `<ul class="list small">${reasons.map(([m, r]) => `<li><b>${I.ymLabel(m)}</b> ${esc(r)}</li>`).join('')}</ul>` : '<p class="muted small">선수 답 그대로 확정했어요.</p>'}</div>
-        <div><h4>관련 경기 장면 <small class="muted">참고만</small></h4>${!kinds.length ? '<p class="muted small">이 능력은 경기 기록 종류로 바로 이어지지 않아요 — 코치가 영상을 보고 판단하는 영역이에요.</p>' : ev.length ? `<div class="p3-chips">${kinds.map((k) => { const n = ev.filter((e) => e.k === k).length; return n ? `<span class="tag">${KN[k] || k} ${n}</span>` : ''; }).join('')}</div><ul class="list small">${byPost.map((p0) => `<li><a href="#/analysis/${esc(p0)}">${esc(ev.find((e) => e.post === p0).title || '경기분석')}</a> <span class="muted">${ev.filter((e) => e.post === p0).length}개</span></li>`).join('')}</ul>` : `<p class="muted small">${kinds.map((k) => KN[k] || k).join(' · ')} 기록 중 이 선수와 연결된 것이 아직 없어요.</p>`}</div>
+        <div><h4>관련 경기 장면 <small class="muted">참고만</small></h4>${!kinds.length ? '<p class="muted small">이 능력은 경기 기록 종류로 바로 이어지지 않아요 — 코치가 영상을 보고 판단하는 영역이에요.</p>' : ev.length ? `<div class="p3-chips">${kinds.map((k) => { const n = ev.filter((e) => e.k === k).length; return n ? `<span class="tag">${KN[k] || k} ${n}</span>` : ''; }).join('')}</div><ul class="list small">${byPost.map((p0) => `<li><a href="#/analysis/${esc(p0)}">${esc(ev.find((e) => e.post === p0).title || '경기 영상')}</a> <span class="muted">${ev.filter((e) => e.post === p0).length}개</span></li>`).join('')}</ul>` : `<p class="muted small">${kinds.map((k) => KN[k] || k).join(' · ')} 기록 중 이 선수와 연결된 것이 아직 없어요.</p>`}</div>
       </div>`;
     box0.querySelector('[data-unsel]').onclick = () => selectAb(on);
   }
@@ -403,7 +447,13 @@ async function playerView(el, uid, ym = NOW()) {
   // ── 동작 ──
   const box = el.querySelector('[data-month]');
   mountSeason(el.querySelector('[data-season]'), seasonData(links, list)); // 시즌 · 대회 · 월별 기록
-  el.querySelectorAll('[data-ptab]').forEach((t) => (t.onclick = () => { ptab = t.dataset.ptab; el.querySelectorAll('[data-ptab]').forEach((x) => x.classList.toggle('on', x === t)); el.querySelectorAll('[data-pt]').forEach((d) => { d.hidden = d.dataset.pt !== ptab; }); }));
+  const bodyBox = el.querySelector('[data-body-embed]');
+  const openBody = () => { if (ptab === 'body' && !bodyBox.dataset.done) { bodyBox.dataset.done = '1'; bodyBox.innerHTML = '<p class="muted small">불러오는 중…</p>'; dataPage(bodyBox, { uid }).catch(fail); } };
+  el.querySelectorAll('[data-ptab]').forEach((t) => (t.onclick = () => { ptab = t.dataset.ptab; el.querySelectorAll('[data-ptab]').forEach((x) => x.classList.toggle('on', x === t)); el.querySelectorAll('[data-pt]').forEach((d) => { d.hidden = d.dataset.pt !== ptab; }); openBody(); }));
+  openBody();
+  el.querySelector('[data-prof]')?.addEventListener('click', () => { try { sessionStorage.setItem('ssaka.locker.open', uid); } catch { /* */ } go('/locker'); });
+  // 비교 육각형: 같은 포지션 · 같은 학년 · 팀
+  el.querySelectorAll('[data-pcmp]').forEach((b) => (b.onclick = () => { el.querySelectorAll('[data-pcmp]').forEach((x) => x.classList.toggle('on', x === b)); el.querySelectorAll('[data-phex]').forEach((h) => { h.hidden = h.dataset.phex !== b.dataset.pcmp; }); }));
   const goTab = (k) => el.querySelector(`[data-ptab="${k}"]`)?.click();
   // 요약 칸의 '연결된 기록 · 능력치' 바로가기
   el.querySelectorAll('[data-goto]').forEach((b) => (b.onclick = () => goTab(b.dataset.goto)));
@@ -515,6 +565,44 @@ function hexSvg(hex, cur, avg) {
   const dots = has ? hex.map((a, i) => { const [x, y] = pt(i, I.stat(cur[a.id]) ?? 0); return `<circle data-ab="${a.id}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" class="p3-hdot"/>`; }).join('') : '';
   const labels = hex.map((a, i) => { const [x, y] = pt(i, 122); return `<g data-ab="${a.id}" class="p3-hab"><text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="middle" class="p3-hl">${esc(a.l)}</text><text x="${x.toFixed(1)}" y="${(y + 18).toFixed(1)}" text-anchor="middle" class="p3-hv">${cur[a.id] != null ? I.stat(cur[a.id]) : '-'}</text></g>`; }).join('');
   return `<svg class="p3-hex" viewBox="-30 -10 300 270" role="img" aria-label="능력치 육각형">${rings}${axes}${avgP}${curP}${dots}${labels}${has ? '' : `<text x="${C}" y="${C}" text-anchor="middle" class="p3-hl">확정 기록이 생기면 그려져요</text>`}</svg>`;
+}
+// ───────── 비교: 이 선수 vs 같은 포지션 · 같은 학년 · 팀 (월별 OVR 선 · 능력치 육각형 · 순위) ─────────
+// 선수 화면은 그룹 인원이 MIN_N 명보다 적으면 평균을 숨김 (누구 점수인지 짐작되지 않게) · 코치는 이름까지
+function peerHtml({ me, pgNow, hex, series, peer, coach, teamDocs, roster, uid }) {
+  const grade = me.grade || '';
+  const pgL = I.POS[pgNow]?.l || '같은 포지션';
+  const ok = (g) => g && (coach ? g.n >= 1 : g.n >= MIN_N);
+  const months = [...new Set([...series.map((d) => d.month), ...Object.keys(peer)])].sort().slice(-6);
+  if (!months.length || !pgNow) return '<section class="card p3-card"><h3>비교</h3><p class="muted small">확정된 성장 평가가 생기면 같은 포지션 · 같은 학년 · 팀 평균과 비교해서 보여요.</p></section>';
+  const myDoc = (m) => series.find((d) => d.month === m);
+  const last = series[series.length - 1]; const lm = last?.month;
+  const GR = [['pg', pgL, (m) => peer[m]?.pg?.[pgNow]], ...(grade ? [['grade', grade, (m) => peer[m]?.grade?.[grade]]] : []), ['team', '팀 전체', (m) => peer[m]?.team]];
+  const h0 = Math.max(0, GR.findIndex(([, , f]) => ok(f(lm || months[months.length - 1]))));
+  const ymL = (m) => I.ymLabel(m);
+  const names = (k) => { if (!coach || !lm) return ''; const byId = Object.fromEntries(roster.map((p) => [p.id, p])); const pred = k === 'pg' ? (d) => d.pg === pgNow : k === 'grade' ? (d) => byId[d.uid].grade === grade : () => true; const rows = teamDocs.filter((d) => d.month === lm && d.status === 'confirmed' && d.tplVer === I.TPL_VER && byId[d.uid] && pred(d)).map((d) => [byId[d.uid].name, I.ovrOf(d), d.uid]).filter((r) => r[1] != null).sort((a, b) => b[1] - a[1]); return rows.length > 1 ? `<details class="p3-nm"><summary class="small muted">이름 · 순위 보기 (코치만)</summary><ol class="p3-rk">${rows.map(([n, o, u]) => `<li class="${u === uid ? 'me' : ''}"><span>${esc(n)}</span><b>${o}</b></li>`).join('')}</ol></details>` : ''; };
+  // 카드 하나: 큰 숫자(나) + 평균과 차이 + 선 그래프 (파란 = 나 · 회색 점선 = 평균)
+  const cardOf = (label, mineF, avgF, gl, extra = '') => {
+    const mv = lm ? mineF(lm) : null; const av = lm ? avgF(lm) : null;
+    const dif = mv != null && av != null ? Math.round(mv - av) : null;
+    return `<section class="card p3-cc"><div class="card-head"><h4>${esc(label)}</h4><b class="dr-avg">${mv ?? '-'}</b></div>
+      <p class="p3-ccd">${av != null ? `${esc(gl)} 평균 <b>${Math.round(av)}</b> · ${dif == null ? '' : dif > 0 ? `<em class="up">+${dif} 높아요</em>` : dif < 0 ? `<em class="down">${dif} 낮아요</em>` : '<em>평균과 같아요</em>'}` : '<span class="muted">비교할 평균이 없어요</span>'}</p>
+      ${lineChart(months, [{ pts: months.map(mineF), color: '#4ea1ff', fill: true }, { pts: months.map(avgF), color: 'rgba(160,160,160,.9)', dash: true }], 100, true, ymL)}${extra}</section>`;
+  };
+  const panes = GR.map(([k, gl, f], gi) => {
+    const g = (m) => (ok(f(m)) ? f(m) : null);
+    const gLast = lm ? g(lm) : null;
+    const myO = last ? I.ovrOf(last) : null;
+    const rank = gLast && myO != null ? `<p class="p3-rank">${esc(gl)} ${gLast.n}명 중 <b>${gLast.ovrs.filter((o) => o > myO).length + 1}위</b></p>` : '';
+    const hidden = !coach && lm && f(lm) && !ok(f(lm)) ? `<p class="muted small">${esc(gl)}은(는) ${MIN_N}명보다 적어 평균을 숨겼어요 (누구 점수인지 짐작되지 않게).</p>` : '';
+    return `<div data-phex="${k}" ${gi === h0 ? '' : 'hidden'}>${hidden}<div class="dr-grid p3-ccgrid">
+      ${cardOf('OVR', (m) => (myDoc(m) ? I.ovrOf(myDoc(m)) : null), (m) => g(m)?.ovr ?? null, gl, rank + names(k))}
+      ${hex.map((a) => cardOf(a.l, (m) => I.stat(myDoc(m)?.coach?.scores?.[a.id]), (m) => (g(m)?.ab?.[a.id] != null ? I.stat(g(m).ab[a.id]) : null), gl)).join('')}
+    </div></div>`;
+  }).join('');
+  return `<section class="card p3-card p3-peer"><div class="row between wrap"><h3>비교 <small class="muted">${lm ? `${I.ymLabel(lm)} 확정 기준` : '확정 기록 없음'}</small></h3>
+      <div class="seg p3-cmpseg">${GR.map(([k, l], i) => `<button type="button" data-pcmp="${k}" class="${i === h0 ? 'on' : ''}">${k === 'pg' ? '같은 포지션' : k === 'grade' ? '같은 학년' : '팀 전체'}<small> ${k === 'team' ? '' : esc(l)}</small></button>`).join('')}</div></div>
+    <p class="muted small p3-cmpkey"><i class="p3-kme"></i>나 <i class="p3-kav"></i>고른 그룹 평균${coach ? '' : ` · ${MIN_N}명 이상 모인 그룹만 · 이름은 안 보여요`}</p>
+    ${panes}</section>`;
 }
 const LINE_C = ['#39e75f', '#4ea1ff', '#ffd60a', '#ff9f0a', '#bf5af2', '#ff453a'];
 function chartSvg(series, hex) {

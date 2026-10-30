@@ -1,6 +1,6 @@
 // IDP (개인 성장 평가) 시제품 — 문항 템플릿 · 점수 계산 · 검토 표시
 // 원칙: 선수 원래 답(answers)과 코치 확정 점수(coach.scores)는 따로 저장 · 바꾼 기록은 덧붙이기만
-//       경기분석 기록 수로 점수가 자동으로 오르지 않음 · 다른 포지션끼리 비교하지 않음 · 템플릿 버전을 늘 함께 표시
+//       경기 영상 기록 수로 점수가 자동으로 오르지 않음 · 다른 포지션끼리 비교하지 않음 · 템플릿 버전을 늘 함께 표시
 // 문항 은행: 능력치 6 × 10 + 포지션 10 + 성장 10 (한 달 기본 45 · 전체 80)은 1차 시험용이에요. 이것만으로 능력을 정확히 잰다고 보지 않아요.
 
 export const TPL_VER = 'v3-2026.11';
@@ -143,7 +143,7 @@ export function trendOf(series, ab) {
   return { k, l: { up: '상승', down: '하락', flat: '유지' }[k], avg, n: pts.length };
 }
 
-// 능력 ↔ 경기분석 장면 종류 (근거로 보여 주기만 · 점수 계산에는 쓰지 않음). 없는 능력은 코치가 영상으로 판단하는 영역
+// 능력 ↔ 경기 영상 장면 종류 (근거로 보여 주기만 · 점수 계산에는 쓰지 않음). 없는 능력은 코치가 영상으로 판단하는 영역
 export const AB_KINDS = {
   pass: ['attack', 'through', 'long', 'cross'], carry: ['dribble', 'counter'], defend: ['press', 'win', 'duel', 'gegen', 'clear'], control: ['loss'],
   gk_stop: ['save'], gk_feet: ['long', 'attack'],

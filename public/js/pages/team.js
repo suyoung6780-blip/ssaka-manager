@@ -4,7 +4,8 @@ import {
 import {
   esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, options, avatar,
   ROLES, MATCH_TYPES, sortGroups, sortBar, bindSortBar, getSort, byName, kpiStrip, posGroup, POS_GROUPS } from '../ui.js';
-import { state, isCoach, isOwner } from '../store.js';
+import { state, isCoach, isOwner, hasFeature, go } from '../store.js';
+import * as GL from '../proto/goalLog.js';
 import { createPad, formationData, is8 } from '../tactic.js';
 import { keepDraft, fillFields, draftStrip } from '../drafts.js';
 
@@ -259,6 +260,9 @@ export async function locker(el) {
     if (!(await confirmBox('입장을 거절할까요? 거절하면 팀에서 빠지고, 다시 팀 코드로 신청할 수 있어요.'))) return;
     try { await deleteDoc(tdoc('members', b.dataset.gno)); locker(el); } catch (e) { fail(e); }
   }));
+  // 선수 한눈에의 '프로필 · 관리'에서 오면 그 선수 창을 바로 엶
+  let force = '';
+  try { force = sessionStorage.getItem('ssaka.locker.open') || ''; sessionStorage.removeItem('ssaka.locker.open'); } catch { /* */ }
   el.querySelectorAll('[data-pid]').forEach((c) => (c.onclick = (e) => {
     const m = list.find((x) => x.id === c.dataset.pid);
     // 팀 대표: 카드를 누르면 열리는 창 아래에서 계정 유형 바꾸기 · 이적 · 내보내기
@@ -316,6 +320,7 @@ export async function locker(el) {
     if (!(await confirmBox(`${m.name}님을 팀에서 내보낼까요?`))) return;
     try { await removeMember(m); toast('내보냈습니다.'); locker(el); } catch (e) { fail(e); }
   }
+  if (force) el.querySelector(`[data-pid="${force}"]`)?.click();
 }
 
 // 이적 · 내보내기 (선수단 창 · 새 시즌 졸업 정리 창에서 같이 씀) — 팀 대표만
@@ -427,8 +432,14 @@ const rankBars = (arr, unit) => (arr.length ? `<ol class="rec-rank">${arr.map(([
 const wdlMini = (x) => `<div class="wdl-mini"><i class="w" style="flex:${x.w}"></i><i class="d" style="flex:${x.d}"></i><i class="l" style="flex:${x.l}"></i></div>`;
 
 export async function records(el) {
-  const [snap, list] = await Promise.all([getDocs(query(tcol('matches'), orderBy('date', 'desc'))), members()]);
+  const p3 = hasFeature('proto3');
+  const [snap, list, lsnap] = await Promise.all([getDocs(query(tcol('matches'), orderBy('date', 'desc'))), members(),
+    p3 && isCoach() ? getDocs(query(tcol('logs'), where('kind', '==', 'match'))).catch(() => null) : null]);
   const ms = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // 시제품 3.0: 선수 경기 일지(상대 · 점수 · 골 · 실점 장면) → 확인하면 기록실로
+  const gathered = lsnap ? GL.gather(lsnap.docs.map((d) => d.data()), ms) : [];
+  const DKEY = `ssaka-gl-skip:${state.team.id}`;
+  const dismissed = new Set((() => { try { return JSON.parse(localStorage.getItem(DKEY) || '[]'); } catch { return []; } })());
   const players = list.filter((m) => m.role === 'player');
   const groups = AGE_GROUPS[state.team.category] || [];
   const years = [...new Set(ms.map((m) => (m.date || '').slice(0, 4)).filter(Boolean))].sort().reverse();
@@ -458,12 +469,9 @@ export async function records(el) {
     const opp = {};
     rows.forEach((m) => (opp[m.opponent] ||= []).push(m));
 
-    el.innerHTML = `${pageHead('RECORDS', '경기 기록실', isCoach() ? '<button class="btn" data-new>+ 경기 기록</button>' : '')}
-    <div class="rec-filters">
-      <div class="chips"><span class="chip-label">년도</span>${['전체', ...years].map((t) => `<button class="chip ${t === flt.year ? 'active' : ''}" data-f="year" data-v="${t}">${t === '전체' ? t : `${t}년`}</button>`).join('')}</div>
-      <div class="chips"><span class="chip-label">경기</span>${['전체', ...MATCH_TYPES].map((t) => `<button class="chip ${t === flt.type ? 'active' : ''}" data-f="type" data-v="${t}">${t}</button>`).join('')}</div>
-      ${groups.length ? `<div class="chips"><span class="chip-label">학년</span>${['전체', ...groups].map((t) => `<button class="chip ${t === flt.age ? 'active' : ''}" data-f="age" data-v="${t}">${t}</button>`).join('')}</div>` : ''}
-    </div>
+    el.innerHTML = `${p3 ? `${pageHead('MATCH', '경기', isCoach() ? '<button class="btn" data-new>+ 경기 기록</button>' : '')}${GL.matchTabs('records')}` : pageHead('RECORDS', '경기 기록실', isCoach() ? '<button class="btn" data-new>+ 경기 기록</button>' : '')}
+    ${p3 ? GL.gatherHtml(gathered, dismissed) : ''}
+    ${GL.filterBar([['year', '년도', years.map((y) => [y, `${y}년`])], ['type', '경기', MATCH_TYPES.map((t) => [t, t])], ...(groups.length ? [['age', '학년', groups.map((g) => [g, g])]] : [])], flt, `${rows.length}경기`)}
     <section class="rec-hero">
       <div class="rec-ring">
         <div class="rec-ring-fig">${donut(st)}<div class="rec-ring-c"><strong>${st.winRate}<i>%</i></strong><small>승률</small></div></div>
@@ -485,6 +493,7 @@ export async function records(el) {
       </div>
     </section>
     ${rows.length ? `<section class="card rec-flow"><div class="card-head"><h3>최근 ${Math.min(10, rows.length)}경기 흐름</h3><span class="rf-key"><i class="f"></i>득점 <i class="a"></i>실점</span></div>${formChart(rows)}</section>` : ''}
+    ${p3 ? `<a class="card gl-golink" href="#/analysis/goals"><b>득점 · 실점 분석</b><span>어디서 · 어떻게 · 언제 넣고 먹는지 — 상황별 · 상대별 · 선수별 · 기간 비교</span><em>분석실에서 보기 →</em></a>` : ''}
     <div class="grid2 top">
       <section class="card"><h3>득점 순위</h3>${rankBars(topS, '골')}</section>
       <section class="card"><h3>도움 순위</h3>${rankBars(topA, '개')}</section>
@@ -508,9 +517,20 @@ export async function records(el) {
           <td>${isCoach() ? '<button class="link-btn small" data-edit>수정</button>' : ''}</td></tr>`).join('')}</table>` : empty('경기 기록이 없습니다.')}
     </section>`;
 
-    el.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => { flt[b.dataset.f] = b.dataset.v; draw(); }));
+    GL.bindFilterBar(el, flt, draw);
     el.querySelector('[data-new]')?.addEventListener('click', () => matchForm());
     el.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => matchForm(ms.find((m) => m.id === b.closest('tr').dataset.mid))));
+    el.querySelectorAll('.gl-prop').forEach((card) => {
+      const g = gathered[+card.dataset.gi];
+      card.querySelector('[data-gl-skip]').onclick = () => { dismissed.add(g.key + g.logIds.join(',')); try { localStorage.setItem(DKEY, JSON.stringify([...dismissed])); } catch { /* */ } draw(); };
+      card.querySelector('[data-gl-ok]').onclick = () => {
+        const t = g.target;
+        const fromLogs = [...new Set([...(t?.fromLogs || []), ...g.logIds])];
+        if (t) return matchForm({ ...t, events: GL.mergeEvents(t.events, g.events), scorers: (t.scorers || []).length ? t.scorers : g.scorers, assists: (t.assists || []).length ? t.assists : g.assists, fromLogs }, '선수 일지에서 모은 장면을 이 경기에 넣어요. 확인하고 저장해 주세요.');
+        matchForm({ date: g.date, matchType: g.type.v || MATCH_TYPES[0], ageGroup: g.age.v, opponent: g.opponent.v, gf: g.gf.v === '' ? 0 : +g.gf.v, ga: g.ga.v === '' ? 0 : +g.ga.v,
+          scorers: g.scorers, assists: g.assists, events: g.events, fromLogs }, `선수 일지 ${g.logs.length}개에서 모았어요. 다르게 적은 칸이 있으면 고치고 저장해 주세요.${g.warn.length ? ` (${g.warn.join(' · ')})` : ''}`);
+      };
+    });
   };
 
   // 선수별 골/도움 입력 줄
@@ -523,9 +543,10 @@ export async function records(el) {
   const pickRow = (s = {}) => `<div class="pick"><select><option value="">선수 선택</option>${[...players].sort(byName).map((p) => `<option value="${esc(p.id)}" ${s.uid ? (s.uid === p.id ? 'selected' : '') : s.name === p.name ? 'selected' : ''}>${esc(p.number ? `${p.number} ` : '')}${esc(p.name)}</option>`).join('')}<option value="자책골" ${s.name === '자책골' ? 'selected' : ''}>상대 자책골</option></select>
     <input type="number" min="1" max="20" value="${esc(s.goals || 1)}"><button type="button" class="link-btn" data-rm>✕</button></div>`;
 
-  function matchForm(m = {}) {
+  function matchForm(m = {}, note = '') {
     const md = modal(`
       <span class="eyebrow">MATCH</span><h2>${m.id ? '경기 수정' : '경기 기록'}</h2>
+      ${note ? `<p class="gl-note">${esc(note)}</p>` : ''}
       <form class="stack">
         <div class="grid2">
           <label>날짜<input type="date" name="date" required value="${esc(m.date || todayStr())}"></label>
@@ -538,11 +559,14 @@ export async function records(el) {
         </div>
         ${pickRows('득점자', 'scorers', m.scorers)}
         ${pickRows('도움', 'assists', m.assists)}
+        ${p3 ? '<div data-gl-ed></div>' : ''}
         <label>메모<textarea name="memo" rows="3">${esc(m.memo || '')}</textarea></label>
         <div class="row end">${m.id ? '<button type="button" class="btn ghost" data-del>삭제</button>' : ''}<button class="btn">저장</button></div>
       </form>`);
     const f = md.el.querySelector('form');
-    f.querySelectorAll('[data-add]').forEach((b) => (b.onclick = () => b.previousElementSibling.insertAdjacentHTML('beforeend', pickRow())));
+    const glEd = md.el.querySelector('[data-gl-ed]');
+    const getEv = glEd ? GL.mountEditor(glEd, m.events || [], [...players].sort(byName)) : null;
+    f.querySelectorAll('.picks:not(.gl-ed) [data-add]').forEach((b) => (b.onclick = () => b.previousElementSibling.insertAdjacentHTML('beforeend', pickRow())));
     f.addEventListener('click', (e) => { if (e.target.matches('[data-rm]')) e.target.parentElement.remove(); });
     md.el.querySelector('[data-del]')?.addEventListener('click', async () => {
       if (!(await confirmBox('경기 기록을 삭제할까요?'))) return;
@@ -554,7 +578,7 @@ export async function records(el) {
       const read = (key) => [...f.querySelectorAll(`[data-key="${key}"] .pick`)]
         .map((r) => { const v = r.querySelector('select').value; const p = players.find((x) => x.id === v); return p ? { uid: p.id, name: p.name, goals: +r.querySelector('input').value || 1 } : { name: v, goals: +r.querySelector('input').value || 1 }; })
         .filter((s) => s.name);
-      const data = { ...d, gf: +d.gf, ga: +d.ga, scorers: read('scorers'), assists: read('assists') };
+      const data = { ...d, gf: +d.gf, ga: +d.ga, scorers: read('scorers'), assists: read('assists'), ...(getEv ? { events: getEv() } : {}), ...(m.fromLogs ? { fromLogs: m.fromLogs } : {}) };
       try {
         if (m.id) await updateDoc(tdoc('matches', m.id), data);
         else await addDoc(tcol('matches'), { ...data, createdAt: serverTimestamp() });

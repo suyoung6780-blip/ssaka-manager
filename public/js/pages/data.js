@@ -43,8 +43,11 @@ const FOLD_KEY = 'ssaka.dr.aifold';
 const folded = () => { try { return localStorage.getItem(FOLD_KEY) === '1'; } catch { return false; } };
 let allPlayers = false; // 선수 상태 카드 전체 보기
 
-export async function page(el) {
+// opts.uid: 선수 한눈에 안에 끼워 넣기 (그 선수만 · 머리 · 팀 전체 칸 없이)
+export async function page(el, opts = {}) {
   const coach = isCoach();
+  const emb = opts.uid || el.dataset.embedUid || '';
+  if (emb) { el.dataset.embedUid = emb; mode = 'player'; who = emb; }
   if (!coach) { mode = 'player'; who = state.user.uid; }
   const to = custom ? custom[1] : todayStr();
   const from = custom ? custom[0] : addDays(to, -(range - 1));
@@ -74,11 +77,11 @@ export async function page(el) {
   const mets = METRICS.filter(([k]) => logs.some((l) => val(l, k) != null) || ['condition', 'rpe', 'sleep', 'injury'].includes(k));
   if (!mets.some(([k]) => k === metric)) metric = 'condition';
   const report = Object.fromEntries(players.map((p) => [p.id, analyze(p, byKey, to)]));
-  const ctx = { players, logs, dates, byKey, mets, coach, el, report, to };
+  const ctx = { players, logs, dates, byKey, mets, coach, el, report, to, emb };
 
-  el.innerHTML = `${pageHead('DATA ROOM', '데이터실')}
+  el.innerHTML = `${emb ? '' : pageHead('DATA ROOM', '데이터실')}
     <div class="dr-bar">
-      ${coach ? `<div class="seg">${[['team', '팀 전체'], ['player', '선수별']].map(([k, l]) => `<button class="${k === mode ? 'on' : ''}" data-mode="${k}">${l}</button>`).join('')}</div>` : ''}
+      ${coach && !emb ? `<div class="seg">${[['team', '팀 전체'], ['player', '선수별']].map(([k, l]) => `<button class="${k === mode ? 'on' : ''}" data-mode="${k}">${l}</button>`).join('')}</div>` : ''}
       <div class="seg">${RANGES.map(([n, l]) => `<button class="${!custom && n === range ? 'on' : ''}" data-range="${n}">${l}</button>`).join('')}</div>
       <span class="dr-dates"><input type="date" data-from value="${from}" max="${todayStr()}"> ~ <input type="date" data-to value="${to}" max="${todayStr()}"></span>
     </div>
@@ -302,7 +305,7 @@ function numTable(dates, mine, mets, logs, coach) {
 }
 
 function playerView(box, ctx) {
-  const { players, logs, dates, byKey, mets, coach, report, to } = ctx;
+  const { players, logs, dates, byKey, mets, coach, report, to, emb } = ctx;
   const p = players.find((x) => x.id === who) || players[0];
   const mine = dates.map((d) => byKey[`${p.id}_${d}`]);
   const hurts = mine.filter((l) => l && (l.injury || 0) > 0);
@@ -310,7 +313,7 @@ function playerView(box, ctx) {
   const lv = levelOf(items);
   const grp = (g) => GROUPS.find(([k]) => k === g);
   box.innerHTML = `
-    ${coach ? `<div class="dr-who"><select data-who>${players.map((x) => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${x.number ? `${esc(x.number)}. ` : ''}${esc(x.name)}${x.position ? ` · ${esc(x.position)}` : ''}</option>`).join('')}</select>
+    ${coach && !emb ? `<div class="dr-who"><select data-who>${players.map((x) => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${x.number ? `${esc(x.number)}. ` : ''}${esc(x.name)}${x.position ? ` · ${esc(x.position)}` : ''}</option>`).join('')}</select>
       <span class="muted small">기록 ${mine.filter(Boolean).length}일 / ${dates.length}일${pview === 'chart' ? ' · 그래프 점선 = 팀 평균' : ''}</span></div>` : `<p class="muted small">기록 ${mine.filter(Boolean).length}일 / ${dates.length}일</p>`}
     <section class="card dr-ai one" style="--c:${LEVEL[lv][1]}"><span class="eyebrow">AI CONDITION REPORT · ${md(to)} 기준</span>
       <h3>${coach ? `${esc(p.name)} 분석` : '내 컨디션 분석'} <span class="dr-badge">${LEVEL[lv][0]}</span></h3>
@@ -340,7 +343,8 @@ function sparkline(pts, max) {
   return `<svg class="dr-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${segs.map((s) => (s.length > 1 ? `<polyline points="${s.map((q) => q.join(',')).join(' ')}" fill="none" stroke="var(--c)" stroke-width="2" vector-effect="non-scaling-stroke"/>` : `<circle cx="${s[0][0]}" cy="${s[0][1]}" r="2" fill="var(--c)"/>`)).join('')}</svg>`;
 }
 
-function lineChart(dates, series, max, small = false) {
+// fmt: 아래 글자 (기본 날짜 · 성장 평가 비교는 '7월')
+export function lineChart(dates, series, max, small = false, fmt = md) {
   const W = small ? 380 : 640; const H = small ? 170 : 230; const L = 34; const R = 22; const T = 12; const B = 24;
   const vals = series.flatMap((s) => s.pts).filter((v) => v != null);
   const top = max || Math.max(1, ...vals) * 1.1;
@@ -349,7 +353,7 @@ function lineChart(dates, series, max, small = false) {
   const y = (v) => T + (1 - v / top) * (H - T - B);
   const every = Math.ceil(n / (small ? 6 : 10));
   const grid = [0, top / 2, top].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="dr-gl"/><text x="${L - 6}" y="${y(v) + 4}" class="dr-yt">${Math.round(v)}</text>`).join('');
-  const xt = dates.map((d, i) => ((i % every === 0 && n - 1 - i >= every / 2) || i === n - 1 ? `<text x="${x(i)}" y="${H - 6}" class="dr-xt">${md(d)}</text>` : '')).join('');
+  const xt = dates.map((d, i) => ((i % every === 0 && n - 1 - i >= every / 2) || i === n - 1 ? `<text x="${x(i)}" y="${H - 6}" class="dr-xt">${fmt(d)}</text>` : '')).join('');
   const lines = series.map((s) => {
     // 기록이 없는 날은 선을 끊음
     const segs = []; let cur = [];

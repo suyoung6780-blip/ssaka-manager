@@ -389,6 +389,27 @@ const mkUser = (uid, email) => ({
 const adminUser = () => Object.assign(mkUser(U, ADMIN_EMAILS[0]), { emailVerified: true, async reload() {} });
 export const auth = { currentUser: QS.has('out') ? null : FRESH ? mkUser('uNew', 'new@example.com') : QS.get('as') === 'player' ? mkUser('p1', 'p@x.com') : (LOCAL && QS.get('as') === 'admin') ? adminUser() : mkUser(U, 'c@x.com') };
 let authCb = () => {};
+// 시제품 3.0: 학년 (같은 학년 비교 예시)
+{ const G = { p1: '중3', p2: '중3', p3: '중2', p4: '중3', p5: '중2', p6: '중3', p7: '중2', p8: '중3', p9: '중2', p10: '중3', p11: '중2', p12: '중3' }; Object.entries(G).forEach(([id, g]) => { const m = store.get(`teams/T1/members/${id}`); if (m && !m.grade) m.grade = g; }); }
+// 시제품 3.0: 골 · 실점 장면 예시 — 지난 경기 기록에 장면(분 · 위치 · 루트) + 기록실에 아직 없는 경기의 선수 일지 4개
+{ const F = (min, x, y, route, uid, name, au, an) => ({ side: 'for', min, x, y, route, uid, name, ...(au ? { assistUid: au, assistName: an } : {}) });
+  const A = (min, x, y, route) => ({ side: 'against', min, x, y, route, by: [['이선수'], ['이선수', '정선수'], ['정선수', '윤선수']][min % 3] });
+  const addEv = (k, ev) => { const m = store.get(k); if (m) m.events = ev; };
+  addEv('teams/T1/matches/m0', [F(12, 30, 9, '측면 크로스', 'p1', '박선수', 'p5', '강선수'), F(55, 40, 13, '중앙 침투 패스', 'p3', '최선수', 'p1', '박선수'), F(78, 20, 22, '개인 돌파', 'p6', '윤선수'), A(33, 52, 12, '역습'), A(81, 34, 6, '코너킥')]);
+  addEv('teams/T1/matches/m00', [F(40, 36, 11, 'PK', 'p1', '박선수'), A(67, 58, 18, '측면 크로스')]);
+  addEv('teams/T1/matches/m1', [F(20, 33, 8, '중앙 침투 패스', 'p1', '박선수', 'p3', '최선수'), F(64, 47, 10, '측면 크로스', 'p1', '박선수', 'p5', '강선수'), A(72, 49, 14, '역습')]);
+  [['mx1', -40, '리그', 'U15', '용인 U15', 3, 2, [F(8, 38, 7, '측면 크로스', 'p1', '박선수', 'p5', '강선수'), F(31, 28, 15, '세컨볼', 'p3', '최선수'), F(70, 34, 11, 'PK', 'p1', '박선수'), A(52, 55, 20, '역습'), A(77, 44, 9, '측면 크로스')]],
+   ['mx2', -26, '리그', 'U15', '안양 U15', 1, 2, [F(44, 31, 9, '측면 크로스', 'p5', '강선수', 'p6', '윤선수'), A(62, 12, 15, '역습'), A(85, 36, 5, '코너킥')]],
+   ['mx3', -12, '대회', 'U15', '부천 U15', 2, 1, [F(15, 42, 12, '중앙 침투 패스', 'p1', '박선수', 'p3', '최선수'), F(58, 51, 8, '측면 크로스', 'p5', '강선수', 'p1', '박선수'), A(79, 58, 16, '역습')]]]
+    .forEach(([id, d, t, ag, o, gf, ga, ev]) => { const dt = new Date(); dt.setDate(dt.getDate() + d); const sc = {}; ev.filter((e) => e.side === 'for').forEach((e) => { (sc[e.uid] ||= { uid: e.uid, name: e.name, goals: 0 }).goals++; });
+      seed(`teams/T1/matches/${id}`, { date: ymd(dt), matchType: t, ageGroup: ag, opponent: o, gf, ga, scorers: Object.values(sc), assists: [], events: ev }); });
+  const dd = (() => { const d = new Date(); d.setDate(d.getDate() - 6); return ymd(d); })();
+  const J = (uid, extra) => { const k = `teams/T1/logs/${uid}_${dd}`; const o = store.get(k) || {}; store.set(k, { ...o, uid, name: store.get(`teams/T1/members/${uid}`)?.name || '', date: dd, kind: 'match', submitted: true, submittedAt: now(), match: { type: '리그', ageGroup: 'U15', minutes: 70, rating: 7, scenes: [], ...extra } }); };
+  J('p1', { opponent: '성남FC U15', gf: 2, ga: 1, position: 'ST', goals: [{ min: 18, x: 36, y: 9, route: '측면 크로스', assistUid: 'p5', assistName: '강선수' }, { min: 61, x: 30, y: 12, route: '역습' }] });
+  J('p5', { opponent: '성남 FC U15', gf: 2, ga: 1, position: 'RW', assistsMine: [{ min: 17, scorerUid: 'p1', scorerName: '박선수' }] });
+  J('p2', { opponent: '성남FC U15', gf: 2, ga: 1, position: 'GK', conceded: [{ min: 74, x: 50, y: 13, route: '역습' }] });
+  J('p4', { opponent: '성남 U15', gf: 2, ga: 2, position: 'CB', conceded: [{ min: 75, x: 54, y: 15, route: '역습' }] });
+}
 const setUser = (u) => { auth.currentUser = u; setTimeout(() => authCb(u), 0); };
 // 데모에서 직접 가입한 계정의 프로필(users/u-…)도 이 브라우저에 기억
 const PROF_KEY = 'ssaka.demo.profiles';

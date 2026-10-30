@@ -6,7 +6,7 @@ import {
 import {
   esc, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, youtubeId,
 } from '../ui.js';
-import { state, isCoach, go } from '../store.js';
+import { state, isCoach, go, hasFeature } from '../store.js';
 import {
   PALETTE, STYLE_COLORS, GLASS, uid, FrameAnalyzer, PlayerTracker, trackerPos, setTrackerAt, setKeyAt, delKeyAt, thinPath, stampH, GROUND, itemPoints, offsideGeom, drawItem, drawMeasureLabel, drawAngleLabel, nameTag, setGroundTex, steadyPos, TEAM_COLORS, CAL_TPL, calFrom, setCal, getCal, drawCalGuide, angleDeg, cutPlayer, cutBox, meters, label,
 } from '../telestrator.js';
@@ -28,7 +28,7 @@ const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart
 const fmtT1 = (s) => `${fmtT(s)}.${Math.floor((s * 10) % 10)}`; // 0:12.5
 
 // ───────── 목록 ─────────
-// 코치: 움직이는 소개 카드(선수분석 · 경기분석) + 내 분석 목록 · 선수: 경기분석만
+// 코치: 움직이는 소개 카드(선수 영상 · 경기 영상) + 내 분석 목록 · 선수: 경기 영상만
 let listTab = 'match';
 export async function list(el) {
   const snap = await getDocs(query(col(), where('type', '==', 'analysis'), orderBy('createdAt', 'desc'), limit(100)));
@@ -37,22 +37,23 @@ export async function list(el) {
   const isMatch = (p) => p.mode === 'match';
   if (!coach) listTab = 'match';
   const rows = all.filter((p) => (listTab === 'match' ? isMatch(p) : !isMatch(p)));
-  el.innerHTML = coach ? `${pageHead('ANALYSIS ROOM', '분석실', '<button class="btn" data-new>+ 새 분석</button>')}
+  const head = (act = '') => (hasFeature('proto3') ? pageHead('FILM ROOM', '필름룸', act) : pageHead('ANALYSIS ROOM', '분석실', act));
+  el.innerHTML = coach ? `${head('<button class="btn" data-new>+ 새 분석</button>')}
     ${heroHtml(all.length > 0)}
     ${all.length ? `<h2 class="an-libh">내 분석</h2>
-      <nav class="tabs admin-tabs">${[['match', '경기분석'], ['clip', '선수분석']].map(([k, l]) => `<a href="javascript:void 0" class="${k === listTab ? 'active' : ''}" data-ltab="${k}">${l} <small>${all.filter((p) => (k === 'match' ? isMatch(p) : !isMatch(p))).length}</small></a>`).join('')}</nav>
-      ${rows.length ? libGrid(rows) : empty(listTab === 'match' ? '아직 경기분석이 없어요. 위에서 영상을 넣고 시작해 보세요.' : '아직 선수분석이 없어요. + 새 분석에서 영상을 넣고 선수를 눌러 시작해 보세요.')}` : ''}`
-    : `${pageHead('ANALYSIS ROOM', '분석실')}
-    <p class="lead">코치님이 만든 <b>경기분석</b>이에요. 상대 팀의 <b>체크 포인트 → 포메이션 → 리포트</b> 순서로 보면 돼요.</p>
-    ${rows.length ? libGrid(rows) : `${empty('아직 올라온 경기분석이 없어요.')}
-      <div class="row center"><button class="btn ghost sm" data-sample>경기분석은 이렇게 생겼어요 (예시)</button></div>`}`;
+      <nav class="tabs admin-tabs">${[['match', '경기 영상'], ['clip', '선수 영상']].map(([k, l]) => `<a href="javascript:void 0" class="${k === listTab ? 'active' : ''}" data-ltab="${k}">${l} <small>${all.filter((p) => (k === 'match' ? isMatch(p) : !isMatch(p))).length}</small></a>`).join('')}</nav>
+      ${rows.length ? libGrid(rows) : empty(listTab === 'match' ? '아직 경기 영상이 없어요. 위에서 영상을 넣고 시작해 보세요.' : '아직 선수 영상이 없어요. + 새 분석에서 영상을 넣고 선수를 눌러 시작해 보세요.')}` : ''}`
+    : `${head()}
+    <p class="lead">코치님이 만든 <b>경기 영상</b>이에요. 상대 팀의 <b>체크 포인트 → 포메이션 → 리포트</b> 순서로 보면 돼요.</p>
+    ${rows.length ? libGrid(rows) : `${empty('아직 올라온 경기 영상이 없어요.')}
+      <div class="row center"><button class="btn ghost sm" data-sample>경기 영상은 이렇게 생겼어요 (예시)</button></div>`}`;
   el.querySelectorAll('[data-id]').forEach((c) => (c.onclick = () => go(`/analysis/${c.dataset.id}`)));
   el.querySelectorAll('[data-ltab]').forEach((a) => (a.onclick = () => { listTab = a.dataset.ltab; list(el); }));
   el.querySelector('[data-sample]')?.addEventListener('click', () => go('/analysis/sample'));
   el.querySelector('[data-new]')?.addEventListener('click', () => chooseMode(null));
 }
 
-// 분석 카드 — 경기분석은 공격 방향 막대 · 포메이션 · 기록 수를 미리 보여 줌
+// 분석 카드 — 경기 영상은 공격 방향 막대 · 포메이션 · 기록 수를 미리 보여 줌
 function libGrid(rows) {
   return `<div class="lib-grid">${rows.map((p) => `
       <article class="lib-card" data-id="${p.id}">
@@ -70,7 +71,7 @@ function matchThumb(p) {
   const r = computeReport(p.events || [], tm);
   const f = p.lineups?.[tm]?.base ? { name: p.lineups[tm].base.f } : (p.formations || []).find((x) => x.team !== 'us');
   return `<div class="lib-thumb ma-thumb">
-    <div class="ma-thumb-top"><span>경기분석 · 기록 ${(p.events || []).length}</span>${f?.name ? `<b>${esc(f.name)}</b>` : ''}</div>
+    <div class="ma-thumb-top"><span>경기 영상 · 기록 ${(p.events || []).length}</span>${f?.name ? `<b>${esc(f.name)}</b>` : ''}</div>
     ${r.atk.length ? ['왼쪽', '가운데', '오른쪽'].map((l) => `<div class="ma-tbar"><span>${l}</span><i style="width:${r.pct(r.ch[l])}%"></i><b>${r.pct(r.ch[l])}%</b></div>`).join('') : '<p class="muted small">아직 기록 전이에요</p>'}
 </div>`;
 }
@@ -88,7 +89,7 @@ function heroHtml(compact) {
           <text y="-14" class="an-tag">AI</text></g>
         <path class="an-draw" d="M96 44 C 110 38, 122 36, 136 40" fill="none" stroke="#ffd400" stroke-width="2"/><path class="an-draw-head" d="M136 40 l-6 -3.5 l.5 6.5 z" fill="#ffd400"/>
         <path class="an-zone" d="M100 52 L146 52 L150 80 L96 80 Z" fill="rgba(78,161,255,.25)" stroke="#4ea1ff" stroke-width=".6" stroke-dasharray="2 1.5"/></svg></div>
-      <div class="an-htext"><span class="eyebrow">선수분석</span><h3>선수의 움직임을 영상으로 설명</h3>
+      <div class="an-htext"><span class="eyebrow">선수 영상</span><h3>선수의 움직임을 영상으로 설명</h3>
         <p>선수를 누르면 <b>AI가 뒤에서 끝까지 따라가요</b>. 화살표 · 영역 · 선수 연결 · 스포트라이트 · 오프사이드 선을 그리고, 원하는 장면에 <b>멈춤 · 천천히</b>를 넣어 <b>mp4 영상</b>으로 내보내요.</p>
         <ol class="an-steps"><li>영상 넣기 → <b>선수 누르기</b> (따라가는 동안에도 계속 그릴 수 있어요)</li><li>왼쪽 도구로 <b>그리기</b> · 그림마다 나오는 시간과 끝나는 시간</li><li>아래 <b>타임라인</b>에서 멈춤 · 천천히 길이를 끌어서 맞추기</li><li><b>영상으로 내보내기</b> → 만들기 전 점검 → mp4 저장 · 카톡 공유</li></ol>
 </div>
@@ -99,31 +100,31 @@ function heroHtml(compact) {
         <text x="80" y="11" class="an-dir">상대 공격 →</text></svg>
         <div class="an-hbars">${[['왼쪽', 18], ['가운데', 27], ['오른쪽', 55]].map(([l, v], i) => `<div><span>${l}</span><i style="--w:${v}%;animation-delay:${i * 0.2}s"></i><b>${v}%</b></div>`).join('')}
           <p class="an-type">“상대는 오른쪽 55% → 우리 왼쪽 수비 대비”</p></div></div>
-      <div class="an-htext"><span class="eyebrow">경기분석</span><h3>경기 하나로 한 장짜리 리포트</h3>
+      <div class="an-htext"><span class="eyebrow">경기 영상</span><h3>경기 하나로 한 장짜리 리포트</h3>
         <p>영상(내 파일 · 유튜브 · Veo)을 보며 <b>코치님이 직접</b> 단축키로 장면을 고르고 경기장을 누르면, 그 기록으로 리포트가 정리돼요. <b>AI가 대신 기록하지 않아서</b> 누른 만큼 정확해요.</p>
         <ol class="an-steps"><li><b>킥오프</b> 순간 버튼 → 전반 · 후반 경기 시간이 정확히</li><li>장면이 나오면 <kbd>Space</kbd> 멈춤 → <b>단축키</b>(1~5 · Q~T · A~G · Z~B) → <b>경기장</b> 누르기</li><li>잘못 누르면 <kbd>Del</kbd> → 그 점 누르기</li><li><b>저장</b> → 자동 분석 · 전반/후반 비교 · 포메이션 · 키 플레이어가 한 장에</li></ol>
         <button class="link-btn small" data-sample>완성된 예시 리포트 보기 ›</button></div>
     </div>
   </section>`;
 }
-// 영상을 넣으면(또는 + 새 분석): 선수분석 / 경기분석 고르기
+// 영상을 넣으면(또는 + 새 분석): 선수 영상 / 경기 영상 고르기
 function chooseMode(file) {
   const m = modal(`<span class="eyebrow">NEW ANALYSIS</span><h2>어떤 분석을 할까요?</h2>
     ${file ? `<p class="muted">${esc(file.name)} · ${Math.round(file.size / 1e6)}MB — 서버에 올리지 않아요</p>` : ''}
     <div class="an-choose">
-      <button data-m="clip"><b>선수분석</b><span>선수를 AI로 따라가며 화살표 · 멈춤 · 천천히로 설명하고 mp4로 공유</span></button>
-      <button data-m="match"><b>경기분석</b><span>경기를 보며 단축키로 기록해서 상대 · 우리 팀 리포트 · 포메이션 만들기</span></button>
+      <button data-m="clip"><b>선수 영상</b><span>선수를 AI로 따라가며 화살표 · 멈춤 · 천천히로 설명하고 mp4로 공유</span></button>
+      <button data-m="match"><b>경기 영상</b><span>경기를 보며 단축키로 기록해서 상대 · 우리 팀 리포트 · 포메이션 만들기</span></button>
     </div>`);
   m.el.querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => { m.close(); listTab = b.dataset.m; if (b.dataset.m === 'match') createMatchModal(file); else createModal(file); }));
 }
 
-// 경기분석 만들기: 상대 · 날짜 · 영상(내 컴퓨터) · 전반에 상대가 공격하는 방향
+// 경기 영상 만들기: 상대 · 날짜 · 영상(내 컴퓨터) · 전반에 상대가 공격하는 방향
 function createMatchModal(preset = null) {
-  const m = modal(`<span class="eyebrow">MATCH ANALYSIS</span><h2>경기분석 만들기</h2>
+  const m = modal(`<span class="eyebrow">MATCH ANALYSIS</span><h2>경기 영상 만들기</h2>
     <form class="stack">
       <div class="grid2"><label>상대팀<input name="opponent" required maxlength="30" placeholder="예) 성남FC U15"></label>
         <label>경기일<input type="date" name="date" value="${todayStr()}"></label></div>
-      <label>제목<input name="title" maxlength="80" placeholder="비우면 'vs 상대팀 경기분석'"></label>
+      <label>제목<input name="title" maxlength="80" placeholder="비우면 'vs 상대팀 경기 영상'"></label>
       <div class="grid2"><label>분석할 팀<select name="target">${TARGETS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
         <label>경기 인원<select name="size"><option value="11">11 vs 11</option><option value="8">8 vs 8 (초등부)</option></select></label></div>
       ${preset ? `<p class="muted small">영상: <b>${esc(preset.name)}</b></p>` : `<fieldset class="ma-src"><legend>경기 영상 <small class="muted">둘 중 하나 · 나중에 넣어도 돼요</small></legend>
@@ -146,7 +147,7 @@ function createMatchModal(preset = null) {
     }
     try {
       const ref = await addDoc(col(), {
-        type: 'analysis', mode: 'match', title: (d.title || `vs ${d.opponent} 경기분석`).trim(), opponent: d.opponent.trim(), date: d.date,
+        type: 'analysis', mode: 'match', title: (d.title || `vs ${d.opponent} 경기 영상`).trim(), opponent: d.opponent.trim(), date: d.date,
         oppDir: d.oppDir, target: d.target || 'opp', size: +d.size || 11, lineups: {}, events: [], formations: [], videoUrl: '',
         ...(file ? { video: { local: true, name: file.name, size: file.size, type: file.type } } : {}),
         ...(link ? { link, youtube: link.kind === 'youtube' ? link.id : '' } : {}),
@@ -161,7 +162,7 @@ function createMatchModal(preset = null) {
 
 function createModal(preset = null) {
   const m = modal(`
-    <span class="eyebrow">PLAYER ANALYSIS</span><h2>선수분석 만들기</h2>
+    <span class="eyebrow">PLAYER ANALYSIS</span><h2>선수 영상 만들기</h2>
     <form class="stack">
       ${preset ? `<p class="muted small">영상: <b>${esc(preset.name)}</b></p>` : ''}
       <label>제목<input name="title" required maxlength="80" placeholder="예) 27R vs 화성FC 전반 빌드업"></label>
@@ -296,10 +297,10 @@ export async function studio(el, { id, mode }) {
   shell?.classList.add('wide');
   state.cleanup.push(() => shell?.classList.remove('wide', 'focus'));
 
-  // 경기분석 (장면 기록 · 리포트 · 포메이션)
+  // 경기 영상 (장면 기록 · 리포트 · 포메이션)
   if (post.mode === 'match') return matchStudio(el, post, { canEdit, files: localFiles });
-  // 선수 화면엔 경기분석만
-  if (!canEdit) { el.innerHTML = `${empty('선수 화면에서는 경기분석만 볼 수 있어요.')}<div class="row center"><a class="btn ghost sm" href="#/analysis">분석실로</a></div>`; return; }
+  // 선수 화면엔 경기 영상만
+  if (!canEdit) { el.innerHTML = `${empty('선수 화면에서는 경기 영상만 볼 수 있어요.')}<div class="row center"><a class="btn ghost sm" href="#/analysis">분석실로</a></div>`; return; }
   // YouTube 는 픽셀 분석이 불가 → 재생 + 타임라인만
   if (!post.video) return youtubeView(el, post);
   // 내 컴퓨터 영상: 코치는 파일을 다시 열어야 함 · 선수는 코치가 공유한 유튜브 영상을 봄
@@ -4282,7 +4283,7 @@ function shareModal(post) {
     <ol class="guide-steps">
       <li><b>영상으로 내보내기</b>로 그림이 들어간 영상을 저장해요<small>파일이 다운로드 폴더에 생겨요 (.mp4). 이 파일을 카톡방에 바로 보내도 돼요.</small></li>
       <li>사이트 안에서 보게 하려면 유튜브에 올려요 → 공개 범위는 <b>일부 공개</b><small>링크를 아는 사람만 볼 수 있어요. 검색에 안 나와요.</small></li>
-      <li>유튜브 링크를 아래에 붙여 넣고 저장하면 끝!<small>선수들은 분석실에서 이 영상을 봐요.</small></li>
+      <li>유튜브 링크를 아래에 붙여 넣고 저장하면 끝!<small>선수들은 필름룸에서 이 영상을 봐요.</small></li>
     </ol>
     <form class="stack"><label>유튜브 링크<input name="url" type="url" required placeholder="https://youtu.be/…" value="${esc(post.shareUrl || '')}"></label>
       <div class="row end"><button type="button" class="btn ghost" data-close>나중에</button><button class="btn">저장</button></div></form>`);

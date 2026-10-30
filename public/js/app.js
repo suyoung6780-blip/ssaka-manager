@@ -24,6 +24,7 @@ import * as training from './pages/training.js';
 import * as data from './pages/data.js';
 import * as trainingDaily from './pages/trainingDaily.js';
 import * as analysis from './pages/analysis.js';
+import * as goalAna from './proto/goalAna.js';
 import * as goals from './pages/goals.js';
 import * as idp from './pages/idp.js'; // 시제품 3.0 (팀 기능 proto3)
 import { refreshIdpFlag, homeIdpCard } from './proto/idpStatus.js';
@@ -64,6 +65,7 @@ const routes = [
   ['/notes', notes.page, 'coach'],
   ['/meeting', board.page('meeting'), 'squad'],
   ['/analysis', analysis.list, 'squad'],
+  ['/analysis/goals', goalAna.page, 'squad'], // 시제품 3.0: 득점 · 실점 분석
   ['/analysis/:id', analysis.studio, 'squad'],
   ['/analysis/:id/edit', analysis.studioEdit, 'squad'],
   ['/notice', board.page('notice'), 'member'],
@@ -244,8 +246,8 @@ function navItems() {
   // 메뉴 묶음 (영어 이름으로 통일) — 일하는 순서: 팀 운영 → 훈련 → 경기 → 성장 · 선수는 오늘 기록을 맨 위에
   sec('HOME', [['/', '홈'], ...(player ? [['/daily', '오늘 기록']] : [])]);
   sec('TEAM', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄'], ...(squad ? [['/locker', '락커룸']] : []), ...(coach ? [['/chat', '팀 대화']] : [])] : []);
-  sec('TRAINING', squad ? [['/training', '훈련장'], ...(coach ? [['/tactics', '전술보드']] : []), ['/meeting', '미팅룸'], ['/gamemodel', '게임모델']] : []);
-  sec('MATCH', squad ? [['/records', '경기 기록실'], ['/analysis', '분석실']] : []);
+  sec('TRAINING', squad ? [['/gamemodel', '게임모델'], ['/training', '훈련장'], ...(coach ? [['/tactics', '전술보드']] : []), ...(hasFeature('proto3') ? [['/analysis', '필름룸']] : []), ['/meeting', '미팅룸']] : []);
+  sec('MATCH', squad ? (hasFeature('proto3') ? [['/records', '기록실'], ['/analysis/goals', '분석실']] : [['/records', '경기 기록실'], ['/analysis', '분석실']]) : []);
   sec('GROWTH', squad ? [...(hasFeature('proto3') ? [['/idp', '성장 평가']] : []), ['/goals', '목표'], ['/data', '데이터실'], ...(coach ? [['/journal-check', '일지검사']] : [])] : []);
   sec('MY', [['/me', '프로필'], ...(coach ? [['/notes', '코치 노트'], ['/scout', '스카웃 노트']] : [])]);
   sec('COMMUNITY', coach ? [['/community/training', '훈련 공유'], ['/community/talk', '지도자 게시판']] : []);
@@ -289,7 +291,9 @@ function updateShell(path = location.hash.slice(1) || '/') {
   // 지금 주소에 가장 길게 맞는 메뉴 하나만 선택 (예: /admin/teams 면 '전체 팀'만, '전체 공지'는 아님)
   const cur = items.flatMap((s) => s.list.map(([h]) => h))
     .filter((h) => path === h || (h !== '/' && path.startsWith(h + '/')))
-    .sort((a, b) => b.length - a.length)[0];
+    .sort((a, b) => b.length - a.length)[0]
+    // 메뉴가 하위 주소만 가리킬 때 (분석실 → /analysis/goals): 그 위 주소에서도 선택
+    || items.flatMap((s) => s.list.map(([h]) => h)).find((h) => path !== '/' && h.startsWith(path + '/'));
   $('.nav-list').innerHTML = items.map((s) => `
     <div class="nav-sec"><span>${s.title}</span>
       ${s.list.map(([href, label]) => `<a href="#${href}" class="${href === cur ? 'active' : ''}">${label}</a>`).join('')}

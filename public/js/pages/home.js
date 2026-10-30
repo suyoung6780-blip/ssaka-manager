@@ -355,6 +355,15 @@ export async function render(el) {
     <a href="#/daily" class="btn full">${l ? '오늘 기록 열기' : '오늘 기록 쓰기'}</a>
   </section>`;
 
+  // 선수: 오늘 기록 — 안 썼거나 작성 중이면 맨 위에 크게, 냈으면 한 줄로
+  const matchDay = todays.some((x) => x.kind === '경기') || allMatches.some((x) => x.date === today);
+  const lst = !l ? 'none' : l.checked ? 'done' : l.submitted ? 'sent' : 'draft';
+  const dailyCta = lst === 'none' || lst === 'draft' ? `<a class="dcta ${lst === 'none' ? 'todo' : lst}" href="#/daily">
+      <div><span class="eyebrow">${lst === 'none' ? 'TODAY' : 'DRAFT'}</span>
+        <strong>${lst === 'none' ? '오늘 기록을 아직 안 썼어요' : '오늘 기록 작성 중 — 아직 제출 안 했어요'}</strong>
+        <small>${matchDay ? '오늘은 경기 날 · 몸 상태 → 경기 일지(골 · 도움 · 실점) → 제출' : '몸 상태 → 훈련 일지 → 제출 · 3분이면 돼요'}</small></div>
+      <em>${lst === 'none' ? '오늘 기록 쓰기' : '이어서 쓰기'} →</em></a>`
+    : `<a class="dcta-mini ${lst}" href="#/daily"><b>${lst === 'done' ? '오늘 기록 검사 완료' : '오늘 기록 제출함'}</b><span>${lst === 'done' ? (l.coachComment ? '코치님 한마디가 있어요' : '코치님이 확인했어요') : '코치님 검사를 기다리는 중'}</span><em>열기 →</em></a>`;
   const head = `${morningHead(stats)}
   ${!teamActive() ? `<div class="banner">팀 이용기간이 만료되었습니다. ${isOwner() ? '<a href="#/pay">연장 결제 →</a>' : '팀 관리자에게 문의하세요.'}</div>` : ''}
   ${planBanner()}
@@ -377,6 +386,7 @@ export async function render(el) {
   // 선수: 오늘 · 내 오늘 기록 · 코치님 답변 → 이번 주 → 할 일 · 공지
   const hero = isSquad() && hasFeature('proto3'); // 선수 카드 (시제품)
   el.innerHTML = `${head}
+  ${isSquad() ? dailyCta : ''}
   ${hero ? '<div data-phero></div>' : ''}
   <div data-idp></div>
   <div class="home-grid two">${todayCard}${myCard}</div>

@@ -1,4 +1,4 @@
-// 분석실 > 경기분석 — 영상을 보며 경기장을 탭해 장면 기록 → 상대(또는 우리) 공격 방향 · 슈팅 · 크로스 · 위험 지역 · 시간대 흐름 리포트
+// 분석실 > 경기 영상 — 영상을 보며 경기장을 탭해 장면 기록 → 상대(또는 우리) 공격 방향 · 슈팅 · 크로스 · 위험 지역 · 시간대 흐름 리포트
 // + 코치가 직접 정하는 포메이션(등번호) · 키 플레이어 → 저장하면 기록 · 자동 분석 · 포메이션 · 키 플레이어가 한 리포트로
 import { db, doc, updateDoc, deleteDoc, collection, getDocs } from '../fb.js';
 import { esc, toast, fail, modal, confirmBox, empty } from '../ui.js';
@@ -325,7 +325,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
 
   el.innerHTML = `<div class="studio ma">
     <header class="studio-top"><a href="#/analysis" class="icon-btn" aria-label="목록">‹</a>
-      <div class="st-title"><strong>${esc(post.title)}</strong><small>경기분석 · ${esc([post.opponent && `vs ${post.opponent}`, post.date].filter(Boolean).join(' · '))}</small></div>
+      <div class="st-title"><strong>${esc(post.title)}</strong><small>경기 영상 · ${esc([post.opponent && `vs ${post.opponent}`, post.date].filter(Boolean).join(' · '))}</small></div>
       <div class="st-actions"><span class="muted small" data-saved></span>${canEdit ? '<button class="btn ghost sm" data-full title="영상 · 단축키 · 경기장 · 자세히 칸을 한 화면에 (Esc로 나가기)">전체화면으로 기록</button><button class="btn ghost sm" data-del>삭제</button><button class="btn sm" data-savebtn>저장</button>' : ''}</div></header>
     ${sample ? '<div class="banner sample-banner">예시 리포트예요 — 코치님이 영상을 보며 단축키로 직접 기록하면(전반 · 후반 · 킥오프 · 결과 · 발 · 번호) 이렇게 한 장으로 정리돼요. 위 [전체 · 전반 · 후반]도 눌러 보세요.</div>' : ''}
     ${P ? '<div class="banner p3-banner"><b>시제품 3.0</b> 이 팀에만 켜 둔 시험 기능이 있어요 — 목적별 템플릿 · 빠른 기록 · 실행 취소 · 선수 연결 · <b>AI 후보 (실험)</b> · 작업 시간 재기</div>' : ''}
@@ -403,7 +403,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
   document.addEventListener('fullscreenchange', onFs);
   state.cleanup.push(() => { document.removeEventListener('fullscreenchange', onFs); if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {}); });
   el.querySelector('[data-del]')?.addEventListener('click', async () => {
-    if (!(await confirmBox('이 경기분석을 삭제할까요?'))) return;
+    if (!(await confirmBox('이 경기 영상을 삭제할까요?'))) return;
     try { await deleteDoc(doc(db, ...col(), post.id)); go('/analysis'); } catch (err) { fail(err); }
   });
 
@@ -1268,7 +1268,7 @@ export async function matchStudio(el, post, { canEdit, files, sample = false }) 
         <div class="seg">${[['all', '전체'], [1, '전반'], [2, '후반']].map(([k, l]) => `<button class="${k === rhalf ? 'on' : ''}" data-rh="${k}">${l}</button>`).join('')}</div>
         <span class="muted small">그림은 모두 <b>${TEAM[rteam]} 팀이 오른쪽(→)으로 공격</b>하는 방향이에요</span>${canEdit ? '<button class="btn ghost sm" data-print>PDF · 인쇄</button>' : ''}</div>
       <section class="card rp-head" style="--c:${col}">
-        <div><span class="eyebrow">MATCH REPORT</span><h2>${esc(post.title || '경기분석')}</h2><p class="muted small">${esc([post.opponent && `vs ${post.opponent}`, post.date, `${data.size} vs ${data.size}`].filter(Boolean).join(' · '))} · 기록 ${data.events.length}개</p></div>
+        <div><span class="eyebrow">MATCH REPORT</span><h2>${esc(post.title || '경기 영상')}</h2><p class="muted small">${esc([post.opponent && `vs ${post.opponent}`, post.date, `${data.size} vs ${data.size}`].filter(Boolean).join(' · '))} · 기록 ${data.events.length}개</p></div>
         ${data.target === 'both' ? `<div class="rp-score"><span>우리</span><b>${gUs} : ${gOpp}</b><span>상대</span><small>전반 ${gOf('us', 1)}:${gOf('opp', 1)} · 후반 ${gOf('us', 2)}:${gOf('opp', 2)}</small></div>` : ''}
       </section>
       ${P ? p3ReportHtml() : ''}
@@ -1662,7 +1662,7 @@ export function sampleMatch() {
   add(2, 18, 'opp', 'goal', 0.93, 0.56, { foot: 'H', num: '9' });
   add(2, 27, 'opp', 'goal', 0.74, 0.44, { foot: 'L', num: '10' });
   ev.sort((a, b) => a.t - b.t);
-  return { id: 'sample', mode: 'match', title: '예시) vs 상대 FC 경기분석', opponent: '상대 FC', date: '', oppDir: 'right', events: ev, target: 'both', size: 11, halfStart: HS,
+  return { id: 'sample', mode: 'match', title: '예시) vs 상대 FC 경기 영상', opponent: '상대 FC', date: '', oppDir: 'right', events: ev, target: 'both', size: 11, halfStart: HS,
     lineups: { opp: { base: { f: '4-2-3-1', nums: ['1', '2', '4', '5', '3', '6', '8', '11', '10', '7', '9'] }, def: { f: '4-4-1-1', nums: [] } }, us: { base: { f: '4-3-3', nums: ['1', '2', '4', '5', '3', '6', '8', '10', '11', '9', '7'] } } },
     keys: { opp: [{ id: 'k1', num: '10', pos: 'AM', name: '', note: '왼발 · 박스 앞 중거리 · 프리킥 키커' }, { id: 'k2', num: '7', pos: 'RW', name: '', note: '스피드 · 오른쪽 돌파 뒤 높은 크로스' }], us: [{ id: 'k3', num: '9', pos: 'ST', name: '', note: '침투 · 첫 골' }] }, formations: [] };
 }

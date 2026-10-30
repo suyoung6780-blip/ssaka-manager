@@ -14,7 +14,8 @@ let seen = {};
 
 // 지금 보고 있는 칸 (메뉴 주소 기준)
 const SECTIONS = ['/notice', '/schedule', '/meeting', '/analysis', '/training', '/journal-check', '/goals', '/gamemodel', '/daily', '/chat'];
-const sectionOf = (path) => SECTIONS.filter((s) => path === s || path.startsWith(`${s}/`)).sort((a, b) => b.length - a.length)[0] || '';
+// 분석실(득점 · 실점 분석)은 필름룸(/analysis) 새 글 표시와 따로
+const sectionOf = (path) => (path === '/analysis/goals' ? '' : SECTIONS.filter((s) => path === s || path.startsWith(`${s}/`)).sort((a, b) => b.length - a.length)[0] || '');
 const current = () => sectionOf(location.hash.slice(1) || '/');
 
 export const hasNew = (sec) => (latest[sec] || 0) > (seen[sec] || 0);
@@ -68,7 +69,7 @@ export function startNews() {
   post('/schedule', 'schedule');
   post('/meeting', 'meeting');
   post('/training', 'daily');
-  post('/analysis', 'analysis', (d) => isCoach() || d.mode === 'match'); // 선수는 경기분석만 보임
+  post('/analysis', 'analysis', (d) => isCoach() || d.mode === 'match'); // 선수는 경기 영상만 보임
   // 목표: 코치는 선수 개인 목표, 선수는 팀 목표
   watch('/goals', query(collection(db, 'teams', tid, 'goals'), orderBy('createdAt', 'desc'), limit(3)),
     (d) => (d.ownerUid === me || (!isCoach() && d.scope !== 'team') ? 0 : ms(d.createdAt)));
