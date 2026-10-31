@@ -405,7 +405,7 @@ async function playerView(el, uid, ym = NOW()) {
       <p class="muted small">목표는 <a href="#/goals">목표</a> 화면에서 선수가 직접 관리해요.</p>`;
   }
   function evidHtml() {
-    if (!evid.length) return '<p class="muted small">이 선수와 연결된 경기 기록이 아직 없어요. 필름룸 경기 영상에서 우리 팀 기록에 선수를 연결하면 여기에 모여요.</p>';
+    if (!evid.length) return '<p class="muted small">이 선수와 연결된 경기 기록이 아직 없어요. 영상룸 경기 영상에서 우리 팀 기록에 선수를 연결하면 여기에 모여요.</p>';
     const cnt = {}; evid.forEach((e) => { cnt[e.k] = (cnt[e.k] || 0) + 1; });
     const names = { attack: '공격 전개', through: '스루패스', long: '롱볼', dribble: '돌파', cross: '크로스', shot: '슈팅', goal: '득점', press: '압박', win: '볼 탈취', clear: '클리어링', save: '선방', duel: '경합', loss: '볼 뺏김', counter: '역습', gegen: '역압박', corner: '코너킥', freekick: '프리킥', penalty: '페널티킥', foul: '파울', note: '메모', offside: '오프사이드' };
     const posts = [...new Set(evid.map((e) => e.post))];

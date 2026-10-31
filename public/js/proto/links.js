@@ -67,7 +67,7 @@ export function hubHtml({ logs, mres }, goals, evid, uid, opts = {}) {
         ${doing.length ? `<ul class="lk-list">${doing.slice(0, 3).map((g) => `<li><span>${esc(g.title)}</span><b>${pct(g)}%</b><em class="ga-st k-${pace(g).k}">${pace(g).l}</em></li>`).join('')}</ul>` : '<p class="muted small">진행 중인 목표가 없어요.</p>'}</a>
       <a class="lk" href="${posts[0] ? `#/analysis/${esc(posts[0])}` : '#/analysis'}"><div class="lk-h"><b>경기 영상</b><small>확정된 장면</small></div>
         <div class="lk-k"><div><strong>${evid.length}</strong><small>연결 장면</small></div><div><strong>${posts.length}</strong><small>경기</small></div><div><strong>${evid.filter((e) => e.k === 'shot' || e.k === 'goal').length}</strong><small>슈팅 · 득점</small></div></div>
-        <p class="muted small">${evid.length ? '필름룸에서 이 선수로 연결한 장면이에요.' : '필름룸 경기 영상에서 우리 팀 기록에 선수를 연결하면 모여요.'}</p></a>
+        <p class="muted small">${evid.length ? '영상룸에서 이 선수로 연결한 장면이에요.' : '영상룸 경기 영상에서 우리 팀 기록에 선수를 연결하면 모여요.'}</p></a>
     </div></section>`;
 }
 // 월별 표 아래: 그 달의 훈련일지 · 경기 기록 (같은 달끼리 나란히)

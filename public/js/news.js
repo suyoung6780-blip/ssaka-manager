@@ -14,7 +14,7 @@ let seen = {};
 
 // 지금 보고 있는 칸 (메뉴 주소 기준)
 const SECTIONS = ['/notice', '/schedule', '/meeting', '/analysis', '/training', '/journal-check', '/goals', '/gamemodel', '/daily', '/chat'];
-// 분석실(득점 · 실점 분석)은 필름룸(/analysis) 새 글 표시와 따로
+// 분석실(득점 · 실점 분석)은 영상룸(/analysis) 새 글 표시와 따로
 const sectionOf = (path) => (path === '/analysis/goals' ? '' : SECTIONS.filter((s) => path === s || path.startsWith(`${s}/`)).sort((a, b) => b.length - a.length)[0] || '');
 const current = () => sectionOf(location.hash.slice(1) || '/');
 

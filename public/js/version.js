@@ -1,10 +1,16 @@
 // 홈페이지 버전 — 무료 시범 운영 중은 0.9 베타, 유료 정식 출시 때 1.0
 // 하루에 한 번만 올림: 같은 날 여러 번 올려도 그 날 버전 하나에 묶음 (0.9 → 0.9.1 → 0.9.2 …, 유료 정식 출시 때 1.0)
 // 올릴 때마다 그 날 묶음에 [파트, 한 줄 요약]으로 — 파트당 한 줄, 짧고 쉬운 말로 (같은 파트면 그 줄에 합침)
-export const VERSION = { no: '0.9.7', tag: '베타' };
+export const VERSION = { no: '0.9.8', tag: '베타' };
 export const versionLabel = () => `v${VERSION.no}${VERSION.tag ? ` ${VERSION.tag}` : ''}`;
 
 export const CHANGELOG = [
+  {
+    date: '2026-10-31', ver: '0.9.8',
+    items: [
+      ['영상룸', '필름룸 이름을 영상룸으로 바꿈 · 사용법 · 첫 화면 소개 글도 맞춤'],
+    ],
+  },
   {
     date: '2026-10-30', ver: '0.9.7',
     items: [

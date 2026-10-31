@@ -37,7 +37,7 @@ export async function list(el) {
   const isMatch = (p) => p.mode === 'match';
   if (!coach) listTab = 'match';
   const rows = all.filter((p) => (listTab === 'match' ? isMatch(p) : !isMatch(p)));
-  const head = (act = '') => (hasFeature('proto3') ? pageHead('FILM ROOM', '필름룸', act) : pageHead('ANALYSIS ROOM', '분석실', act));
+  const head = (act = '') => (hasFeature('proto3') ? pageHead('VIDEO ROOM', '영상룸', act) : pageHead('ANALYSIS ROOM', '분석실', act));
   el.innerHTML = coach ? `${head('<button class="btn" data-new>+ 새 분석</button>')}
     ${heroHtml(all.length > 0)}
     ${all.length ? `<h2 class="an-libh">내 분석</h2>
@@ -300,7 +300,7 @@ export async function studio(el, { id, mode }) {
   // 경기 영상 (장면 기록 · 리포트 · 포메이션)
   if (post.mode === 'match') return matchStudio(el, post, { canEdit, files: localFiles });
   // 선수 화면엔 경기 영상만
-  if (!canEdit) { el.innerHTML = `${empty('선수 화면에서는 경기 영상만 볼 수 있어요.')}<div class="row center"><a class="btn ghost sm" href="#/analysis">분석실로</a></div>`; return; }
+  if (!canEdit) { el.innerHTML = `${empty('선수 화면에서는 경기 영상만 볼 수 있어요.')}<div class="row center"><a class="btn ghost sm" href="#/analysis">영상룸으로</a></div>`; return; }
   // YouTube 는 픽셀 분석이 불가 → 재생 + 타임라인만
   if (!post.video) return youtubeView(el, post);
   // 내 컴퓨터 영상: 코치는 파일을 다시 열어야 함 · 선수는 코치가 공유한 유튜브 영상을 봄
@@ -4283,7 +4283,7 @@ function shareModal(post) {
     <ol class="guide-steps">
       <li><b>영상으로 내보내기</b>로 그림이 들어간 영상을 저장해요<small>파일이 다운로드 폴더에 생겨요 (.mp4). 이 파일을 카톡방에 바로 보내도 돼요.</small></li>
       <li>사이트 안에서 보게 하려면 유튜브에 올려요 → 공개 범위는 <b>일부 공개</b><small>링크를 아는 사람만 볼 수 있어요. 검색에 안 나와요.</small></li>
-      <li>유튜브 링크를 아래에 붙여 넣고 저장하면 끝!<small>선수들은 필름룸에서 이 영상을 봐요.</small></li>
+      <li>유튜브 링크를 아래에 붙여 넣고 저장하면 끝!<small>선수들은 영상룸에서 이 영상을 봐요.</small></li>
     </ol>
     <form class="stack"><label>유튜브 링크<input name="url" type="url" required placeholder="https://youtu.be/…" value="${esc(post.shareUrl || '')}"></label>
       <div class="row end"><button type="button" class="btn ghost" data-close>나중에</button><button class="btn">저장</button></div></form>`);

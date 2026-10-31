@@ -246,7 +246,7 @@ function navItems() {
   // 메뉴 묶음 (영어 이름으로 통일) — 일하는 순서: 팀 운영 → 훈련 → 경기 → 성장 · 선수는 오늘 기록을 맨 위에
   sec('HOME', [['/', '홈'], ...(player ? [['/daily', '오늘 기록']] : [])]);
   sec('TEAM', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄'], ...(squad ? [['/locker', '락커룸']] : []), ...(coach ? [['/chat', '팀 대화']] : [])] : []);
-  sec('TRAINING', squad ? [['/gamemodel', '게임모델'], ['/training', '훈련장'], ...(coach ? [['/tactics', '전술보드']] : []), ...(hasFeature('proto3') ? [['/analysis', '필름룸']] : []), ['/meeting', '미팅룸']] : []);
+  sec('TRAINING', squad ? [['/gamemodel', '게임모델'], ['/training', '훈련장'], ...(coach ? [['/tactics', '전술보드']] : []), ...(hasFeature('proto3') ? [['/analysis', '영상룸']] : []), ['/meeting', '미팅룸']] : []);
   sec('MATCH', squad ? (hasFeature('proto3') ? [['/records', '기록실'], ['/analysis/goals', '분석실']] : [['/records', '경기 기록실'], ['/analysis', '분석실']]) : []);
   sec('GROWTH', squad ? [...(hasFeature('proto3') ? [['/idp', '성장 평가']] : []), ['/goals', '목표'], ['/data', '데이터실'], ...(coach ? [['/journal-check', '일지검사']] : [])] : []);
   sec('MY', [['/me', '프로필'], ...(coach ? [['/notes', '코치 노트'], ['/scout', '스카웃 노트']] : [])]);

@@ -361,7 +361,7 @@ seed('support/T3', { teamId: 'T3', teamName: '그레이 FC', category: 'U15', la
 seed('support/T3/messages/1', { text: '안녕하세요! 팀 코드를 다시 발급받을 수 있나요? 졸업생에게 코드가 퍼져서요.', uid: 'y', name: '최감독', from: 'team', createdAt: Timestamp.fromMillis(Date.now() - 3600e3) });
 seed('support/T3/messages/2', { text: '팀 코드를 다시 발급받을 수 있나요?', uid: 'y', name: '최감독', from: 'team', createdAt: now() });
 seed('feedback/f1', { kind: '개선 제안', title: '일지검사에서 학년별로 보고 싶어요', body: 'U12, U15 같이 운영해서 학년 필터가 있으면 좋겠습니다.', status: '접수', uid: 'z', name: '정감독', role: 'coach', teamId: 'T4', teamName: '레드 유소년', createdAt: Timestamp.fromMillis(Date.now() - 86400e3) });
-seed('feedback/f2', { kind: '질문', title: '영상은 몇 분까지 올릴 수 있나요?', body: '분석실에 경기 전체 영상을 올려도 되나요?', status: '답변 완료', reply: '네, 경기 전체 영상도 올릴 수 있어요.', repliedAt: now(), uid: U, name: '김코치', role: 'coach', teamId: 'T1', teamName: 'FC 블랙', createdAt: Timestamp.fromMillis(Date.now() - 2 * 86400e3) });
+seed('feedback/f2', { kind: '질문', title: '영상은 몇 분까지 올릴 수 있나요?', body: '영상룸에 경기 전체 영상을 올려도 되나요?', status: '답변 완료', reply: '네, 경기 전체 영상도 올릴 수 있어요.', repliedAt: now(), uid: U, name: '김코치', role: 'coach', teamId: 'T1', teamName: 'FC 블랙', createdAt: Timestamp.fromMillis(Date.now() - 2 * 86400e3) });
 seed('chats/uCoach_y/messages/1', { uid: U, text: '연습경기 가능할까요?', createdAt: now() });
 
 export const app = {}; export const storage = {}; export const functions = {}; export const db = {};
