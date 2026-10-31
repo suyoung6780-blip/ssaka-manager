@@ -45,7 +45,7 @@ function sum(rows) {
 }
 
 export function seasonHtml(d, year, comp) {
-  if (!d.years.length) return '<section class="card p3-card"><p class="muted">아직 모인 기록이 없어요. 경기 기록실에 득점 · 도움이 들어가거나, 오늘 기록에 경기 일지(출전 시간 · 평점)를 쓰면 여기에 시즌별로 쌓여요.</p></section>';
+  if (!d.years.length) return '<section class="card p3-card"><p class="muted">아직 모인 기록이 없어요. 기록실에 득점 · 도움이 들어가거나, 오늘 기록에 경기 일지(출전 시간 · 평점)를 쓰면 여기에 시즌별로 쌓여요.</p></section>';
   const y = d.years.includes(year) ? year : d.years[0];
   const inY = (r) => yOf(r.date) === y;
   const mrows = d.matches.filter(inY).filter((r) => comp === 'all' || r.type === comp);
@@ -88,7 +88,7 @@ export function seasonHtml(d, year, comp) {
         ${K(tY.length, '훈련 · 경기 일지', conds.length ? `평균 컨디션 ${f1(avg(conds))}` : '')}
         ${K(oY.length ? oY[oY.length - 1].v : '-', 'OVR (마지막 확정)', oD != null ? `시즌 중 ${oD > 0 ? '+' : ''}${oD}` : '')}
       </div>
-      <p class="muted small">득점 · 도움은 경기 기록실, 출전 시간 · 평점은 오늘 기록의 경기 일지에서 모아요 · 참고로만 보여 주고 성장 평가 점수는 바꾸지 않아요</p>
+      <p class="muted small">득점 · 도움은 기록실, 출전 시간 · 평점은 오늘 기록의 경기 일지에서 모아요 · 참고로만 보여 주고 성장 평가 점수는 바꾸지 않아요</p>
     </section>
     <section class="card p3-card"><h3>${y} 월별 <small class="muted">${comp === 'all' ? '전체 경기' : esc(comp)} · 일지 · 컨디션 · OVR은 모든 기록</small></h3>
       <div class="tbl-wrap"><table class="tbl p3-tbl ss-tbl"><tr><th>달</th><th>경기</th><th>분</th><th>득점</th><th>도움</th><th>공격P</th><th>평점</th><th>일지</th><th>컨디션</th><th>OVR</th></tr>${mTable}</table></div></section>

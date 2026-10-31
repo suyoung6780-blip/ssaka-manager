@@ -8,24 +8,8 @@ import { state, go, hooks, compActive } from '../store.js';
 
 const tabs = (cur) => `<div class="tabs admin-tabs">${[['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원']].map(([h, l]) => `<a href="#${h}" class="${h === cur ? 'active' : ''}">${l}</a>`).join('')}</div>`;
 
-const ref = () => doc(db, 'system', 'notice');
-const text = (s) => esc(s).replace(/\n/g, '<br>');
-
-const bannerHtml = (n, { preview = false } = {}) => `
-  <div class="sys-notice ${n.level === 'important' ? 'important' : ''}">
-    <span class="sys-tag">${n.level === 'important' ? '중요' : '공지'}</span>
-    <div class="sys-body"><strong>${esc(n.title || '')}</strong>${n.body ? `<p>${text(n.body)}</p>` : ''}</div>
-  </div>`;
-
-// 화면 맨 위 배너 — 닫으면 이 공지(버전)는 다시 안 뜸, 운영자가 새로 저장하면 다시 뜸
-export async function loadBanner(box) {
-  if (!box) return;
-  let n = null;
-  try { const s = await getDoc(ref()); n = s.exists() ? s.data() : null; } catch { /* 읽기 실패 시 배너 없음 */ }
-  // 운영자가 내릴 때까지 모두에게 계속 보임 (사용자가 닫을 수 없음)
-  if (!n?.on || !n.title) { box.innerHTML = ''; return; }
-  box.innerHTML = bannerHtml(n);
-}
+import { ref, bannerHtml } from './banner.js';
+export { loadBanner } from './banner.js';
 
 export async function page(el) {
   const [s, ts] = await Promise.all([getDoc(ref()), getDocs(collection(db, 'teams'))]);
@@ -43,6 +27,10 @@ export async function page(el) {
     <section class="card usage-card">
       <div class="card-head"><h3>오늘 Firebase 사용량 <small class="muted">모든 팀이 함께 쓰는 무료 한도</small></h3><button type="button" class="link-btn small" data-urefresh>새로고침</button></div>
       <div data-ubody class="muted small">불러오는 중…</div>
+    </section>
+    <section class="card">
+      <div class="card-head"><h3>데이터 백업 <small class="muted">모든 팀 · 모든 회원 데이터를 파일 하나로</small></h3><button type="button" class="btn sm" data-backup>백업 내려받기</button></div>
+      <p class="muted small" data-bmsg>한 달에 한 번쯤 내려받아 컴퓨터 · 드라이브에 보관해 두세요. 실수로 지워졌을 때 이 파일로 되살릴 수 있어요. 데이터 1개 = 읽기 1번이라 무료 한도에서 빠져요 (한가한 밤에 하기).</p>
     </section>
     <form class="card">
       <div class="card-head"><h3>공지 쓰기</h3><span class="tag ${n.on ? 'solid' : ''}">${n.on ? '지금 띄우는 중' : '내려간 상태'}</span></div>
@@ -62,6 +50,7 @@ export async function page(el) {
     </form>`;
   loadUsage(el);
   el.querySelector('[data-urefresh]').onclick = () => loadUsage(el);
+  el.querySelector('[data-backup]').onclick = (e) => backup(e.currentTarget, el.querySelector('[data-bmsg]'));
 
   const form = el.querySelector('form');
   const val = () => ({ level: form.level.value, title: form.title.value.trim(), body: form.body.value.trim() });
@@ -422,6 +411,37 @@ export async function users(el) {
   el.querySelector('[data-q]').oninput = (e) => { q = e.target.value.trim().toLowerCase(); draw(); };
   el.querySelector('[data-only]').onchange = (e) => { only = e.target.value; draw(); };
   draw();
+}
+
+// ── 데이터 백업 (운영자만) — /api/backup 이 모음마다 500개씩 돌려주면 여기서 모아 파일 하나로 저장 ──
+async function backup(btn, msg) {
+  const tok = await auth.currentUser?.getIdToken?.();
+  const get = async (q) => {
+    const r = await fetch(`/api/backup?${q}`, { headers: tok ? { Authorization: `Bearer ${tok}` } : {} });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    return j;
+  };
+  btn.disabled = true;
+  const docs = [];
+  try {
+    const { groups } = await get('list=1');
+    for (const [i, c] of groups.entries()) {
+      let after = '';
+      do {
+        msg.textContent = `모으는 중… ${i + 1}/${groups.length} · ${c} · 지금까지 ${docs.length}개`;
+        const j = await get(`c=${encodeURIComponent(c)}${after ? `&after=${encodeURIComponent(after)}` : ''}`);
+        docs.push(...j.docs); after = j.next;
+      } while (after);
+    }
+    const at = new Date();
+    const blob = new Blob([JSON.stringify({ app: 'ssaka-manager', at: at.toISOString(), count: docs.length, docs })], { type: 'application/json' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `싸카매니저-백업-${at.toISOString().slice(0, 10)}.json` });
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    msg.textContent = `백업 완료 — 데이터 ${docs.length.toLocaleString()}개 · ${(blob.size / 1048576).toFixed(1)}MB · 내려받은 파일을 안전한 곳에 보관하세요.`;
+  } catch (e) {
+    msg.textContent = `백업하지 못했어요: ${e.message || e}`;
+  } finally { btn.disabled = false; }
 }
 
 // ── 오늘 Firebase 사용량 (운영자만) — /api/usage 가 Google Cloud Monitoring 에서 읽어 옴 ──

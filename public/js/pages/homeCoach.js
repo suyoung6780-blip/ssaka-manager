@@ -88,7 +88,7 @@ export async function coachDesk(box, { sched, matches, plans, players, logs, tod
     ${next ? `<div class="cd-next-top"><b class="cd-dday">${dday(next.date)}</b><div><strong>${esc(next.title)}</strong>
         <small>${md(next.date)} (${DOW_KO[new Date(`${next.date}T00:00`).getDay()]}) ${esc(next.time || '')}${next.place ? ` · ${esc(next.place)}` : ''}</small></div></div>
       ${h2h ? `<div class="cd-h2h"><span>vs ${esc(opp)} 지난 전적</span><b>${h2h.w}승 ${h2h.d}무 ${h2h.l}패</b><small>득 ${h2h.gf} · 실 ${h2h.ga}</small></div>` : opp ? `<p class="muted small">vs ${esc(opp)} — 지난 경기 기록이 없어요.</p>` : ''}
-      <div class="cd-links"><a class="chip" href="#/meeting">미팅 자료</a><a class="chip" href="#/gamemodel">세트피스 · 패턴</a><a class="chip" href="#/records">경기 기록실</a></div>`
+      <div class="cd-links"><a class="chip" href="#/meeting">미팅 자료</a><a class="chip" href="#/gamemodel">세트피스 · 패턴</a><a class="chip" href="#/records">기록실</a></div>`
       : empty('예정된 경기가 없어요. 스케줄에 경기를 넣으면 여기에 나와요.')}
   </section>`;
 

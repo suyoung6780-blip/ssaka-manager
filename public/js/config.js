@@ -19,7 +19,7 @@ export const PAY_TEST = true;
 // ③ 요금제 — api/pay.py 의 PLANS 와 반드시 같은 값이어야 합니다 (서버가 금액을 다시 확인)
 //    인원은 '승인된' 팀원 기준. 연 이용권 = 10개월 값으로 12개월 (365일)
 export const PLANS = [
-  { id: 'gaffer', name: '가퍼', sub: '지도자 전용', players: 0, coaches: 3, month: 14900, note: '선수 없이 지도자끼리 — 작전판 · 훈련 프로그램 · 분석실(부분 · 경기분석) · 게임모델 · 미팅룸 · 경기 기록실 · 코치 · 스카웃 노트 · 커뮤니티' },
+  { id: 'gaffer', name: '가퍼', sub: '지도자 전용', players: 0, coaches: 3, month: 14900, note: '선수 없이 지도자끼리 — 작전판 · 훈련 프로그램 · 영상룸(선수 영상 · 경기 영상) · 게임모델 · 미팅룸 · 기록실 · 분석실 · 코치 · 스카웃 노트 · 커뮤니티' },
   { id: 'rising', name: '라이징', sub: '작은 팀', players: 30, coaches: 3, month: 29000 },
   { id: 'pro', name: '프로', sub: '가장 많이 써요', players: 50, coaches: 6, month: 39000, best: true },
   { id: 'champion', name: '챔피언', sub: '큰 팀', players: 80, coaches: 10, month: 54900 },

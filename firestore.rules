@@ -32,6 +32,10 @@ service cloud.firestore {
       || (teamDoc(t).get('trial', false) == true && request.time < teamDoc(t).createdAt + duration.value(10, 'd'))
       || (teamDoc(t).get('comp', false) == true && (teamDoc(t).get('compUntil', null) == null || teamDoc(t).compUntil > request.time))
       || teamDoc(t).get('paidUntil', timestamp.date(2000, 1, 1)) > request.time; }
+    // 유료 전환 스위치 — 지금(베타)은 true: 모든 팀이 그대로 씀. 유료로 바꿀 때 false 로 (config.js 의 FREE_MODE 와 함께)
+    //  → 결제 · 체험 · 무료 제공 기간이 끝난 팀은 새로 쓰기 · 고치기가 막힘 (읽기 · 지우기 · 내보내기는 그대로)
+    function betaOpen() { return true; }
+    function canUse(t) { return betaOpen() || teamUsable(t); }
     // 서비스 운영자 — public/js/config.js 의 ADMIN_EMAILS 와 같아야 함. 이메일 인증까지 마친 계정만
     function isAdmin() { return signedIn() && request.auth.token.email in ['suyoung6780@gmail.com']
       && request.auth.token.email_verified == true; }
@@ -91,7 +95,8 @@ service cloud.firestore {
 
       // 스카웃 노트 — 우리 팀 코치만 읽고 씀 (이름 · 소속 · 장단점 · 확정/보류). 다른 팀에는 아무것도 기록되지 않음
       match /scouts/{noteId} {
-        allow read, create, update, delete: if isCoach(t);
+        allow read, delete: if isCoach(t);
+        allow create, update: if isCoach(t) && canUse(t);
       }
       // 새 팀: 베타 기간엔 무료(free) · 유료 전환 뒤엔 10일 체험(trial). 만든 시각 = 서버 시각, 결제 · 무료 제공 표시는 스스로 못 넣음
       allow create: if signedIn()
@@ -140,7 +145,7 @@ service cloud.firestore {
         allow read: if (d == 'gameModel' && isSquad(t)) || (d == 'billing' && (isCoach(t) || isAdmin()));
         // 운영자: 코드가 없는 팀(유료 모드의 결제 대기 팀)에 무료 제공하면서 코드 발급
         allow create: if d == 'billing' && isAdmin() && !exists(/databases/$(database)/documents/teams/$(t)/private/billing);
-        allow write: if d == 'gameModel' && isCoach(t);
+        allow write: if d == 'gameModel' && isCoach(t) && canUse(t);
         // 무료 모드: 팀 만들 때 팀 코드 보관
         allow create: if d == 'billing' && creatingTeam(t)
           && getAfter(/databases/$(database)/documents/teamCodes/$(request.resource.data.code)).data.teamId == t;
@@ -148,26 +153,29 @@ service cloud.firestore {
 
       match /posts/{p} {
         allow read: if isSquad(t);
-        allow create, update: if isCoach(t)
+        allow create, update: if isCoach(t) && canUse(t)
           && request.resource.data.type in ['training', 'daily', 'meeting', 'analysis', 'notice', 'schedule'];
         allow delete: if isCoach(t);
       }
 
       // 훈련장 > 코치 훈련 정리 (코치만)
       match /coachNotes/{n} {
-        allow read, write: if isCoach(t);
+        allow read, delete: if isCoach(t);
+        allow create, update: if isCoach(t) && canUse(t);
       }
 
       match /matches/{x} {
         allow read: if isSquad(t);
-        allow write: if isCoach(t);
+        allow delete: if isCoach(t);
+        allow create, update: if isCoach(t) && canUse(t);
       }
 
       match /goals/{g} {
         allow read: if isSquad(t);
-        allow create: if isSquad(t) && request.resource.data.ownerUid == uid() && (
+        allow create: if isSquad(t) && canUse(t) && request.resource.data.ownerUid == uid() && (
           (request.resource.data.scope == 'team' && isCoach(t)) || request.resource.data.scope == 'personal');
-        allow update, delete: if isCoach(t) || (isSquad(t) && resource.data.ownerUid == uid());
+        allow update: if canUse(t) && (isCoach(t) || (isSquad(t) && resource.data.ownerUid == uid()));
+        allow delete: if isCoach(t) || (isSquad(t) && resource.data.ownerUid == uid());
         allow list, delete: if isAdmin(); // 운영자 내보내기
       }
 
@@ -175,11 +183,11 @@ service cloud.firestore {
       match /logs/{l} {
         allow get: if isCoach(t) || (isMember(t) && l.split('_')[0] == uid());
         allow list: if isCoach(t) || (isMember(t) && resource.data.uid == uid()) || isAdmin(); // 운영자: 내보내기 때 지울 일지 찾기
-        allow create: if isSquad(t) && request.resource.data.uid == uid()
+        allow create: if isSquad(t) && canUse(t) && request.resource.data.uid == uid()
           && l == uid() + '_' + request.resource.data.date;
-        allow update: if (isSquad(t) && resource.data.uid == uid() && request.resource.data.uid == uid()
+        allow update: if canUse(t) && ((isSquad(t) && resource.data.uid == uid() && request.resource.data.uid == uid()
             && !changed().hasAny(['checked', 'coachComment', 'checkedBy', 'checkedAt', 'answers']))
-          || (isCoach(t) && changed().hasOnly(['checked', 'coachComment', 'checkedBy', 'checkedAt', 'answers'])); // answers: 세션별 질문 답변
+          || (isCoach(t) && changed().hasOnly(['checked', 'coachComment', 'checkedBy', 'checkedAt', 'answers']))); // answers: 세션별 질문 답변
         allow delete: if (isMember(t) && resource.data.uid == uid()) || isAdmin(); // 회원 탈퇴 · 운영자 내보내기 때 일지 삭제
       }
 
@@ -189,12 +197,12 @@ service cloud.firestore {
       match /idp/{d} {
         allow get: if isCoach(t) || (isMember(t) && d.split('_')[0] == uid());
         allow list: if isCoach(t) || (isMember(t) && resource.data.uid == uid());
-        allow create: if isSquad(t) && !isCoach(t) && request.resource.data.uid == uid()
+        allow create: if isSquad(t) && canUse(t) && !isCoach(t) && request.resource.data.uid == uid()
           && d == uid() + '_' + request.resource.data.month
           && request.resource.data.status in ['draft', 'submitted']
           && request.resource.data.get('rev', 0) == 0
           && !request.resource.data.keys().hasAny(['coach', 'confirmedBy', 'confirmedByName', 'confirmedAt']);
-        allow update: if (isSquad(t) && !isCoach(t) && resource.data.uid == uid()
+        allow update: if canUse(t) && ((isSquad(t) && !isCoach(t) && resource.data.uid == uid()
             && resource.data.status in ['draft', 'submitted']
             && request.resource.data.status in ['draft', 'submitted']
             && !changed().hasAny(['uid', 'month', 'tplVer', 'rev', 'coach', 'confirmedBy', 'confirmedByName', 'confirmedAt']))
@@ -202,7 +210,7 @@ service cloud.firestore {
             && changed().hasOnly(['coach', 'status', 'rev', 'confirmedBy', 'confirmedByName', 'confirmedAt'])
             && request.resource.data.status == 'confirmed' && request.resource.data.confirmedBy == uid()
             && request.resource.data.rev == resource.data.get('rev', 0) + 1
-            && existsAfter(/databases/$(database)/documents/teams/$(t)/idp/$(d)/history/$(string(request.resource.data.rev))));
+            && existsAfter(/databases/$(database)/documents/teams/$(t)/idp/$(d)/history/$(string(request.resource.data.rev)))));
         allow delete: if isAdmin();
         match /history/{h} {
           allow read: if isCoach(t) || (isMember(t) && d.split('_')[0] == uid());
@@ -214,11 +222,12 @@ service cloud.firestore {
       // 시제품 3.0 — IDP 설정 (한 달에 묻는 양). 팀원이 읽고 코치만 바꿈
       match /idpConfig/{c} {
         allow read: if isSquad(t);
-        allow write: if isCoach(t);
+        allow write: if isCoach(t) && canUse(t);
       }
       // 시제품 3.0 — 경기분석 작업 기록 (AI 후보 · 바꾼 기록 · 작업 시간). 분석 게시물(posts)은 선수도 읽으므로 따로, 코치만
       match /matchWork/{w} {
-        allow read, write: if isCoach(t);
+        allow read, delete: if isCoach(t);
+        allow create, update: if isCoach(t) && canUse(t);
       }
 
       // 상담실은 없앰 — 남은 글은 운영자가 한 번에 지울 수 있게 (운영자 페이지)

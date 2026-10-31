@@ -16,6 +16,9 @@
     "api/admin_user.py": {
       "maxDuration": 15
     },
+    "api/backup.py": {
+      "maxDuration": 30
+    },
     "api/kakao.py": {
       "maxDuration": 15
     },

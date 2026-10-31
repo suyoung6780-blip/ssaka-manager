@@ -6,16 +6,13 @@ import { privacyNotice } from './pages/privacy.js';
 import { seasonPopup, gradPopup } from './proto/season.js';
 import { startNews, stopNews, markSeen, paint } from './news.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
-import { $, $$, esc, avatar, ROLES, pageHead, toast, modal, isQuota, quotaNotice, quotaHooks } from './ui.js';
+import { $, $$, esc, avatar, ROLES, pageHead, toast, modal, isQuota, quotaNotice, quotaHooks, empty } from './ui.js';
 import {
   state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, freeMode, waitApproval, teamRestricted, hasFeature,
 } from './store.js';
 import * as authPages from './pages/auth.js';
-import * as admin from './pages/admin.js';
-import * as support from './pages/support.js';
-import * as guide from './pages/guide.js';
+import { loadBanner } from './pages/banner.js';
 import * as privacy from './pages/privacy.js';
-import * as community from './pages/community.js';
 import * as home from './pages/home.js';
 import * as onboard from './pages/onboard.js';
 import * as team from './pages/team.js';
@@ -23,16 +20,12 @@ import * as board from './pages/board.js';
 import * as training from './pages/training.js';
 import * as data from './pages/data.js';
 import * as trainingDaily from './pages/trainingDaily.js';
-import * as analysis from './pages/analysis.js';
-import * as goalAna from './proto/goalAna.js';
 import * as goals from './pages/goals.js';
 import * as idp from './pages/idp.js'; // 시제품 3.0 (팀 기능 proto3)
 import { refreshIdpFlag, homeIdpCard } from './proto/idpStatus.js';
 import * as personal from './pages/personal.js';
 import * as social from './pages/social.js';
-import * as notes from './pages/notes.js';
 import * as terms from './pages/terms.js';
-import * as refund from './pages/refund.js';
 import { kakaoReturn } from './social.js';
 
 const app = $('#app');
@@ -42,6 +35,22 @@ const RESTRICT_OK = ['/', '/settings', '/support', '/support/qna', '/support/gui
 const PAY_OK = ['/settings', '/support', '/support/qna', '/support/guide', '/me', '/privacy', '/terms', '/pay', '/pricing', '/refund'];
 
 // guard: auth(기본) / squad(팀원: 코치·선수) / coach / member / owner
+// 무겁거나 가끔 여는 화면은 그 화면을 열 때 불러옴 (첫 화면을 빠르게 · 영상룸 편집기만 600KB)
+// 불러오기 실패(인터넷이 잠깐 끊김 · 그 사이 새 버전이 올라옴): 빈 화면 대신 다시 불러오기 안내
+const lazy = (load, name) => async (el, params) => {
+  let m;
+  try { m = await load(); } catch {
+    el.innerHTML = `${empty('화면을 불러오지 못했어요. 인터넷 연결을 확인하고 다시 불러와 주세요.')}<div class="row center"><button class="btn" data-reload>다시 불러오기</button></div>`;
+    el.querySelector('[data-reload]').onclick = () => location.reload();
+    return;
+  }
+  return m[name](el, params);
+};
+const L = {
+  admin: () => import('./pages/admin.js'), support: () => import('./pages/support.js'), guide: () => import('./pages/guide.js'),
+  community: () => import('./pages/community.js'), analysis: () => import('./pages/analysis.js'), goalAna: () => import('./proto/goalAna.js'),
+  notes: () => import('./pages/notes.js'), refund: () => import('./pages/refund.js'),
+};
 const routes = [
   ['/login', authPages.login, 'public'],
   ['/signup', authPages.signup, 'public'],
@@ -62,12 +71,12 @@ const routes = [
   ['/training/library', () => go('/tactics/programs'), 'coach'], // 예전 주소 → 전술보드
   ['/tactics', training.board, 'coach'],
   ['/tactics/programs', training.library, 'coach'],
-  ['/notes', notes.page, 'coach'],
+  ['/notes', lazy(L.notes, 'page'), 'coach'],
   ['/meeting', board.page('meeting'), 'squad'],
-  ['/analysis', analysis.list, 'squad'],
-  ['/analysis/goals', goalAna.page, 'squad'], // 시제품 3.0: 득점 · 실점 분석
-  ['/analysis/:id', analysis.studio, 'squad'],
-  ['/analysis/:id/edit', analysis.studioEdit, 'squad'],
+  ['/analysis', lazy(L.analysis, 'list'), 'squad'],
+  ['/analysis/goals', lazy(L.goalAna, 'page'), 'squad'], // 시제품 3.0: 득점 · 실점 분석
+  ['/analysis/:id', lazy(L.analysis, 'studio'), 'squad'],
+  ['/analysis/:id/edit', lazy(L.analysis, 'studioEdit'), 'squad'],
   ['/notice', board.page('notice'), 'member'],
   ['/schedule', board.page('schedule'), 'member'],
   ['/me', personal.profile],
@@ -77,23 +86,23 @@ const routes = [
   ['/teams/:id', social.teamView],
   ['/chat', social.chatList, 'coach'],
   ['/chat/:id', social.chatRoom, 'coach'],
-  ['/admin', admin.page, 'admin'],
-  ['/admin/teams', admin.teams, 'admin'],
-  ['/admin/users', admin.users, 'admin'],
-  ['/admin/verify', admin.verify, 'adminEmail'],
-  ['/admin/inbox', support.inbox, 'admin'],
-  ['/admin/inbox/qna', support.inbox, 'admin'],
-  ['/admin/inbox/:id', support.inbox, 'admin'],
+  ['/admin', lazy(L.admin, 'page'), 'admin'],
+  ['/admin/teams', lazy(L.admin, 'teams'), 'admin'],
+  ['/admin/users', lazy(L.admin, 'users'), 'admin'],
+  ['/admin/verify', lazy(L.admin, 'verify'), 'adminEmail'],
+  ['/admin/inbox', lazy(L.support, 'inbox'), 'admin'],
+  ['/admin/inbox/qna', lazy(L.support, 'inbox'), 'admin'],
+  ['/admin/inbox/:id', lazy(L.support, 'inbox'), 'admin'],
   ['/privacy', privacy.page, 'any'],
   ['/terms', terms.page, 'any'],
-  ['/refund', refund.page, 'any'],
+  ['/refund', lazy(L.refund, 'page'), 'any'],
   ['/pricing', onboard.pricing, 'any'],
   ['/consent/:token', privacy.consentPage, 'any'],
-  ['/community', (el) => community.page(el, { cat: 'training' }), 'coach'],
-  ['/community/:cat', community.page, 'coach'],
-  ['/support', support.page],
-  ['/support/qna', support.qna],
-  ['/support/guide', guide.guide],
+  ['/community', (el) => lazy(L.community, 'page')(el, { cat: 'training' }), 'coach'],
+  ['/community/:cat', lazy(L.community, 'page'), 'coach'],
+  ['/support', lazy(L.support, 'page')],
+  ['/support/qna', lazy(L.support, 'qna')],
+  ['/support/guide', lazy(L.guide, 'guide')],
 ];
 
 function match(path) {
@@ -278,7 +287,7 @@ function renderShell() {
   $$('[data-toggle]').forEach((b) => (b.onclick = () => $('.shell').classList.toggle(b.dataset.toggle)));
   $('.scrim').onclick = () => $('.shell').classList.remove('nav-open', 'search-open');
   social.searchPanel($('#search-panel'));
-  admin.loadBanner($('#sys-notice')); // 운영자 전체 공지
+  loadBanner($('#sys-notice')); // 운영자 전체 공지
 }
 
 function updateShell(path = location.hash.slice(1) || '/') {

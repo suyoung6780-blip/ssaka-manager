@@ -52,6 +52,13 @@ class Handler(SimpleHTTPRequestHandler):
         if DEMO and path == '/api/usage':  # 데모: 운영자 사용량 화면 미리보기용 예시 숫자
             return self.send_bytes(json.dumps({'configured': True, 'used': {'read': 18342, 'write': 2210, 'delete': 41}, 'limits': {'read': 50000, 'write': 20000, 'delete': 20000},
                                                'since': '2026-10-14T07:00:00Z', 'reset': '2026-10-15T07:00:00Z', 'at': '2026-10-14T13:20:00Z', 'demo': True}).encode(), 'application/json; charset=utf-8')
+        if DEMO and path == '/api/backup':  # 데모: 백업 흐름 미리보기용 예시 (모음 2개 · 이어 받기 1번)
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(self.path).query); c = (q.get('c') or [''])[0]; after = (q.get('after') or [''])[0]
+            if q.get('list'): out = {'ok': True, 'groups': ['teams', 'users']}
+            elif c == 'teams' and not after: out = {'ok': True, 'docs': [{'name': 'teams/T1', 'fields': {'name': {'stringValue': 'FC 블랙'}}}], 'next': 'teams/T1'}
+            else: out = {'ok': True, 'docs': [{'name': f'{c}/demo2', 'fields': {}}], 'next': ''}
+            return self.send_bytes(json.dumps(out, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
         if path == '/api/veo':  # Veo 공개 경기 → 원본 영상 주소 (배포 때 api/veo.py 와 같은 코드)
             import importlib.util
             spec = importlib.util.spec_from_file_location('veo', ROOT / 'api' / 'veo.py'); veo = importlib.util.module_from_spec(spec); spec.loader.exec_module(veo)

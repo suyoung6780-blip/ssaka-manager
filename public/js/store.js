@@ -1,5 +1,5 @@
 import { auth, db, doc, getDoc } from './fb.js';
-import { ADMIN_EMAILS, FREE_MODE, FREE_UNTIL, TRIAL_DAYS } from './config.js';
+import { ADMIN_EMAILS, FREE_MODE, FREE_UNTIL, TRIAL_DAYS, PLANS } from './config.js';
 
 // 전역 상태: 로그인 사용자, 내 프로필, 소속 팀, 팀 내 내 멤버 문서
 export const state = { user: null, profile: null, team: null, member: null, features: {}, cleanup: [] };
@@ -36,6 +36,12 @@ export function teamPlan(t = state.team) {
   if (t.free === true) { const u = +new Date(FREE_UNTIL); if (u > now) return { kind: 'free', until: u }; }
   if (t.trial === true) { const u = ms(t.createdAt) + TRIAL_DAYS * 864e5; if (u > now || !t.createdAt) return { kind: 'trial', until: t.createdAt ? u : now + TRIAL_DAYS * 864e5 }; }
   return { kind: 'none', until: paid || 0, plan: t.plan || '' };
+}
+// 요금제 인원 (승인된 팀원 기준) — 결제한 팀만 제한 · 베타 무료 · 체험 · 운영자 무료 제공은 제한 없음
+export function seatLimit(t = state.team) {
+  const p = teamPlan(t);
+  const pl = p.kind === 'paid' && PLANS.find((x) => x.id === p.plan);
+  return pl ? { player: pl.players, coach: pl.coaches, name: pl.name } : null;
 }
 // 이용 가능: 결제 기간 안 · 운영자 무료 제공 · 새 팀 체험 10일 · 예전 팀 무료 기간
 export const teamActive = () => !!state.team && teamPlan().kind !== 'none';

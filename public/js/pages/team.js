@@ -4,7 +4,7 @@ import {
 import {
   esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, options, avatar,
   ROLES, MATCH_TYPES, sortGroups, sortBar, bindSortBar, getSort, byName, kpiStrip, posGroup, POS_GROUPS } from '../ui.js';
-import { state, isCoach, isOwner, hasFeature, go } from '../store.js';
+import { state, isCoach, isOwner, hasFeature, go, seatLimit } from '../store.js';
 import * as GL from '../proto/goalLog.js';
 import { createPad, formationData, is8 } from '../tactic.js';
 import { keepDraft, fillFields, draftStrip } from '../drafts.js';
@@ -208,6 +208,13 @@ export async function locker(el) {
   }
   const group = (r) => list.filter((m) => m.role === r && m.approved !== false).sort((a, b) => (+a.number || 99) - (+b.number || 99));
   const waiting = isOwner() ? list.filter((m) => m.approved === false) : []; // 팀 대표만 승인
+  // 요금제 인원이 다 찼으면 승인 · 유형 바꾸기를 막고 요금 안내로
+  const lim = seatLimit();
+  const seatFull = async (role) => {
+    if (!lim || group(role).length < lim[role]) return false;
+    if (await confirmBox(`${lim.name} 요금제는 ${ROLES[role]} ${lim[role]}명까지예요. 요금제를 올리거나 다른 ${ROLES[role]}를 내보낸 뒤 승인해 주세요. 요금 안내를 볼까요?`)) go('/pricing');
+    return true;
+  };
 
   el.innerHTML = `${pageHead('LOCKER ROOM', '락커룸', code ? `<button class="btn ghost" data-code>팀 코드 ${esc(code)} 복사</button>` : '')}
     <p class="lead">선수 · 지도자는 팀 코드로 입장을 신청하고, 팀 대표가 승인하면 락커룸에 들어옵니다.</p>
@@ -226,6 +233,7 @@ export async function locker(el) {
     ${waiting.length ? `<section class="card wait-box"><h3>입장 승인 대기 <small>${waiting.length}명</small></h3>
       <p class="muted small">팀 코드로 들어왔거나 다른 팀에서 이적해 온 사람이에요. 우리 팀 선수 · 지도자가 맞는지 확인하고 승인해 주세요. 승인 전에는 팀 내용을 볼 수 없어요.
         만 14세 미만은 보호자 동의 내용도 확인해 주세요.</p>
+      ${lim ? `<p class="small">${esc(lim.name)} 요금제 남은 자리 — 선수 <b>${Math.max(0, lim.player - group('player').length)}명</b> · 지도자 <b>${Math.max(0, lim.coach - group('coach').length)}명</b></p>` : ''}
       <ul class="list">${waiting.map((m) => `<li><div><strong>${esc(m.name)} <span class="tag">${esc(ROLES[m.role] || '')}</span>${m.transferFrom ? ` <span class="tag solid">이적 · ${esc(m.transferFromName || '')}에서</span>` : ''}${m.under14 ? ' <span class="tag warn">만 14세 미만</span>' : ''}</strong>
         <small>${esc([m.position, m.number && `${m.number}번`, m.affiliation, m.coachTitle].filter(Boolean).join(' · ') || '')}</small>
         ${m.under14 ? `<small data-g="${esc(m.consentToken || '')}">보호자 정보 불러오는 중…</small>` : ''}</div>
@@ -250,6 +258,7 @@ export async function locker(el) {
     } catch { sm.textContent = '보호자 정보를 불러오지 못했어요'; }
   });
   el.querySelectorAll('[data-gok]').forEach((b) => (b.onclick = async () => {
+    if (await seatFull(waiting.find((m) => m.id === b.dataset.gok)?.role)) return;
     try {
       await updateDoc(tdoc('members', b.dataset.gok), { approved: true, approvedBy: state.profile.name, approvedAt: serverTimestamp() });
       toast('승인했어요. 이제 팀 내용을 볼 수 있어요.'); locker(el);
@@ -297,6 +306,7 @@ export async function locker(el) {
   // 계정 유형 바로잡기 (지도자가 선수로 잘못 가입했을 때 등) — 팀 대표만
   async function changeRole(m) {
     const to = m.role === 'coach' ? 'player' : 'coach';
+    if (m.approved !== false && (await seatFull(to))) return;
     if (!(await confirmBox(`${m.name}님을 ${ROLES[m.role]} → ${ROLES[to]}(으)로 바꿀까요? 그 사람은 새로고침하거나 다시 로그인하면 ${ROLES[to]} 화면을 써요.`))) return;
     try {
       await updateDoc(tdoc('members', m.id), { role: to });
