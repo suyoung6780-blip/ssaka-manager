@@ -13,7 +13,7 @@ PROJECT = 'ssaka-manager'
 ADMINS = {'suyoung6780@gmail.com'}
 # 하위 모음 이름 (firestore.rules 의 match 와 같게) — 새 하위 모음을 만들면 여기에도 추가
 SUB = ['members', 'private', 'posts', 'coachNotes', 'matches', 'goals', 'logs', 'idp', 'history', 'idpConfig', 'matchWork',
-       'counsel', 'replies', 'scouts', 'todos', 'notes', 'messages', 'comments']
+       'counsel', 'replies', 'scouts', 'todos', 'notes', 'messages', 'comments', 'journal']
 PAGE = 500
 
 

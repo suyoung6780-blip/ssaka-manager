@@ -1,6 +1,9 @@
 // AI 선수 인식 (YOLOX · Apache-2.0) — 브라우저 안에서 돌아감 · 무료 · 서버 불필요
 // 작고 흐린 선수(유소년 경기 · 멀리서 찍은 영상)를 COCO-SSD 보다 훨씬 잘 찾는다.
-const ORT = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js';
+const ORT_DIR = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/';
+// 그래픽 칩(WebGPU)이 있으면 그걸로 — 같은 계산이 10배 넘게 빠름 (CPU 판도 들어 있어서 안 되면 CPU로)
+const ORT = `${ORT_DIR}${typeof navigator !== 'undefined' && navigator.gpu ? 'ort.webgpu.min.js' : 'ort.min.js'}`;
+export const aiDevice = { gpu: false }; // 실제로 그래픽 칩으로 도는지 (느릴 때 안내용)
 let sessP = null;
 let MODEL = '/models/yolox_tiny.onnx';
 export const setYoloxModel = (u) => { MODEL = u; sessP = null; };
@@ -18,8 +21,17 @@ export function loadYolox() {
     sessP = (async () => {
       await loadScript(ORT);
       const ort = window.ort;
-      ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/';
+      ort.env.wasm.wasmPaths = ORT_DIR;
       ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 2);
+      if (ORT.includes('webgpu')) {
+        try {
+          if (await navigator.gpu.requestAdapter()) {
+            const s = await ort.InferenceSession.create(MODEL, { executionProviders: ['webgpu'], graphOptimizationLevel: 'all' });
+            aiDevice.gpu = true;
+            return s;
+          }
+        } catch (e) { console.info('[AI] 그래픽 칩을 못 써서 CPU로', e?.message || e); }
+      }
       return ort.InferenceSession.create(MODEL, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
     })().catch((e) => { sessP = null; throw e; });
   }

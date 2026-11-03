@@ -5,9 +5,12 @@ import {
 import {
   esc, text, toast, fail, formData, modal, confirmBox, todayStr, pageHead, empty, options, avatar,
 } from '../ui.js';
-import { state, isCoach } from '../store.js';
+import { state, isCoach, isPersonal } from '../store.js';
 
-const CATS = ['결과 · 성적', '경기력', '기술 · 전술', '체력', '태도 · 팀문화'];
+// 개인 계정(보호자 + 선수)에서는 '팀 목표' 대신 보호자가 선수와 함께 정하는 '선수 목표' — 분야 · 예시도 선수에게 맞게
+const TEAM_CATS = ['결과 · 성적', '경기력', '기술 · 전술', '체력', '태도 · 팀문화'];
+const KID_CATS = ['경기 기록', '기술 · 성장', '체력 · 몸', '생활 습관', '마음 · 태도'];
+let CATS = TEAM_CATS;
 const PERIODS = ['시즌', '분기', '월', '주'];
 const MY_CATS = ['기술', '체력', '전술 이해', '마음가짐', '생활 습관', '기타'];
 const STATUS = { doing: '진행 중', done: '달성', miss: '미달성' };
@@ -145,9 +148,12 @@ export async function page(el) {
   const members = ms.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.approved !== false);
   const refresh = () => page(el);
   tab ||= isCoach() ? 'team' : 'mine';
-
-  const tabs = [['team', '팀 목표'], [isCoach() ? 'players' : 'mine', isCoach() ? '선수 개인 목표' : '나의 목표']];
-  el.innerHTML = `${pageHead('GOALS', '목표')}
+  const kid = isPersonal();
+  CATS = kid ? KID_CATS : TEAM_CATS;
+  const tabs = kid
+    ? [['team', '선수 목표 (함께 정함)'], [isCoach() ? 'players' : 'mine', isCoach() ? '선수가 쓴 목표' : '나의 목표']]
+    : [['team', '팀 목표'], [isCoach() ? 'players' : 'mine', isCoach() ? '선수 개인 목표' : '나의 목표']];
+  el.innerHTML = `${pageHead('GOALS', '목표')}${kid ? `<p class="lead">${isCoach() ? '보호자가 선수와 이야기해서 함께 정하는 목표예요. 경기 기록 · 성장 · 생활 습관을 작게 나눠 정하고, 이룬 만큼 올려 주세요.' : '보호자와 함께 정한 목표예요. 이룬 만큼 보호자가 올려 줘요.'}</p>` : ''}
     <nav class="tabs">${tabs.map(([k, l]) => `<a href="javascript:void 0" data-tab="${k}" class="${tab === k ? 'on' : ''}">${l}</a>`).join('')}</nav>
     <div data-body></div>`;
   el.querySelectorAll('[data-tab]').forEach((a) => (a.onclick = () => { tab = a.dataset.tab; refresh(); }));
@@ -160,8 +166,8 @@ export async function page(el) {
 // ───────── 팀 목표 ─────────
 function teamView(box, goals, refresh) {
   box.innerHTML = `
-    ${isCoach() ? '<div class="row end ga-actions"><button class="btn" data-new>+ 팀 목표 추가</button></div>' : ''}
-    ${goals.length ? `${kpiStrip(goals, '팀 진행률')}
+    ${isCoach() ? `<div class="row end ga-actions"><button class="btn" data-new>+ ${isPersonal() ? '선수 목표' : '팀 목표'} 추가</button></div>` : ''}
+    ${goals.length ? `${kpiStrip(goals, isPersonal() ? '선수 목표 진행률' : '팀 진행률')}
     ${paceChart(goals)}
     <div class="ga-two">${catChart(goals, CATS)}${dueTimeline(goals)}</div>` : ''}
     ${goals.length ? CATS.map((c) => {
@@ -169,7 +175,9 @@ function teamView(box, goals, refresh) {
       if (!arr.length) return '';
       return `<h2 class="sec-title">${c} <small>${arr.length}</small></h2>
         <div class="goal-grid">${arr.map(teamCard).join('')}</div>`;
-    }).join('') : empty(isCoach() ? '팀 목표를 추가해 주세요. 예) 리그 3위 이내 · 경기당 실점 1점 이하 · 빌드업 성공률 70%' : '아직 팀 목표가 없습니다.')}`;
+    }).join('') : empty(isPersonal()
+      ? (isCoach() ? '선수와 함께 목표를 정해 보세요. 예) 시즌 10골 · 공격 포인트 15개 · 경기당 40분 뛰기 · 주 3번 개인 훈련 · 밤 10시 전에 자기' : '아직 함께 정한 목표가 없어요.')
+      : (isCoach() ? '팀 목표를 추가해 주세요. 예) 리그 3위 이내 · 경기당 실점 1점 이하 · 빌드업 성공률 70%' : '아직 팀 목표가 없습니다.'))}`;
 
   box.querySelector('[data-new]')?.addEventListener('click', () => teamEditor(null, refresh));
   box.querySelectorAll('[data-gid]').forEach((card) => {
@@ -202,6 +210,17 @@ function teamCard(g) {
 }
 
 // 팀 목표 작성: 예시로 시작 → 재는 방법 하나만 고르기 → 분야 · 기간 · 기한은 눌러서 → 아래 한 줄 요약으로 확인
+const KID_PRESETS = [
+  { title: '시즌 10골', category: '경기 기록', period: '시즌', target: 10, unit: '골' },
+  { title: '공격 포인트 15개', category: '경기 기록', period: '시즌', target: 15, unit: '개' },
+  { title: '경기당 40분 이상 뛰기', category: '경기 기록', period: '시즌', target: 40, unit: '분' },
+  { title: '약한 발 패스 매일 50번', category: '기술 · 성장', period: '주', target: 7, unit: '일' },
+  { title: '개인 훈련 주 3번', category: '기술 · 성장', period: '주', target: 3, unit: '번' },
+  { title: '줄넘기 · 코어 운동 주 4번', category: '체력 · 몸', period: '주', target: 4, unit: '번' },
+  { title: '밤 10시 전에 자기 주 5일', category: '생활 습관', period: '주', target: 5, unit: '일' },
+  { title: '훈련 · 경기 일지 주 4번 쓰기', category: '생활 습관', period: '주', target: 4, unit: '번' },
+  { title: '실수해도 먼저 다시 뛰기 (칭찬 4번)', category: '마음 · 태도', period: '월', target: 4, unit: '번' },
+];
 const TEAM_PRESETS = [
   { title: '리그 순위 3위 이내', category: '결과 · 성적', period: '시즌', target: 3, unit: '위', lower: true },
   { title: '경기당 실점 1점 이하', category: '경기력', period: '시즌', target: 1, unit: '점', lower: true },
@@ -225,10 +244,10 @@ function teamEditor(g, refresh) {
   g ||= {};
   const numeric = g.id ? g.target > 0 : true;
   const m = modal(`
-    <span class="eyebrow">TEAM GOAL</span><h2>${g.id ? '팀 목표 수정' : '팀 목표 추가'}</h2>
+    <span class="eyebrow">${isPersonal() ? 'PLAYER GOAL' : 'TEAM GOAL'}</span><h2>${isPersonal() ? (g.id ? '선수 목표 수정' : '선수 목표 추가') : (g.id ? '팀 목표 수정' : '팀 목표 추가')}</h2>
     <form class="gform">
-      ${g.id ? '' : `<div class="gf-presets"><small>예시로 시작</small>${TEAM_PRESETS.map((p, i) => `<button type="button" class="chip" data-preset="${i}">${esc(p.title)}</button>`).join('')}</div>`}
-      <label class="gf-title">목표<input name="title" required maxlength="80" value="${esc(g.title || '')}" placeholder="예) 경기당 실점 1점 이하"></label>
+      ${g.id ? '' : `<div class="gf-presets"><small>예시로 시작</small>${(isPersonal() ? KID_PRESETS : TEAM_PRESETS).map((p, i) => `<button type="button" class="chip" data-preset="${i}">${esc(p.title)}</button>`).join('')}</div>`}
+      <label class="gf-title">목표<input name="title" required maxlength="80" value="${esc(g.title || '')}" placeholder="${isPersonal() ? '예) 시즌 10골' : '예) 경기당 실점 1점 이하'}"></label>
       <div class="gf-row"><span class="gf-k">어떻게 잴까요</span>${chipRadios('mode', [['num', '숫자로 재기'], ['pct', '진행률 (%)']], numeric ? 'num' : 'pct')}</div>
       <div class="gf-num" data-num ${numeric ? '' : 'hidden'}>
         <label>목표<input type="number" name="target" min="0" step="0.1" value="${esc(g.target ?? '')}" placeholder="10"></label>
@@ -258,7 +277,7 @@ function teamEditor(g, refresh) {
     sum();
   });
   f.querySelectorAll('[data-preset]').forEach((b) => (b.onclick = () => {
-    const p = TEAM_PRESETS[+b.dataset.preset];
+    const p = (isPersonal() ? KID_PRESETS : TEAM_PRESETS)[+b.dataset.preset];
     f.elements.title.value = p.title; f.elements.target.value = p.target; f.elements.unit.value = p.unit; f.elements.current.value = '';
     f.querySelector(`[name="mode"][value="num"]`).checked = true; f.querySelector(`[name="dir"][value="${p.lower ? 'down' : 'up'}"]`).checked = true;
     f.querySelector(`[name="category"][value="${p.category}"]`).checked = true; f.querySelector(`[name="period"][value="${p.period}"]`).checked = true;

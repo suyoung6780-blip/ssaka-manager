@@ -28,10 +28,11 @@ export function accountGuide() {
     <div class="guide">
       <span class="eyebrow">ACCOUNT GUIDE</span>
       <h2>계정은 이렇게 이루어져요</h2>
-      <p class="muted">회원가입 때 <strong>지도자</strong> 또는 <strong>선수</strong> 중 하나를 고릅니다. 팀은 지도자가 만들어요.</p>
+      <p class="muted">회원가입 때 <strong>지도자</strong> · <strong>선수</strong> · <strong>보호자</strong> 중 하나를 고릅니다. 팀은 지도자가, 개인 계정은 보호자가 만들어요.</p>
       <ol class="guide-steps">
         <li><strong>지도자</strong>가 가입 → <b>팀 만들기</b>${FREE_MODE ? '' : ' → 결제'}<small>10자리 팀 코드가 바로 발급되고, 만든 지도자가 <b>팀 대표</b>가 됩니다.</small></li>
         <li><strong>다른 지도자 · 선수</strong>가 가입 → <b>팀 코드 입력</b><small>팀 대표에게 받은 코드로 팀에 들어옵니다.</small></li>
+        <li><strong>보호자</strong>가 가입 → <b>개인 계정</b> 만들기<small>보호자 코드가 나와요. 선수는 선수 계정으로 가입해서 그 코드를 넣으면 연결돼요. (팀 검색에는 안 나와요)</small></li>
         <li><strong>다른 팀과 연락</strong>은 팀 대표에게 갑니다<small>다른 팀 페이지의 '팀에 연락하기'는 그 팀 대표 지도자와 대화로 연결돼요.</small></li>
       </ol>
       <h3>역할별 권한</h3>
@@ -48,7 +49,7 @@ export function accountGuide() {
 
 // 가입 전에 둘러보기: 가짜 데이터로 도는 체험 페이지 (실제 데이터는 안 건드림)
 const tryDemo = () => (auth.demo ? '' : `<div class="card try-demo"><div><b>가입 전에 먼저 둘러보세요</b><small>예시 팀으로 모든 기능을 써 볼 수 있어요 · 실제 데이터는 저장되지 않아요</small></div>
-  <div class="row"><a class="btn" href="demo.html">지도자로 체험해 보기</a><a class="btn ghost" href="demo.html?as=player">선수로 체험해 보기</a></div></div>`);
+  <div class="row"><a class="btn" href="demo.html">지도자로 체험해 보기</a><a class="btn ghost" href="demo.html?as=player">선수로 체험해 보기</a><a class="btn ghost" href="demo.html?space=personal">개인 계정(보호자)으로 체험해 보기</a></div></div>`);
 const brand = `<div class="brand"><img src="icons/logo-full.png" alt="SSAKA MANAGER · FOOTBALL TEAM MANAGEMENT PLATFORM"><small>축구팀을 위한 매니지먼트 플랫폼</small></div>`;
 
 export function login(el) {
@@ -184,7 +185,7 @@ const coachFields = (p) => {
 };
 
 export function profileFields(p = {}, { withRole = false } = {}) {
-  const r = p.role || 'player';
+  const r = p.parent ? 'parent' : p.role || 'player';
   return `
     <div class="photo-pick">
       <span data-preview>${avatar(p.photo, p.name || '?', 'xl')}</span>
@@ -198,13 +199,16 @@ export function profileFields(p = {}, { withRole = false } = {}) {
         <label class="radio-card"><input type="radio" name="role" value="${k}" ${k === r ? 'checked' : ''}>
           <strong>${k === 'coach' ? '지도자 (코치)' : v}</strong><small>${{ coach: '팀 만들기 · 훈련 · 공지 작성 · 일지검사 · 스카웃 노트', player: '팀 코드로 입장 · 오늘 기록 · 개인 목표' }[k]}</small>
         </label>`).join('')}
+        <label class="radio-card"><input type="radio" name="role" value="parent" ${r === 'parent' ? 'checked' : ''}>
+          <strong>보호자</strong><small>개인 계정 만들기 · 선수 영상 편집 · 선수 기록 관리 (선수는 자기 선수 계정으로 보호자 코드를 넣어 연결 · 클럽 팀이 있어도 그대로)</small>
+        </label>
       <button type="button" class="link-btn small guide-link" data-guide>어떤 계정을 골라야 하나요? 권한 보기</button>
     </fieldset>` : ''}
     <label>이름 ${withRole ? '<small class="muted">(실명)</small>' : ''}<input name="name" required maxlength="20" value="${esc(p.name || '')}" ${withRole ? 'placeholder="예) 홍길동 — 별명 · 이니셜 말고 실명"' : ''}></label>
     ${withRole ? '<p class="name-note real">실명(성과 이름)을 정확하게 적어 주세요. <b>별명 · 이니셜 · 알아볼 수 없는 이름</b>은 팀 승인이 안 되거나 <b>이용이 제한될 수 있어요.</b></p>' : ''}
     ${withRole
-      ? `<div data-for="player" ${r === 'player' ? '' : 'hidden'}>${playerFields(p)}</div><div data-for="coach" ${r === 'coach' ? '' : 'hidden'}>${coachFields(p)}</div>`
-      : r === 'coach' ? coachFields(p) : playerFields(p)}`;
+      ? `<div data-for="player" ${r === 'player' ? '' : 'hidden'}>${playerFields(p)}</div><div data-for="coach" ${r === 'coach' ? '' : 'hidden'}>${coachFields(p)}</div><div data-for="parent" ${r === 'parent' ? '' : 'hidden'}><p class="muted small">가입한 뒤 <b>개인 계정</b>를 만들면 보호자 코드가 나와요. 선수는 선수 계정으로 가입해서 그 코드를 넣으면 연결돼요.</p></div>`
+      : r === 'parent' ? '' : r === 'coach' ? coachFields(p) : playerFields(p)}`;
 }
 
 // 계정 유형을 바꾸면 해당 항목만 보이게 (숨긴 칸은 제출되지 않음)
@@ -267,6 +271,7 @@ export function completeProfile(el) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const d = agreeData(profileData(form));
+    if (d.role === 'parent') { d.role = 'coach'; d.parent = true; } // 보호자 = 지도자 자리 (개인 공간의 주인) · 화면에서는 '보호자'로
     try {
       const b = writeBatch(db);
       b.set(doc(db, 'users', state.user.uid), { ...d, email: state.user.email, teamId: null, createdAt: serverTimestamp() });
@@ -274,7 +279,7 @@ export function completeProfile(el) {
       if (d.under14) b.set(doc(db, 'consents', d.consentToken), { uid: state.user.uid, childName: d.name, status: 'pending', createdAt: serverTimestamp() });
       await b.commit();
       await loadContext();
-      go(d.under14 ? '/' : d.role === 'player' ? '/team/join' : '/');
+      go(d.under14 ? '/' : d.role === 'player' ? '/team/join' : d.parent ? '/team/new' : '/');
     } catch (err) { fail(err); }
   };
 }

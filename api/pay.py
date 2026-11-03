@@ -22,7 +22,7 @@ FS = f'https://firestore.googleapis.com/v1/projects/{PROJECT}/databases/(default
 DOCS = f'projects/{PROJECT}/databases/(default)/documents'
 API = 'https://api.portone.io'
 # public/js/config.js 의 PLANS · CYCLES 와 같아야 함
-PLANS = {'gaffer': ('가퍼', 14900), 'rising': ('라이징', 29000), 'pro': ('프로', 39000), 'champion': ('챔피언', 54900)}
+PLANS = {'wonderkid': ('원더키드', 9900), 'gaffer': ('가퍼', 14900), 'rising': ('넌리그', 29900), 'pro': ('챔피언십', 44900), 'champion': ('프리미어', 59900)}
 CYCLES = {'month': ('1개월', 30, 1), 'year': ('12개월', 365, 10)}
 
 

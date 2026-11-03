@@ -8,7 +8,7 @@ import { startNews, stopNews, markSeen, paint } from './news.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
 import { $, $$, esc, avatar, ROLES, pageHead, toast, modal, isQuota, quotaNotice, quotaHooks, empty } from './ui.js';
 import {
-  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, freeMode, waitApproval, teamRestricted, hasFeature,
+  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, freeMode, waitApproval, teamRestricted, hasFeature, SPACES, spaceKind, isPersonal,
 } from './store.js';
 import * as authPages from './pages/auth.js';
 import { loadBanner } from './pages/banner.js';
@@ -30,6 +30,10 @@ import { kakaoReturn } from './social.js';
 
 const app = $('#app');
 const PLAYER_DEMO = /[?&]as=player/.test(location.search); // 체험 모드: 선수로 보는 중
+const PERSONAL_DEMO = /[?&]space=personal/.test(location.search); // 체험 모드: 개인 계정(보호자)으로 보는 중
+// 체험 모드 위 띠: 지금 보는 것 말고 다른 두 화면으로 바로 가기
+const demoLinks = () => [['demo.html', '지도자 화면', !PLAYER_DEMO && !PERSONAL_DEMO], ['demo.html?as=player', '선수 화면', PLAYER_DEMO], ['demo.html?space=personal', '개인 계정(보호자) 화면', PERSONAL_DEMO]]
+  .filter(([, , on]) => !on).map(([h, l]) => `<a href="${h}">${l}으로</a>`).join('');
 const RESTRICT_OK = ['/', '/settings', '/support', '/support/qna', '/support/guide', '/me', '/privacy', '/terms', '/pay', '/pricing', '/refund'];
 // 결제 전 · 이용기간이 끝난 팀에서도 열 수 있는 곳
 const PAY_OK = ['/settings', '/support', '/support/qna', '/support/guide', '/me', '/privacy', '/terms', '/pay', '/pricing', '/refund'];
@@ -81,6 +85,7 @@ const routes = [
   ['/schedule', board.page('schedule'), 'member'],
   ['/me', personal.profile],
   ['/daily', personal.daily, 'player'], // 오늘 기록은 선수만
+  ['/journal', personal.journalPage, 'player'], // 내 일지 모아보기 (책처럼)
   ['/journal-check', personal.journalCheck, 'coach'],
   ['/scout', social.scout, 'coach'],
   ['/teams/:id', social.teamView],
@@ -150,7 +155,7 @@ const FOOTER = `
   <div class="sf-info2">
     <div class="sf-biz">
       <p class="sf-name">싸카매니저</p>
-      <p><span><em>대표 · 개인정보 보호책임자</em>유수영</span><span><em>사업자등록번호</em>451-15-03077</span></p>
+      <p><span><em>대표 · 개인정보 보호책임자</em>유수영</span><span><em>사업자등록번호</em>451-15-03077 (간이과세자)</span></p>
       <p><span><em>통신판매업 신고</em>신고 진행 중</span><span><em>이메일</em><a href="mailto:${PRIVACY.email}">${PRIVACY.email}</a></span></p>
       <p><span><em>주소</em>경기도 안산시 단원구 사세충열로4길 6</span></p>
     </div>
@@ -252,8 +257,20 @@ function navItems() {
   const items = [];
   const sec = (title, list) => list.length && items.push({ title, list });
   const coach = isCoach(); const squad = isSquad(); const player = squad && !coach;
+  // 개인 계정: 보호자 · 아이 둘만 쓰는 공간 — 팀 운영 메뉴(공지 · 스케줄 · 팀 대화 · 훈련 · 커뮤니티)는 빼고 영상 · 기록 · 성장만
+  if (inTeam() && isPersonal()) {
+    const v = hasFeature('proto3');
+    sec('HOME', [['/', '홈'], ...(player ? [['/daily', '오늘 기록'], ['/journal', '내 일지']] : []), ...(isOwner() ? [['/locker', '선수 연결']] : [])]);
+    sec('ANALYSIS', squad ? [...(v ? [['/analysis', '영상룸']] : []), ...(coach ? [['/tactics', '전술보드']] : [])] : []);
+    sec('RECORD', squad ? [['/records', '기록실'], ['/data', '데이터실']] : []);
+    sec('GROWTH', squad ? [...(v ? [['/idp', '성장 평가']] : []), ['/goals', '목표']] : []);
+    sec('MY', [['/me', '프로필']]);
+    sec('SUPPORT', [...(isOwner() ? [['/settings', freeMode() ? '설정' : '설정 · 결제']] : []), ['/support/guide', '사용 설명서'], ['/support', '운영자 문의']]);
+    if (isAdmin()) sec('ADMIN', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '소통']]);
+    return items;
+  }
   // 메뉴 묶음 (영어 이름으로 통일) — 일하는 순서: 팀 운영 → 훈련 → 경기 → 성장 · 선수는 오늘 기록을 맨 위에
-  sec('HOME', [['/', '홈'], ...(player ? [['/daily', '오늘 기록']] : [])]);
+  sec('HOME', [['/', '홈'], ...(player ? [['/daily', '오늘 기록'], ['/journal', '내 일지']] : [])]);
   sec('TEAM', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄'], ...(squad ? [['/locker', '락커룸']] : []), ...(coach ? [['/chat', '팀 대화']] : [])] : []);
   sec('TRAINING', squad ? [['/gamemodel', '게임모델'], ['/training', '훈련장'], ...(coach ? [['/tactics', '전술보드']] : []), ...(hasFeature('proto3') ? [['/analysis', '영상룸']] : []), ['/meeting', '미팅룸']] : []);
   sec('MATCH', squad ? (hasFeature('proto3') ? [['/records', '기록실'], ['/analysis/goals', '분석실']] : [['/records', '경기 기록실'], ['/analysis', '분석실']]) : []);
@@ -280,7 +297,7 @@ function renderShell() {
       <nav class="nav-list"></nav>
       <div class="me-box"></div>
     </aside>
-    <main class="main-col">${auth.demo ? `<div class="demo-bar"><b>체험 모드</b><span>예시 팀 · 가짜 데이터예요. 바꾼 내용은 이 창을 닫으면 사라져요.</span><a href="${PLAYER_DEMO ? 'demo.html' : 'demo.html?as=player'}">${PLAYER_DEMO ? '지도자 화면으로' : '선수 화면으로'}</a><a class="btn sm" href="./#/signup">실제로 시작하기</a></div>` : ''}<div id="sys-notice"></div><div id="team-notice"></div><div id="view"></div>${FOOTER}</main>
+    <main class="main-col">${auth.demo ? `<div class="demo-bar"><b>체험 모드</b><span>${PERSONAL_DEMO ? '예시 개인 계정 · 가짜 데이터예요' : '예시 팀 · 가짜 데이터예요'}. 바꾼 내용은 이 창을 닫으면 사라져요.</span>${demoLinks()}<a class="btn sm" href="./#/signup">실제로 시작하기</a></div>` : ''}<div id="sys-notice"></div><div id="team-notice"></div><div id="view"></div>${FOOTER}</main>
     <aside class="search-panel" id="search-panel"></aside>
     <div class="scrim"></div>
   </div>`;
@@ -294,7 +311,7 @@ function updateShell(path = location.hash.slice(1) || '/') {
   if (!$('.shell')) return;
   const t = state.team;
   $('.team-chip').innerHTML = inTeam()
-    ? `<span class="cat">${esc(t.category)}</span><strong>${esc(t.name)}</strong>${teamActive() ? '' : '<em>이용기간 만료</em>'}`
+    ? `<span class="cat">${esc(spaceKind() === 'team' ? t.category : SPACES[spaceKind()].name)}</span><strong>${esc(t.name)}</strong>${teamActive() ? '' : '<em>이용기간 만료</em>'}${state.parentLink ? `<small class="pl-chip ${state.parentLink.approved ? 'on' : 'wait'}">${state.parentLink.approved ? '개인 계정 연결됨' : '개인 계정 연결 대기'} · ${esc(state.parentLink.owner)}</small>` : ''}`
     : '<span class="cat">NO TEAM</span><strong>소속 팀 없음</strong>';
   const items = navItems();
   // 지금 주소에 가장 길게 맞는 메뉴 하나만 선택 (예: /admin/teams 면 '전체 팀'만, '전체 공지'는 아님)
@@ -309,7 +326,7 @@ function updateShell(path = location.hash.slice(1) || '/') {
     </div>`).join('');
   const p = state.profile;
   $('.me-box').innerHTML = `
-    <a href="#/me" class="me">${avatar(p.photo, p.name)}<span><strong>${esc(p.name)}</strong><small>${ROLES[p.role]}</small></span></a>
+    <a href="#/me" class="me">${avatar(p.photo, p.name)}<span><strong>${esc(p.name)}</strong><small>${p.parent ? '보호자' : ROLES[p.role]}</small></span></a>
     <span class="me-acts">${installButton('link-btn')}<button class="link-btn" data-logout>로그아웃</button></span>`;
   $('[data-logout]').onclick = () => signOut(auth);
   bindInstall($('.me-box'));

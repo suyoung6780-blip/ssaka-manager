@@ -1,8 +1,8 @@
 import { auth, db, doc, getDoc } from './fb.js';
-import { ADMIN_EMAILS, FREE_MODE, FREE_UNTIL, TRIAL_DAYS, PLANS } from './config.js';
+import { ADMIN_EMAILS, FREE_MODE, FREE_UNTIL, TRIAL_DAYS, ALL_PLANS as PLANS } from './config.js';
 
 // 전역 상태: 로그인 사용자, 내 프로필, 소속 팀, 팀 내 내 멤버 문서
-export const state = { user: null, profile: null, team: null, member: null, features: {}, cleanup: [] };
+export const state = { user: null, profile: null, team: null, member: null, features: {}, cleanup: [], parentLink: null };
 
 export const role = () => state.profile?.role;
 export const inTeam = () => !!(state.team && state.member);
@@ -38,7 +38,19 @@ export function teamPlan(t = state.team) {
   return { kind: 'none', until: paid || 0, plan: t.plan || '' };
 }
 // 요금제 인원 (승인된 팀원 기준) — 결제한 팀만 제한 · 베타 무료 · 체험 · 운영자 무료 제공은 제한 없음
+// 공간 종류: 팀(기본) · 지도자 계정(gaffer · 지도자끼리) · 개인 계정(personal · 보호자 1 + 선수 1)
+// 지도자 계정 · 개인은 팀 검색 · 팀 대화 목록에 안 나옴 (만들 때 hidden). 속 구조는 팀과 같음 (규칙 · 결제 그대로)
+export const SPACES = {
+  team: { name: '팀', code: '팀 코드', owner: '팀 대표' },
+  gaffer: { name: '지도자 계정', code: '지도자 코드', owner: '모임 대표' },
+  personal: { name: '개인 계정', code: '보호자 코드', owner: '보호자' },
+};
+export const spaceKind = (t = state.team) => (t?.kind && SPACES[t.kind] ? t.kind : 'team');
+export const isPersonal = (t = state.team) => spaceKind(t) === 'personal';
+// 역할 이름: 개인 공간에선 지도자 자리 = 보호자
+export const roleName = (r, t = state.team) => (r === 'coach' ? (isPersonal(t) ? '보호자' : '코치') : '선수');
 export function seatLimit(t = state.team) {
+  if (isPersonal(t)) return { player: 1, coach: 1, name: SPACES.personal.name };
   const p = teamPlan(t);
   const pl = p.kind === 'paid' && PLANS.find((x) => x.id === p.plan);
   return pl ? { player: pl.players, coach: pl.coaches, name: pl.name } : null;
@@ -57,7 +69,7 @@ export const go = (path) => {
 
 export async function loadContext() {
   const u = state.user;
-  state.profile = state.team = state.member = null;
+  state.profile = state.team = state.member = state.parentLink = null;
   state.features = {};
   if (!u) return;
   const p = await getDoc(doc(db, 'users', u.uid));
@@ -71,9 +83,22 @@ export async function loadContext() {
     const m = await getDoc(doc(db, 'teams', teamId, 'members', u.uid));
     state.member = m.exists() ? { id: m.id, ...m.data() } : null;
   } catch { state.member = null; }
+  await loadParentLink();
   // 운영자가 이 팀에만 켜 준 추가 기능 (system/features)
   try { state.features = (await getDoc(doc(db, 'system', 'features'))).data()?.teams?.[teamId] || {}; } catch { state.features = {}; }
 }
+// 듀얼: 클럽 팀 선수가 보호자 코드로 '개인 계정'에도 연결 (소속 팀은 그대로) — users.parentSpace = 보호자 공간 id
+//  { id, name(공간 이름), owner(보호자 이름), approved } · 승인되면 내가 쓴 일지가 보호자 공간에도 같이 저장됨
+export async function loadParentLink() {
+  state.parentLink = null;
+  const sp = state.profile?.parentSpace;
+  if (!sp || sp === state.profile?.teamId || !state.user) return;
+  try {
+    const [t, m] = await Promise.all([getDoc(doc(db, 'teams', sp)), getDoc(doc(db, 'teams', sp, 'members', state.user.uid))]);
+    if (t.exists() && m.exists()) state.parentLink = { id: sp, name: t.data().name || '', owner: t.data().ownerName || '보호자', approved: m.data().approved !== false };
+  } catch { /* 연결 정보를 못 읽어도 팀은 그대로 */ }
+}
+export const parentLinked = () => (state.parentLink?.approved ? state.parentLink : null);
 // 3.0 기능(proto3)은 2026-10-29부터 모든 팀에 켬 — 다른 기능 스위치는 그대로 팀마다
 export const hasFeature = (k) => k === 'proto3' || !!state.features?.[k];
 // 운영자가 방금 켠 기능도 바로 보이도록 (오늘 기록 · 일지검사 들어갈 때 다시 읽음)

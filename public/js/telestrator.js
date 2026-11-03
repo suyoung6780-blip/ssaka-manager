@@ -588,14 +588,15 @@ export class PlayerTracker {
 
   // 클릭 지점에서 선수의 발 위치 · 키 찾기.
   // 잔디 아닌 픽셀 → 세로 방향 닫기(작은 틈 메우기) · 열기(가로 라인 같은 얇은 것 지우기) → 클릭에 가장 가까운 덩어리
-  measure(video, cx, cy, key, hz = null) {
-    const m1 = this.measureK(video, cx, cy, key, hz, 1);
+  // hh: 이 선수의 평소 키(영상 px, 알면) — 발끝에서 그만큼 올라간 몸통으로 좌우 중심을 잡음
+  measure(video, cx, cy, key, hz = null, hh = null) {
+    const m1 = this.measureK(video, cx, cy, key, hz, 1, hh);
     if (m1 && m1.ph >= 26) return m1;
     // 멀리 있는(작게 보이는) 선수: 주변만 2배 확대해서 다시 — 가는 다리 · 몸이 잡음으로 지워지지 않게
-    const m2 = this.measureK(video, cx, cy, key, hz, 2);
+    const m2 = this.measureK(video, cx, cy, key, hz, 2, hh);
     return m2 || m1;
   }
-  measureK(video, cx, cy, key, hz, K) {
+  measureK(video, cx, cy, key, hz, K, hh = null) {
     const VW = video.videoWidth;
     const VH = video.videoHeight;
     const box0 = Math.round(VH * (K > 1 ? 0.12 : 0.24));
@@ -657,11 +658,11 @@ export class PlayerTracker {
       }
     }
     if (ph < (K > 1 ? 9 : 8) || x2 - x1 + 1 > ph * 1.8) return null;
-    // 몸 중심: 아래쪽 2/3 행들의 가운데값
-    const cs = [];
-    for (let y = Math.max(top, y2 - Math.round(ph * 0.66)); y <= y2; y++) if (rowsN[y]) cs.push(rows[y] / rowsN[y]);
-    cs.sort((a, b) => a - b);
-    const mx = cs.length ? cs[cs.length >> 1] : sx / n;
+    // 몸 중심: 평소 키(hh)를 알면 몸통(어깨 ~ 엉덩이) 행들의 가운데값 — 다리 · 발밑 그림자는 뛸 때마다 좌우로 벌어짐
+    // 몸통 자리는 발끝에서 키만큼 올라가서 잡음 (머리 쪽이 뒤 사람과 붙어도 흔들리지 않게). 모르면 아래쪽 2/3 행
+    const mid = (a, b) => { const cs = []; for (let y = Math.max(0, a); y <= Math.min(h - 1, b); y++) if (rowsN[y]) cs.push(rows[y] / rowsN[y]); cs.sort((p, q) => p - q); return cs.length >= 3 ? cs[cs.length >> 1] : null; };
+    const hk = hh ? hh * K : 0;
+    const mx = (hk > 12 ? mid(y2 - Math.round(hk * 0.86), y2 - Math.round(hk * 0.48)) : null) ?? mid(y2 - Math.round(ph * 0.66), y2) ?? sx / n;
     return { x: X0 + (x0 + mx) / K, y: Y0 + (y0 + y2 + 1) / K, ph: Math.min(ph, box * 0.95) / K };
   }
 
@@ -778,7 +779,7 @@ export class PlayerTracker {
     let nx = x0 + (bx + tw / 2) / k;
     let ny = y0 + (by + th) / k;
     // 그 자리에서 몸을 다시 측정해 정확한 발 위치 · 중심으로
-    const m = this.measure(video, nx, ny - st.ph * 0.15, key, st.hz);
+    const m = this.measure(video, nx, ny - st.ph * 0.15, key, st.hz); // 재생 중 색 추적은 아래쪽 행 기준이 덜 흔들림 (몸통 기준은 AI 추적에서만)
     if (m && Math.abs(m.ph - st.ph) < st.ph * 0.45 && Math.hypot(m.x - nx, m.y - ny) < st.ph * 0.5) {
       nx = m.x; ny = m.y;
       // 멀어지거나 가까워지면 크기도 천천히 따라감 (다리 들기 등 순간 측정값에 휘둘리지 않게 프레임당 1%, 처음 크기의 0.6~1.6배)
@@ -811,9 +812,10 @@ export class PlayerTracker {
 export function trackerPos(tr, t) {
   const p = tr.path;
   if (!p.length) return null;
-  if (t <= p[0][0]) return { x: p[0][1], y: p[0][2], h: p[0][3] };
+  const camOf = (q) => (q.length >= 6 ? { cx: q[4], cy: q[5] } : {});
+  if (t <= p[0][0]) return { x: p[0][1], y: p[0][2], h: p[0][3], ...camOf(p[0]) };
   const last = p[p.length - 1];
-  if (t >= last[0]) return { x: last[1], y: last[2], h: last[3] };
+  if (t >= last[0]) return { x: last[1], y: last[2], h: last[3], ...camOf(last) };
   let lo = 0;
   let hi = p.length - 1;
   while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (p[mid][0] <= t) lo = mid; else hi = mid; }
@@ -840,7 +842,9 @@ export function trackerPos(tr, t) {
     const herm = (i) => (2 * k3 - 3 * k2 + 1) * a[i] + (k3 - 2 * k2 + k) * dt * tan(i, p0, a, b) + (-2 * k3 + 3 * k2) * b[i] + (k3 - k2) * dt * tan(i, a, b, p3);
     return { x: herm(1), y: herm(2), h };
   }
-  return { x: a[1] + (b[1] - a[1]) * k, y: a[2] + (b[2] - a[2]) * k, h };
+  // 카메라 누적 이동: 두 점 모두 있을 때만 (없으면 예전처럼 화면 좌표 그대로)
+  const cm = a.length >= 6 && b.length >= 6 ? { cx: a[4] + (b[4] - a[4]) * k, cy: a[5] + (b[5] - a[5]) * k } : {};
+  return { x: a[1] + (b[1] - a[1]) * k, y: a[2] + (b[2] - a[2]) * k, h, ...cm };
 }
 
 export function steadyPos(tr, t) {
@@ -864,41 +868,70 @@ export function steadyPos(tr, t) {
   return { x: cr(p0.x, p1.x, p2.x, p3.x), y: cr(p0.y, p1.y, p2.y, p3.y), h: p1.h + (p2.h - p1.h) * u };
 }
 function steadyRaw(tr, t) {
-  const avg = (c, half, step) => {
+  // 카메라 누적 이동(cx, cy)이 기록된 길이면: 카메라 움직임을 빼고(선수 자체 움직임만) 거른 뒤 다시 더함
+  //  → 서 있는 선수는 카메라가 돌아도 '서 있는 것'으로 보고 단단히 고정, 표시는 화면 속 선수에 그대로 붙어 있음
+  // 앞뒤로 쓰는 구간의 점이 모두 카메라 기록을 가졌을 때만 (섞여 있으면 기준이 달라 튐 → 예전처럼 화면 좌표로)
+  const p = tr.path; let ok = true;
+  for (let i = 0; i < p.length; i++) { const q = p[i]; if (q[0] < t - 1.15) continue; if (q[0] > t + 1.15) break; if (q.length < 6) { ok = false; break; } }
+  const cam = ok ? (q) => [q.cx || 0, q.cy || 0] : () => [0, 0];
+  const own = ok ? (q) => [q.x - (q.cx || 0), q.y - (q.cy || 0)] : (q) => [q.x, q.y];
+  const avg = (c, half, step, g = own) => {
     let sx = 0; let sy = 0; let sh = 0; let sw = 0; const sg = half / 2;
     for (let d = -half; d <= half + 1e-9; d += step) {
       const q = trackerPos(tr, c + d); if (!q) continue;
-      const w = Math.exp(-(d * d) / (2 * sg * sg)); sx += q.x * w; sy += q.y * w; sh += (q.h || 0) * w; sw += w;
+      const [X, Y] = g(q);
+      const w = Math.exp(-(d * d) / (2 * sg * sg)); sx += X * w; sy += Y * w; sh += (q.h || 0) * w; sw += w;
     }
     return sw ? { x: sx / sw, y: sy / sw, h: sh / sw } : null;
   };
   const tEnd = tr.path[tr.path.length - 1][0];
   if (t > tEnd - 0.45) {
-    const back = (c, span) => { let sx = 0; let sy = 0; let sh = 0; let sw = 0; for (let d = 0; d <= span + 1e-9; d += 0.04) { const q = trackerPos(tr, c - d); if (!q) continue; const w = 1 - d / (span + 0.04); sx += q.x * w; sy += q.y * w; sh += (q.h || 0) * w; sw += w; } return sw ? { x: sx / sw, y: sy / sw, h: sh / sw } : null; };
+    // 경로 끝(재생하며 따라가는 중): 지난 기록에 직선을 맞춰 지금 위치를 구함
+    // (평균만 내면 늦게 따라오고, 늦은 만큼 앞으로 늘려 그리면 잡음까지 커져 표시가 떨림)
     const now = Math.min(t, tEnd);
-    const m0 = back(now, 0.28); const m1 = back(now - 0.2, 0.28);
-    if (!m0 || !m1) return trackerPos(tr, t);
-    const hh0 = Math.max(0.02, m0.h || tr.h || 0.08);
-    const slow = back(now, 1.0); const before = back(now - 0.7, 0.3);
-    // 서 있는지: 지금과 0.7초 전 위치 차이를 선수 키와 비교
-    const mvL = before ? Math.hypot(m0.x - before.x, m0.y - before.y) / hh0 : 1;
-    const k2 = Math.min(1, Math.max(0, (mvL - 0.12) / 0.25)); // 서 있으면 0 → 1초 평균으로 고정
-    const lead = 0.5 * k2; // 뛸 때만 평균 때문에 늦어진 만큼 앞으로
-    const fx = m0.x + (m0.x - m1.x) * lead; const fy = m0.y + (m0.y - m1.y) * lead;
-    return { x: slow.x + (fx - slow.x) * k2, y: slow.y + (fy - slow.y) * k2, h: slow.h || m0.h };
+    const fit = (span, g = own) => {
+      let sw = 0; let su = 0; let suu = 0; let sx = 0; let sy = 0; let sux = 0; let suy = 0; let sh = 0;
+      for (let d = 0; d <= span + 1e-9; d += 0.04) {
+        const q = trackerPos(tr, now - d); if (!q) continue;
+        const [X, Y] = g(q);
+        const w = 1 - d / (span + 0.04); const u = -d;
+        sw += w; su += w * u; suu += w * u * u; sx += w * X; sy += w * Y; sux += w * u * X; suy += w * u * Y; sh += w * (q.h || 0);
+      }
+      if (!sw) return null;
+      const den = sw * suu - su * su;
+      const vx = den > 1e-9 ? (sw * sux - su * sx) / den : 0; const vy = den > 1e-9 ? (sw * suy - su * sy) / den : 0;
+      return { x: (sx - vx * su) / sw, y: (sy - vy * su) / sw, h: sh / sw, vx, vy, mx: sx / sw, my: sy / sw, mu: su / sw };
+    };
+    // 움직임(속도)은 길게(0.8초) 보고, 자리는 최근 짧게(0.3초) 평균 + 평균이 늦은 만큼만 속도로 당김 — 직선 끝값만 쓰면 잡음이 큼
+    const fv = fit(0.8); const fm = fit(0.3);
+    if (!fv || !fm) return trackerPos(tr, t);
+    const f = { x: fm.mx - fv.vx * fm.mu, y: fm.my - fv.vy * fm.mu, h: fm.h, vx: fv.vx, vy: fv.vy };
+    const slow = fit(1.0);
+    const hh0 = Math.max(0.02, f.h || tr.h || 0.08);
+    // 서 있는지: 0.7초 동안 (카메라 빼고) 움직인 거리를 선수 키와 비교 → 서 있으면 1초 평균 자리에 고정
+    const mvL = (Math.hypot(f.vx, f.vy) * 0.7) / hh0;
+    const k2 = Math.min(1, Math.max(0, (mvL - 0.12) / 0.25));
+    const ahead = Math.min(0.1, Math.max(0, t - tEnd)); // 기록이 아직 못 따라온 아주 짧은 틈만 움직임대로
+    const fx = f.x + f.vx * ahead; const fy = f.y + f.vy * ahead;
+    const sx0 = slow ? slow.x - slow.vx * 0.33 : fx; const sy0 = slow ? slow.y - slow.vy * 0.33 : fy; // 1초 직선의 가운데쯤(평균 자리)
+    // 카메라는 지금 자리 그대로 (짧게 맞춘 직선으로 잔떨림만 거름)
+    const cv = fit(0.5, cam); const cm = fit(0.2, cam);
+    const cxN = cv && cm ? cm.mx - cv.vx * cm.mu + cv.vx * ahead : 0; const cyN = cv && cm ? cm.my - cv.vy * cm.mu + cv.vy * ahead : 0;
+    return { x: sx0 + (fx - sx0) * k2 + cxN, y: sy0 + (fy - sy0) * k2 + cyN, h: (slow || f).h };
   }
   const wide = avg(t, 1.0, 0.08);
   const a = avg(t - 0.5, 0.3, 0.05); const b = avg(t + 0.5, 0.3, 0.05);
-  if (!wide || !a || !b) return avg(t, 0.4, 0.05) || trackerPos(tr, t);
-  // 가만히 있는지: 앞뒤 1초 사이에 움직인 거리를 선수 키와 비교 (멀리 있는 작은 선수도 같은 기준)
+  const camNow = avg(t, 0.15, 0.03, cam) || { x: 0, y: 0 }; // 카메라 자리 (앞뒤 0.15초로 잔떨림만)
+  if (!wide || !a || !b) { const q = avg(t, 0.4, 0.05); return q ? { x: q.x + camNow.x, y: q.y + camNow.y, h: q.h } : trackerPos(tr, t); }
+  // 가만히 있는지: 앞뒤 1초 사이에 (카메라 빼고) 움직인 거리를 선수 키와 비교 (멀리 있는 작은 선수도 같은 기준)
   const hh = Math.max(0.02, wide.h || tr.h || 0.08);
   const mv = Math.hypot(a.x - b.x, a.y - b.y) / hh;
-  // 화면에서 빨리 움직일수록(선수가 뛰거나 카메라가 빨리 돌 때) 평균 내는 시간을 짧게 — 길게 평균 내면 표시가 늦게 따라감
+  // 빨리 움직일수록 평균 내는 시간을 짧게 — 길게 평균 내면 표시가 늦게 따라감
   const nearHalf = 0.4 - 0.28 * Math.min(1, Math.max(0, (mv - 0.5) / 1.5));
-  const near = avg(t, nearHalf, Math.min(0.05, nearHalf / 4)) || trackerPos(tr, t);
+  const near = avg(t, nearHalf, Math.min(0.05, nearHalf / 4)) || wide;
   const k = Math.min(1, Math.max(0, (mv - 0.18) / 0.3)); // 키의 18% 안쪽이면 고정, 키의 절반 넘게 움직이면 그대로 따라감
   // 키(링 크기)는 항상 넓게 평균 — 커졌다 작아졌다 하지 않게
-  return { x: wide.x + (near.x - wide.x) * k, y: wide.y + (near.y - wide.y) * k, h: wide.h };
+  return { x: wide.x + (near.x - wide.x) * k + camNow.x, y: wide.y + (near.y - wide.y) * k + camNow.y, h: wide.h };
 }
 
 // 이 시점부터 새로 따라가기: 이후 기록은 지우고 이 위치부터
@@ -1333,6 +1366,42 @@ function slabFill(ctx, build, col, lw, alpha, ys) {
 }
 
 // it._prog: 나타나는 효과 진행도 (0~1, 없으면 1)
+// 연결선 '바닥 원판' 모양: 원판 가장자리 → 다음 원판 가장자리까지 흰 띠 (원판 크기는 발밑 원판과 같은 계산)
+function discBands(ctx, lp, P, it, prog, W) {
+  const nP = it.pts.length;
+  const known = (it._phs || []).filter(Boolean);
+  const ph0 = known.length ? known.reduce((x, y) => x + y, 0) / known.length : W / 14; // 선수에 안 붙은 점은 이은 선수들의 평균 키로
+  const ph = (i) => (it._phs && it._phs[i % nP]) || ph0;
+  const disc = (i) => { const q = P(lp[i]); const R = lp[i]?.tr ? ph(i) * 0.4957 : 0; const ry = R * 0.26; return { x: q.x, y: q.y - ry * 0.15, R, ry }; }; // 선수에 안 붙은 점은 원판 없음
+  const edge = (d, ux, uy) => { if (!d.R) return { x: d.x, y: d.y }; const r = 1 / Math.sqrt((ux / d.R) ** 2 + (uy / d.ry) ** 2); return { x: d.x + ux * r, y: d.y + uy * r }; };
+  const segs = [];
+  for (let i = 0; i < lp.length - 1; i++) {
+    const A = disc(i); const B = disc(i + 1);
+    const L = Math.hypot(B.x - A.x, B.y - A.y); if (L < 1) continue;
+    const ux = (B.x - A.x) / L; const uy = (B.y - A.y) / L;
+    const a = edge(A, ux, uy); const b = edge(B, -ux, -uy);
+    if ((b.x - a.x) * ux + (b.y - a.y) * uy <= 0) continue; // 원판끼리 겹치면 띠 없음
+    segs.push({ a, b, wa: ph(i) * 0.075, wb: ph(i + 1) * 0.075 }); // 띠 폭: 그 자리 선수 키에 맞춰 (원근)
+  }
+  const lens = segs.map((g) => Math.hypot(g.b.x - g.a.x, g.b.y - g.a.y));
+  let left = lens.reduce((x, y) => x + y, 0) * easeOut(prog);
+  const quad = (g, k, dy) => {
+    const bx = g.a.x + (g.b.x - g.a.x) * k; const by = g.a.y + (g.b.y - g.a.y) * k; const wb = g.wa + (g.wb - g.wa) * k;
+    const L = Math.hypot(bx - g.a.x, by - g.a.y) || 1; const nx = -(by - g.a.y) / L; const ny = (bx - g.a.x) / L;
+    // 바닥에 누운 띠: 세로 방향 두께는 납작하게
+    ctx.beginPath();
+    ctx.moveTo(g.a.x + nx * g.wa, g.a.y + ny * g.wa * 0.35 + dy); ctx.lineTo(bx + nx * wb, by + ny * wb * 0.35 + dy);
+    ctx.lineTo(bx - nx * wb, by - ny * wb * 0.35 + dy); ctx.lineTo(g.a.x - nx * g.wa, g.a.y - ny * g.wa * 0.35 + dy); ctx.closePath();
+  };
+  ctx.save();
+  segs.forEach((g, i) => {
+    const L = lens[i]; const k = Math.max(0, Math.min(1, left / L)); left -= L; if (k <= 0.01) return;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; quad(g, k, Math.max(1, g.wa * 0.3)); ctx.fill(); // 살짝 두께 (아래 그림자)
+    ctx.fillStyle = 'rgba(255,255,255,0.95)'; quad(g, k, 0); ctx.fill();
+  });
+  ctx.restore();
+}
+
 export function drawItem(ctx, it, P, W, items, resolve) {
   const lw = Math.max(2, W / 380);
   const prog = it._prog == null ? 1 : it._prog;
@@ -1367,10 +1436,34 @@ export function drawItem(ctx, it, P, W, items, resolve) {
         ringAt = (r, a) => CAL.G(C.x + Math.cos(a) * R * r, C.y + Math.sin(a) * R * r);
         lwR = Math.max(2.2, 0.13 * ppm); maxW = R * 1.1;
       } else {
-        const rx = (it.size || 0.025) * W * 0.85; const ry = rx * 0.36;
+        const rx = (it.size || 0.025) * W * 0.85; const ry = rx * 0.26; // 바닥에 눕힌 납작함 (세우면 앞쪽 반이 발을 덮음)
         if (rx < 1) break;
         ringAt = (r, a) => ({ x: p.x + Math.cos(a) * rx * r, y: p.y + Math.sin(a) * ry * r });
         lwR = Math.max(2.2, rx * 0.12); maxW = rx * 1.1;
+      }
+      // 바닥 원판(look 'disc'): 바닥에 납작하게 깔린 색 원판 + 흰 테두리 — 빛 효과 없이 깔끔하게 (선수는 판 위에 서 있음)
+      if (it.look === 'disc') {
+        if (it._part === 'front') break;
+        const c0 = ringAt(0, 0); const e1 = ringAt(1, 0); const e2 = ringAt(1, Math.PI / 2);
+        const rx0 = Math.hypot(e1.x - c0.x, e1.y - c0.y); const ry0 = Math.max(1, Math.hypot(e2.x - c0.x, e2.y - c0.y));
+        const g = prog < 1 ? easeOut(Math.min(1, prog / 0.7)) : 1;
+        const R = rx0 * 1.35 * (0.35 + 0.65 * g);
+        const fy = ry0 / rx0; const lw = Math.max(2, R * 0.1);
+        const cy0 = c0.y - R * fy * 0.15; // 발이 판 가운데쯤 오게 (발끝 점보다 살짝 위)
+        ctx.save(); ctx.globalAlpha = Math.min(1, g * 1.5);
+        // 판 두께: 테두리 아래로 살짝 어두운 옆면
+        ctx.save(); ctx.translate(c0.x, cy0 + Math.max(1, lw * 0.45)); ctx.scale(1, fy);
+        ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.arc(0, 0, R + lw * 0.5, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        ctx.save(); ctx.translate(c0.x, cy0); ctx.scale(1, fy);
+        // 안쪽 색 (가운데가 조금 밝게)
+        const inC = it.fill || col;
+        const fg = ctx.createRadialGradient(0, -R * 0.2, R * 0.1, 0, 0, R);
+        fg.addColorStop(0, rgba(tint(inC, 0.25), 0.82)); fg.addColorStop(1, rgba(inC, 0.78));
+        ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill();
+        // 흰 테두리
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = lw; ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore(); ctx.restore();
+        break;
       }
       // 1) 이동 꼬리 + 잔상 (선수 옮기기처럼): 굵게 이어진 꼬리가 끝으로 갈수록 가늘고 투명해지고, 움직일 때 뒤에 옅은 링 잔상 3개
       // it._part: 'back' = 바닥 쪽(선수 다리 뒤로 숨는 먼 쪽 반 + 꼬리 · 그림자 · 빛) / 'front' = 발 앞을 지나는 가까운 쪽 반
@@ -1400,7 +1493,7 @@ export function drawItem(ctx, it, P, W, items, resolve) {
         const g = tp.map(toG);
         const end = g[n - 1];
         const rG = CAL ? 0.95 * (it.scale || 1) : (it.size || 0.025) * W * 0.85;
-        const flat = CAL ? 1 : 0.36;
+        const flat = CAL ? 1 : 0.26;
         // 링 바깥부터 시작하도록 끝쪽을 잘라냄
         const dist = (a, b) => Math.hypot(b.x - a.x, (b.y - a.y) / flat);
         let cut = n - 1; while (cut > 0 && dist(g[cut], end) < rG * 0.95) cut--;
@@ -1484,7 +1577,7 @@ export function drawItem(ctx, it, P, W, items, resolve) {
           ctx.restore();
         };
         if (part !== 'front') wall(Math.PI, Math.PI * 2, 0.6); // 먼 쪽 벽 (선수 뒤)
-        if (part !== 'back') wall(0, Math.PI, 0.3); // 가까운 쪽 벽 (선수 앞 · 더 옅게)
+        if (!part) wall(0, Math.PI, 0.3); // 가까운 쪽 벽 — 앞뒤를 나눠 그릴 땐 빼서 선수 다리를 가리지 않게 (선수 모양을 모를 때만)
       }
       // 먼 쪽 반(화면 위쪽)은 바닥 레이어(선수 다리 뒤), 가까운 쪽 반은 발 앞
       if (part) { ctx.save(); ctx.beginPath(); if (part === 'back') ctx.rect(-1e5, -1e5, 2e5, 1e5 + c00.y); else ctx.rect(-1e5, c00.y, 2e5, 1e5); ctx.clip(); }
@@ -1580,6 +1673,8 @@ export function drawItem(ctx, it, P, W, items, resolve) {
       } else {
         // 면 채우기: 이은 선수들이 만드는 모양 (라인 · 블록)
         if (it.area && pts.length >= 3 && prog > 0.55) groundTint(ctx, it.pts.map(P), col, easeOut(Math.min(1, (prog - 0.55) / 0.45)));
+        // 바닥 원판 모양: 선수 발밑 원판 가장자리끼리 잇는 바닥에 깔린 흰 띠 (가까울수록 넓게)
+        if (it.look === 'disc') { discBands(ctx, lp, P, it, prog, W); break; }
         // 잔디에 깔린 팀 색 선 — 기본 실선 (선택: 점선)
         const dashOn = it.lstyle === 'dash'; // 기본은 실선
         if (CAL) {

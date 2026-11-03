@@ -19,12 +19,18 @@ export const PAY_TEST = true;
 // ③ 요금제 — api/pay.py 의 PLANS 와 반드시 같은 값이어야 합니다 (서버가 금액을 다시 확인)
 //    인원은 '승인된' 팀원 기준. 연 이용권 = 10개월 값으로 12개월 (365일)
 export const PLANS = [
-  { id: 'gaffer', name: '가퍼', sub: '지도자 전용', players: 0, coaches: 3, month: 14900, note: '선수 없이 지도자끼리 — 작전판 · 훈련 프로그램 · 영상룸(선수 영상 · 경기 영상) · 게임모델 · 미팅룸 · 기록실 · 분석실 · 코치 · 스카웃 노트 · 커뮤니티' },
-  { id: 'rising', name: '라이징', sub: '작은 팀', players: 30, coaches: 3, month: 29000 },
-  { id: 'pro', name: '프로', sub: '가장 많이 써요', players: 50, coaches: 6, month: 39000, best: true },
-  { id: 'champion', name: '챔피언', sub: '큰 팀', players: 80, coaches: 10, month: 54900 },
+  { id: 'gaffer', name: '가퍼', sub: '지도자 전용', players: 0, coaches: 3, month: 14900, list: 21900, note: '선수 없이 지도자끼리 — 작전판 · 훈련 프로그램 · 영상룸(선수 영상 · 경기 영상) · 게임모델 · 미팅룸 · 기록실 · 분석실 · 코치 · 스카웃 노트 · 커뮤니티' },
+  { id: 'rising', name: '넌리그', sub: '작은 팀', players: 30, coaches: 3, month: 29900, list: 42900 },
+  { id: 'pro', name: '챔피언십', sub: '가장 많이 써요', players: 50, coaches: 6, month: 44900, list: 64900, best: true },
+  { id: 'champion', name: '프리미어', sub: '큰 팀', players: 80, coaches: 10, month: 59900, list: 85900 },
 ];
-export const LEGEND = { name: '레전드', sub: '클럽 · 아카데미', players: '81명 이상', price: '89,000원부터 · 상담' };
+// 요금제 이름 — 영국 축구 단계: 원더키드(개인) · 가퍼(지도자) → 넌리그 → 챔피언십 → 프리미어 → 인빈시블 (id 는 그대로라 결제 기록과 상관없음)
+export const WONDERKID = { id: 'wonderkid', name: '원더키드', sub: '개인 계정 · 보호자 1명 + 선수 1명', players: 1, coaches: 1, month: 9900, list: 14900, note: '영상룸(선수 영상) · 전술보드 · 기록실 · 데이터실 · 성장 평가 · 목표 · 내 일지' };
+export const ALL_PLANS = [WONDERKID, ...PLANS]; // 이름 찾기용 (팀 요금제 고르기 · 추천에는 PLANS 만)
+export const LEGEND = { name: '인빈시블', sub: '클럽 · 아카데미', players: '81명 이상', price: '99,900원부터 · 상담', list: '142,900원부터' };
+// 출시 기념가 — month 가 지금 받는 기념가, list 는 정식 가격 (실제 할인이 모두 off% 이상이 되게 맞춤)
+// 기념가로 가입한 팀은 연장해도 기념가 그대로. until 에 'YYYY-MM-DD' 를 넣으면 화면에 마감일이 나옴
+export const LAUNCH = { off: 30, until: '2027-07-31' };
 export const CYCLES = { month: { label: '1개월', days: 30, mult: 1 }, year: { label: '12개월', days: 365, mult: 10 } };
 export const planPrice = (p, cycle) => p.month * CYCLES[cycle].mult;
 // 새 팀 무료 체험 (팀을 만든 날부터) · 유료 전환 전에 만든 팀(free)의 무료 사용 마지막 날

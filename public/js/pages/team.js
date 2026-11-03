@@ -4,7 +4,7 @@ import {
 import {
   esc, text, toast, fail, formData, modal, confirmBox, fmtDate, todayStr, pageHead, empty, options, avatar,
   ROLES, MATCH_TYPES, sortGroups, sortBar, bindSortBar, getSort, byName, kpiStrip, posGroup, POS_GROUPS } from '../ui.js';
-import { state, isCoach, isOwner, hasFeature, go, seatLimit } from '../store.js';
+import { state, isCoach, isOwner, hasFeature, go, seatLimit, SPACES, spaceKind, isPersonal, roleName } from '../store.js';
 import * as GL from '../proto/goalLog.js';
 import { createPad, formationData, is8 } from '../tactic.js';
 import { keepDraft, fillFields, draftStrip } from '../drafts.js';
@@ -212,17 +212,20 @@ export async function locker(el) {
   const lim = seatLimit();
   const seatFull = async (role) => {
     if (!lim || group(role).length < lim[role]) return false;
+    if (isPersonal()) { toast(`개인 계정은 보호자 1명 · 선수 1명까지예요. 지금 ${roleName(role)} 자리가 차 있어요.`); return true; }
     if (await confirmBox(`${lim.name} 요금제는 ${ROLES[role]} ${lim[role]}명까지예요. 요금제를 올리거나 다른 ${ROLES[role]}를 내보낸 뒤 승인해 주세요. 요금 안내를 볼까요?`)) go('/pricing');
     return true;
   };
 
-  el.innerHTML = `${pageHead('LOCKER ROOM', '락커룸', code ? `<button class="btn ghost" data-code>팀 코드 ${esc(code)} 복사</button>` : '')}
-    <p class="lead">선수 · 지도자는 팀 코드로 입장을 신청하고, 팀 대표가 승인하면 락커룸에 들어옵니다.</p>
+  const SP = SPACES[spaceKind()];
+  el.innerHTML = `${pageHead(isPersonal() ? 'CONNECT' : 'LOCKER ROOM', isPersonal() ? '선수 연결' : '락커룸', code ? `<button class="btn ghost" data-code>${SP.code} ${esc(code)} 복사</button>` : '')}
+    <p class="lead">${isPersonal() ? '선수가 자기 선수 계정으로 보호자 코드를 넣어 연결을 신청하면, 보호자가 승인해서 연결해요. 보호자 1명 · 선수 1명까지예요.' : '선수 · 지도자는 팀 코드로 입장을 신청하고, 팀 대표가 승인하면 락커룸에 들어옵니다.'}</p>
     ${(() => {
       const ps = group('player'); const cs = group('coach');
       const by = (g) => ps.filter((m) => posGroup(m.position) === g).length;
       const avgOf = (k) => { const v = ps.map((m) => +m[k]).filter((x) => x > 0); return v.length ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1) : null; };
       const hh = avgOf('height'); const ww = avgOf('weight');
+      if (isPersonal()) return ''; // 개인 공간: 선수 수 · 평균 키 요약은 필요 없음
       return kpiStrip([
         { l: '선수', v: ps.length, u: '명', stack: POS_GROUPS.map(([g, n, c]) => [by(g), c, n]), s: POS_GROUPS.map(([g]) => `${g} <b>${by(g)}</b>`).join(' · ') },
         { l: '지도자', v: cs.length, u: '명', s: cs.map((m) => esc(m.coachTitle || '')).filter(Boolean).slice(0, 2).join(' · ') || '&nbsp;' },
@@ -233,8 +236,8 @@ export async function locker(el) {
     ${waiting.length ? `<section class="card wait-box"><h3>입장 승인 대기 <small>${waiting.length}명</small></h3>
       <p class="muted small">팀 코드로 들어왔거나 다른 팀에서 이적해 온 사람이에요. 우리 팀 선수 · 지도자가 맞는지 확인하고 승인해 주세요. 승인 전에는 팀 내용을 볼 수 없어요.
         만 14세 미만은 보호자 동의 내용도 확인해 주세요.</p>
-      ${lim ? `<p class="small">${esc(lim.name)} 요금제 남은 자리 — 선수 <b>${Math.max(0, lim.player - group('player').length)}명</b> · 지도자 <b>${Math.max(0, lim.coach - group('coach').length)}명</b></p>` : ''}
-      <ul class="list">${waiting.map((m) => `<li><div><strong>${esc(m.name)} <span class="tag">${esc(ROLES[m.role] || '')}</span>${m.transferFrom ? ` <span class="tag solid">이적 · ${esc(m.transferFromName || '')}에서</span>` : ''}${m.under14 ? ' <span class="tag warn">만 14세 미만</span>' : ''}</strong>
+      ${lim ? `<p class="small">${esc(lim.name)}${isPersonal() ? '' : ' 요금제'} 남은 자리 — 선수 <b>${Math.max(0, lim.player - group('player').length)}명</b> · 지도자 <b>${Math.max(0, lim.coach - group('coach').length)}명</b></p>` : ''}
+      <ul class="list">${waiting.map((m) => `<li><div><strong>${esc(m.name)} <span class="tag">${esc(roleName(m.role))}</span>${m.transferFrom ? ` <span class="tag solid">이적 · ${esc(m.transferFromName || '')}에서</span>` : ''}${m.under14 ? ' <span class="tag warn">만 14세 미만</span>' : ''}</strong>
         <small>${esc([m.position, m.number && `${m.number}번`, m.affiliation, m.coachTitle].filter(Boolean).join(' · ') || '')}</small>
         ${m.under14 ? `<small data-g="${esc(m.consentToken || '')}">보호자 정보 불러오는 중…</small>` : ''}</div>
         <span><button class="btn sm" data-gok="${m.id}">승인</button> <button class="link-btn small" data-grole="${m.id}">${m.role === 'coach' ? '선수로 바꾸기' : '지도자로 바꾸기'}</button> <button class="link-btn small" data-gno="${m.id}">거절</button></span></li>`).join('')}</ul></section>` : ''}
@@ -243,7 +246,7 @@ export async function locker(el) {
       if (!g.length) return '';
       const mode = getSort('locker');
       const card = (m) => playerCard(m);
-      return `<div class="sec-row"><h2 class="sec-title">${ROLES[r]} <small>${g.length}</small></h2>${r === 'player' ? sortBar('locker', mode) : ''}</div>
+      return `<div class="sec-row"><h2 class="sec-title">${roleName(r)} <small>${g.length}</small></h2>${r === 'player' ? sortBar('locker', mode) : ''}</div>
       ${r === 'player' ? sortGroups(g, mode).map(([t, ps]) => `${t ? `<h3 class="sort-h">${esc(t)} <small>${ps.length}명</small></h3>` : ''}<div class="roster">${ps.map(card).join('')}</div>`).join('')
         : `<div class="roster">${g.map(card).join('')}</div>`}`;
     }).join('')}`;
@@ -357,7 +360,7 @@ export function playerCard(m, { manage = false, extra = '' } = {}) {
     ${avatar(m.photo, m.name, 'card')}
     <div class="pcard-body">
       <div class="pcard-top">${m.role === 'coach'
-        ? `<span class="pos">${esc(m.coachTitle || ROLES.coach)}</span>`
+        ? `<span class="pos">${esc(m.coachTitle || roleName('coach'))}</span>`
         : `${m.number ? `<span class="num">${esc(m.number)}</span>` : ''}<span class="pos">${esc(m.position || ROLES[m.role] || '')}</span>`}</div>
       <strong>${esc(m.name)}</strong>
       <small>${(m.role === 'coach'
@@ -442,6 +445,7 @@ const rankBars = (arr, unit) => (arr.length ? `<ol class="rec-rank">${arr.map(([
 const wdlMini = (x) => `<div class="wdl-mini"><i class="w" style="flex:${x.w}"></i><i class="d" style="flex:${x.d}"></i><i class="l" style="flex:${x.l}"></i></div>`;
 
 export async function records(el) {
+  if (isPersonal()) return playerRecords(el);
   const p3 = hasFeature('proto3');
   const [snap, list, lsnap] = await Promise.all([getDocs(query(tcol('matches'), orderBy('date', 'desc'))), members(),
     p3 && isCoach() ? getDocs(query(tcol('logs'), where('kind', '==', 'match'))).catch(() => null) : null]);
@@ -601,3 +605,91 @@ export async function records(el) {
   draw();
 }
 
+
+// ───────── 개인 계정 · 기록실: 그 선수가 뛴 경기 · 출전 시간 · 득점 · 도움 · 공격 포인트 ─────────
+// 선수가 쓴 경기 일지(출전 시간 · 내 골 · 내 도움 · 평점) + 보호자가 직접 넣은 경기 기록을 날짜 · 상대로 합쳐서 보여 줌
+async function playerRecords(el) {
+  const list = await members();
+  const kid = list.find((m) => m.role === 'player' && m.approved !== false);
+  const uid = isCoach() ? kid?.id : state.user.uid;
+  if (!uid) {
+    el.innerHTML = `${pageHead('RECORDS', '기록실')}${empty('선수가 연결되면 여기에 경기 기록이 모여요. 홈 또는 선수 연결에서 보호자 코드를 확인하세요.')}`;
+    return;
+  }
+  const [ls, ms] = await Promise.all([getDocs(query(tcol('logs'), where('uid', '==', uid))).catch(() => null), getDocs(tcol('matches')).catch(() => null)]);
+  const rows = new Map(); // 날짜|상대 → 한 경기
+  const key = (d, o) => `${d}|${(o || '').trim()}`;
+  (ls?.docs || []).forEach((d) => {
+    const l = d.data(); const m = l.match; if (!m) return;
+    const goals = (m.goals || []).length; const assists = (m.assistsMine || []).length;
+    if (!(m.opponent || m.minutes != null || goals || assists)) return;
+    rows.set(key(l.date, m.opponent), { date: l.date, opponent: m.opponent || '', type: m.type || '', gf: m.gf, ga: m.ga, minutes: m.minutes, goals, assists, rating: m.rating, from: '선수 일지' });
+  });
+  (ms?.docs || []).forEach((d) => {
+    const m = d.data(); const k = key(m.date, m.opponent);
+    const mine = (arr) => (arr || []).filter((x) => x.uid === uid).reduce((a, x) => a + (+x.goals || 0), 0);
+    const r = { id: d.id, date: m.date, opponent: m.opponent || '', type: m.matchType || '', gf: m.gf, ga: m.ga, minutes: m.minutes, goals: m.myGoals ?? mine(m.scorers), assists: m.myAssists ?? mine(m.assists), rating: m.rating, memo: m.memo, from: '보호자 기록' };
+    const old = rows.get(k);
+    // 같은 경기가 일지에도 있으면 빈 칸만 채움 (선수가 쓴 값이 먼저)
+    rows.set(k, old ? { ...r, ...Object.fromEntries(Object.entries(old).filter(([, v]) => v != null && v !== '')), id: r.id, memo: r.memo, from: '선수 일지 · 보호자 기록' } : r);
+  });
+  const all = [...rows.values()].filter((r) => r.date).sort((a, b) => b.date.localeCompare(a.date));
+  const years = [...new Set(all.map((r) => r.date.slice(0, 4)))].sort().reverse();
+  let year = years[0] || String(new Date().getFullYear());
+  const draw = () => {
+    const rs = all.filter((r) => year === '전체' || r.date.startsWith(year));
+    const sum = (k) => rs.reduce((a, r) => a + (+r[k] || 0), 0);
+    const played = rs.filter((r) => r.minutes == null || +r.minutes > 0);
+    const mins = sum('minutes'); const g = sum('goals'); const a = sum('assists');
+    const rated = rs.filter((r) => r.rating != null && r.rating !== '');
+    const avgR = rated.length ? (rated.reduce((x, r) => x + +r.rating, 0) / rated.length).toFixed(1) : null;
+    el.innerHTML = `${pageHead('RECORDS', '기록실', isCoach() ? '<button class="btn" data-add>+ 경기 기록</button>' : '')}
+      <p class="lead">${esc(kid?.name || state.profile.name)} 선수가 뛴 경기 · 출전 시간 · 득점 · 도움을 모았어요. 선수가 쓴 경기 일지가 자동으로 들어오고, 보호자가 직접 넣을 수도 있어요.</p>
+      <div class="chips pr-years">${['전체', ...years].map((y) => `<button type="button" class="chip ${y === year ? 'active' : ''}" data-y="${y}">${y}</button>`).join('')}</div>
+      ${kpiStrip([
+        { l: '뛴 경기', v: played.length, u: '경기', s: `기록 ${rs.length}경기` },
+        { l: '출전 시간', v: mins, u: '분', s: played.length ? `경기당 <b>${Math.round(mins / played.length)}분</b>` : '&nbsp;' },
+        { l: '득점', v: g, u: '골', c: g ? 'var(--accent)' : '', s: played.length ? `경기당 <b>${(g / played.length).toFixed(2)}</b>` : '&nbsp;' },
+        { l: '도움', v: a, u: '개', s: played.length ? `경기당 <b>${(a / played.length).toFixed(2)}</b>` : '&nbsp;' },
+        { l: '공격 포인트', v: g + a, u: '', c: g + a ? '#ffd400' : '', s: `득점 ${g} + 도움 ${a}` },
+        { l: '평균 평점', v: avgR ?? '-', u: avgR ? '점' : '', s: rated.length ? `${rated.length}경기 평균` : '평점 없음' },
+      ])}
+      <section class="card"><h3>경기별 기록</h3>${rs.length ? `<div class="tbl-wrap"><table class="tbl pr-tbl"><tr><th>날짜</th><th>상대</th><th>결과</th><th>출전</th><th>득점</th><th>도움</th><th>평점</th><th></th></tr>
+        ${rs.map((r) => `<tr><td>${esc(r.date.slice(5).replace('-', '.'))}</td><td>${esc(r.opponent || '-')}${r.type ? ` <small class="muted">${esc(r.type)}</small>` : ''}</td>
+          <td>${r.gf != null && r.ga != null ? `${+r.gf} : ${+r.ga}` : '-'}</td><td>${r.minutes != null ? `${+r.minutes}분` : '-'}</td>
+          <td>${+r.goals || 0}</td><td>${+r.assists || 0}</td><td>${r.rating != null && r.rating !== '' ? +r.rating : '-'}</td>
+          <td><small class="muted">${esc(r.from)}</small>${isCoach() && r.id ? ` <button class="link-btn small" data-ed="${r.id}">수정</button>` : ''}</td></tr>`).join('')}</table></div>`
+        : empty('아직 경기 기록이 없어요. 선수가 오늘 기록에서 경기 일지를 쓰면 여기에 들어와요.')}</section>`;
+    el.querySelectorAll('[data-y]').forEach((b) => (b.onclick = () => { year = b.dataset.y; draw(); }));
+    el.querySelector('[data-add]')?.addEventListener('click', () => editor());
+    el.querySelectorAll('[data-ed]').forEach((b) => (b.onclick = () => editor(all.find((r) => r.id === b.dataset.ed))));
+  };
+  // 보호자가 직접 넣는 경기 기록 (선수가 일지를 못 쓴 경기도 남게)
+  const editor = (r = {}) => {
+    const m = modal(`<span class="eyebrow">MATCH</span><h2>${r.id ? '경기 기록 수정' : '경기 기록 추가'}</h2>
+      <form class="stack">
+        <div class="grid2"><label>날짜<input type="date" name="date" required value="${esc(r.date || todayStr())}"></label><label>경기 형태<select name="matchType">${options(MATCH_TYPES, r.type)}</select></label></div>
+        <label>상대팀<input name="opponent" maxlength="30" required value="${esc(r.opponent || '')}"></label>
+        <div class="grid2"><label>우리 득점<input type="number" min="0" name="gf" value="${esc(r.gf ?? '')}"></label><label>상대 득점<input type="number" min="0" name="ga" value="${esc(r.ga ?? '')}"></label></div>
+        <div class="grid2"><label>출전 시간 (분)<input type="number" min="0" max="200" name="minutes" value="${esc(r.minutes ?? '')}"></label><label>평점 (1~10)<input type="number" min="1" max="10" step="0.5" name="rating" value="${esc(r.rating ?? '')}"></label></div>
+        <div class="grid2"><label>득점<input type="number" min="0" name="myGoals" value="${esc(r.goals ?? '')}"></label><label>도움<input type="number" min="0" name="myAssists" value="${esc(r.assists ?? '')}"></label></div>
+        <label>메모<textarea name="memo" rows="2" maxlength="300" placeholder="예) 후반 20분 교체 투입 · 오른쪽 윙">${esc(r.memo || '')}</textarea></label>
+        <div class="row end">${r.id ? '<button type="button" class="btn ghost" data-del>삭제</button>' : ''}<button class="btn">저장</button></div>
+      </form>`);
+    const f = m.el.querySelector('form');
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const d = formData(f); const n = (v) => (v === '' || v == null ? null : +v);
+      const data = { personal: true, uid, date: d.date, opponent: d.opponent.trim(), matchType: d.matchType, gf: n(d.gf), ga: n(d.ga), minutes: n(d.minutes), rating: n(d.rating), myGoals: n(d.myGoals) ?? 0, myAssists: n(d.myAssists) ?? 0, memo: d.memo.trim() };
+      try {
+        if (r.id) await updateDoc(tdoc('matches', r.id), data); else await addDoc(tcol('matches'), { ...data, createdAt: serverTimestamp() });
+        m.close(); toast('저장했어요.'); playerRecords(el);
+      } catch (err) { fail(err); }
+    };
+    m.el.querySelector('[data-del]')?.addEventListener('click', async () => {
+      if (!(await confirmBox('이 경기 기록을 지울까요?'))) return;
+      try { await deleteDoc(tdoc('matches', r.id)); m.close(); playerRecords(el); } catch (err) { fail(err); }
+    });
+  };
+  draw();
+}

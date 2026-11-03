@@ -1,7 +1,7 @@
 // 사용 설명서 (고객지원) — 화면마다 '사용법'을 챕터로 모아 코치용 · 선수용으로 (찾기 · 이 화면으로 가기)
 // 내용은 help.js 의 HELP 그대로 씀 (한 곳만 고치면 '사용법' 창과 설명서가 같이 바뀜)
 import { esc, pageHead } from '../ui.js';
-import { isCoach } from '../store.js';
+import { isCoach, isPersonal } from '../store.js';
 import { HELP } from '../help.js';
 
 // 처음 쓰는 사람용 순서
@@ -19,11 +19,19 @@ const START = {
     '매일 <b>오늘 기록</b>: <b>1 몸 상태 → 2 훈련 · 경기 일지 → 3 제출</b> (경기 날엔 골 · 도움 · 실점도)',
     '다음 날 <b>홈 › 코치님 피드백</b>에서 코치님 코멘트 · 질문 답변을 확인해요',
     '<b>목표</b>에 내 목표를 적고 진행률을 올려요 · 한 달에 한 번 <b>성장 평가</b> 자기평가',
-    '<b>시즌 기록</b>(홈 › 시즌 기록 보기)에서 내 출전 · 득점 · 도움 · 평점 · OVR을 시즌 · 대회 · 월별로 봐요'],
+    '<b>시즌 기록</b>(홈 › 시즌 기록 보기)에서 내 출전 · 득점 · 도움 · 평점 · OVR을 시즌 · 대회 · 월별로 봐요',
+    '<b>내 일지</b>(오늘 기록 맨 위 · 메뉴)에서 지난 일지를 책처럼 넘겨 봐요',
+    '보호자님이 <b>개인 계정</b>을 만들었다면 <b>프로필 › 개인 계정 연결하기</b>에 보호자 코드를 넣어요 — 팀은 그대로, 컨디션 · 수면 · 경기 숫자만 같이 올라가요'],
+  guardian: ['회원가입 → 계정 유형 <b>보호자</b> → 이메일 인증',
+    '<b>개인 계정 만들기</b>: 선수 이름 · 학년을 적으면 <b>보호자 코드</b>가 나와요',
+    '선수가 자기 <b>선수 계정</b>으로 보호자 코드를 넣으면 → 홈 · 선수 연결에서 <b>승인</b> (선수가 클럽 팀에 있어도 팀은 그대로)',
+    '선수가 쓰는 <b>컨디션 · 수면 · 자각도 · 경기 기록</b>이 데이터실 · 기록실에 쌓여요 · 일지 글은 선수가 <b>보여주기</b>를 켠 것만',
+    '<b>영상룸</b>에서 선수 영상을 편집하고, <b>전술보드</b>로 움직임을 그려 설명해요',
+    '<b>목표</b>에서 선수와 함께 목표를 정하고 이룬 만큼 올려요'],
 };
 // 챕터 순서 (메뉴 묶음과 같게)
 const CHAPTERS = [
-  ['HOME', ['/', '/daily']],
+  ['HOME', ['/', '/daily', '/journal']],
   ['TEAM', ['/notice', '/schedule', '/locker', '/chat']],
   ['TRAINING', ['/gamemodel', '/training', '/training/notes', '/tactics', '/tactics/programs', '/analysis', '/meeting']],
   ['MATCH', ['/records', '/analysis/goals']],
@@ -34,27 +42,29 @@ const CHAPTERS = [
 ];
 // 선수 메뉴에 없는 화면 (선수용 설명서에서는 뺌)
 // 코치 메뉴에 없는 화면 (코치용 설명서에서는 뺌) · 오늘 기록은 선수만 써요
-const PLAYER_ONLY = new Set(['/daily']);
+const PLAYER_ONLY = new Set(['/daily', '/journal']);
 const COACH_ONLY = new Set(['/chat', '/training/notes', '/tactics', '/tactics/programs', '/journal-check', '/notes', '/scout', '/community', '/settings', '/pay']);
 
 let who = null; // 'coach' | 'player'
 let q = '';
 let cur = 'start'; // 지금 보는 챕터
 
-const linesFor = (h, w) => (w === 'coach'
+// 보호자 메뉴에 있는 화면만 (보호자 줄이 없으면 지도자 줄로 — 영상룸 · 전술보드 · 성장 평가처럼 쓰는 법이 같은 곳)
+const GUARDIAN_OK = new Set(['/', '/locker', '/analysis', '/tactics', '/records', '/data', '/idp', '/goals', '/settings', '/pay', '/me', '/support']);
+const linesFor = (h, w) => (w === 'guardian' ? [...(h.guardian || h.coach || []).map((x) => ['', x]), ...(h.all || []).map((x) => ['', x])] : w === 'coach'
   ? [...(h.coach || []).map((x) => ['', x]), ...(h.owner || []).map((x) => ['팀 대표', x]), ...(h.all || []).map((x) => ['', x])]
   : [...(h.player || []).map((x) => ['', x]), ...(h.all || []).map((x) => ['', x])]);
 const plain = (s) => String(s).replace(/<[^>]+>/g, '');
 
 // 한 번에 한 챕터만 — PC: 왼쪽 목록 · 오른쪽 설명 / 휴대폰: 위에서 고르기 · 아래 설명 · 이전 · 다음
 export function guide(el) {
-  if (!who) who = isCoach() ? 'coach' : 'player';
+  if (!who) who = isPersonal() && isCoach() ? 'guardian' : isCoach() ? 'coach' : 'player';
   const draw = () => {
     const ql = q.trim().toLowerCase();
     const has = (txt) => !ql || plain(txt).toLowerCase().includes(ql);
-    const all = [{ k: 'start', sec: 'START', title: '처음 시작하기', intro: who === 'coach' ? '팀을 만들고 하루를 굴리는 순서예요.' : '팀에 들어가서 매일 쓰는 순서예요.', lines: START[who].map((x) => ['', x]) },
-      ...CHAPTERS.flatMap(([sec, keys]) => keys.filter((k) => HELP[k] && (who === 'coach' ? !PLAYER_ONLY.has(k) : !COACH_ONLY.has(k)))
-        .map((k) => ({ k, sec, title: HELP[k].title, intro: HELP[k].intro, lines: linesFor(HELP[k], who) })).filter((c) => c.lines.length))];
+    const all = [{ k: 'start', sec: 'START', title: '처음 시작하기', intro: who === 'guardian' ? '개인 계정을 만들고 선수와 연결해 쓰는 순서예요.' : who === 'coach' ? '팀을 만들고 하루를 굴리는 순서예요.' : '팀에 들어가서 매일 쓰는 순서예요.', lines: START[who].map((x) => ['', x]) },
+      ...CHAPTERS.flatMap(([sec, keys]) => keys.filter((k) => HELP[k] && (who === 'guardian' ? GUARDIAN_OK.has(k) : who === 'player' ? !COACH_ONLY.has(k) : !PLAYER_ONLY.has(k)))
+        .map((k) => ({ k, sec, title: (who === 'guardian' && HELP[k].gtitle) || HELP[k].title, intro: HELP[k].intro, lines: linesFor(HELP[k], who) })).filter((c) => c.lines.length))];
     const list = all.filter((c) => has(`${c.title} ${c.intro} ${c.lines.map((x) => x[1]).join(' ')}`));
     if (!list.some((c) => c.k === cur)) cur = list[0]?.k || 'start';
     const secs = [...new Set(list.map((x) => x.sec))];
@@ -62,7 +72,7 @@ export function guide(el) {
       <div class="tabs admin-tabs"><a href="#/support/guide" class="active">사용 설명서</a>${isCoach() ? '<a href="#/support">운영자와 대화</a>' : ''}<a href="#/support/qna">Q&A · 개선 제안</a></div>
       <div class="gd">
         <aside class="gd-side">
-          <div class="seg gd-who"><button type="button" data-who="coach" class="${who === 'coach' ? 'on' : ''}">코치용</button><button type="button" data-who="player" class="${who === 'player' ? 'on' : ''}">선수용</button></div>
+          <div class="seg gd-who"><button type="button" data-who="coach" class="${who === 'coach' ? 'on' : ''}">코치용</button><button type="button" data-who="player" class="${who === 'player' ? 'on' : ''}">선수용</button><button type="button" data-who="guardian" class="${who === 'guardian' ? 'on' : ''}">보호자용</button></div>
           <input type="search" class="gd-q" placeholder="찾기 (예: 팀 코드)" value="${esc(q)}" data-q>
           <select class="gd-pick" data-pick>${secs.map((sc) => `<optgroup label="${sc}">${list.filter((x) => x.sec === sc).map((x) => `<option value="${esc(x.k)}" ${x.k === cur ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</optgroup>`).join('')}</select>
           <nav class="gd-nav">${secs.map((sc) => `<div class="gd-ns"><span>${sc}</span>${list.filter((x) => x.sec === sc).map((x) => `<a href="javascript:void 0" data-k="${esc(x.k)}" class="${x.k === cur ? 'on' : ''}">${esc(x.title)}</a>`).join('')}</div>`).join('')}</nav>

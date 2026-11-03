@@ -134,15 +134,22 @@ export class FollowAI {
     const prevX = st.x; const prevY = st.y;
     if (a >= 0 && !amb && !occ) {
       const d = dets[a];
-      st.x = d.fx; st.y = d.fy;
-      // AI 상자 아래변은 발끝보다 조금 아래일 때가 많음 → 혼자 있으면 몸 모양을 재서 발끝에 정확히 맞춤
+      // AI 상자는 실제 몸보다 조금 크고(키), 가운데가 다리 쪽으로 쏠림 → 혼자 있을 때 잰 차이(boxOff)를 기억해 두고
+      // 다른 선수와 붙어 있어 못 잴 때도 같은 기준으로 (재는 장면 · 못 재는 장면이 번갈아 와도 표시가 튀지 않게)
+      const off = st.boxOff || { x: 0, y: 0, k: 0.93 };
+      st.x = d.fx + off.x * d.h; st.y = d.fy + off.y * d.h;
+      let hNow = d.h * off.k;
       if (!close.length) {
         try {
-          const m = this.pt.measure(src, d.fx, d.fy - d.h * 0.2, key, st.hz);
-          if (m && Math.abs(m.y - d.fy) < d.h * 0.15 && Math.abs(m.x - d.fx) < d.w * 0.4 && Math.abs(Math.log(m.ph / d.h)) < 0.35) { st.x = m.x; st.y = m.y; }
+          const m = this.pt.measure(src, d.fx, d.fy - d.h * 0.2, key, st.hz, st.ph);
+          if (m && Math.abs(m.y - d.fy) < d.h * 0.15 && Math.abs(m.x - d.fx) < d.w * 0.4 && Math.abs(Math.log(m.ph / d.h)) < 0.35) {
+            st.x = m.x; st.y = m.y; hNow = m.ph;
+            const nx = (m.x - d.fx) / d.h; const ny = (m.y - d.fy) / d.h; const nk = m.ph / d.h;
+            st.boxOff = st.boxOff ? { x: off.x * 0.8 + nx * 0.2, y: off.y * 0.8 + ny * 0.2, k: off.k * 0.8 + nk * 0.2 } : { x: nx, y: ny, k: nk };
+          }
         } catch { /* */ }
       }
-      const r = Math.max(0.85, Math.min(1.15, d.h / st.ph));
+      const r = Math.max(0.85, Math.min(1.15, hNow / st.ph));
       st.ph = st.ph * 0.6 + st.ph * r * 0.4;
       ok = true;
     } else if (occ) {

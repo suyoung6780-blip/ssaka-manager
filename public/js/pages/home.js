@@ -4,8 +4,18 @@ import { FREE_MODE } from '../config.js';
 import {
   db, collection, query, where, orderBy, limit, getDocs, doc, getDoc, addDoc, updateDoc, deleteDoc, serverTimestamp,
 } from '../fb.js';
-import { esc, fmtDate, todayStr, fail } from '../ui.js';
-import { state, inTeam, isSquad, isCoach, isOwner, teamActive, teamPlan, role, freeMode, hasFeature } from '../store.js';
+import { esc, fmtDate, todayStr, fail, toast, modal } from '../ui.js';
+import { createPad } from '../tactic.js';
+import { state, inTeam, isSquad, isCoach, isOwner, teamActive, teamPlan, role, freeMode, hasFeature, isPersonal } from '../store.js';
+
+// 듀얼: 클럽 팀 선수 홈 맨 위 — 개인 계정 연결 상태 (연결됐으면 늘 보이게)
+function parentBand() {
+  if (role() !== 'player' || isPersonal()) return '';
+  const L = state.parentLink;
+  if (L?.approved) return `<a class="pl-band on" href="#/me"><b>개인 계정 연결됨 · ${esc(L.owner)}</b><span>컨디션 · 수면 · 자각도 · 경기 기록(숫자)이 개인 계정에도 올라가요. 일지에 쓴 글은 올라가지 않아요</span></a>`;
+  if (L) return `<a class="pl-band wait" href="#/me"><b>개인 계정 연결 대기 · ${esc(L.owner)}</b><span>보호자님이 승인하면 연결돼요</span></a>`;
+  return '';
+}
 import { calcStats } from './team.js';
 import { coachDesk, answersCard, recentLogs, teamMembers, quickBar, deskSkeleton } from './homeCoach.js';
 import { sleepOf } from '../sleep.js';
@@ -142,6 +152,7 @@ function greeting() {
   const d = new Date();
   const day = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
   if (role() === 'player') return HELLO_PLAYER[day % HELLO_PLAYER.length].replace('{n}', esc(state.profile.name));
+  if (state.profile?.parent) return `${esc(state.profile.name)}님, 오늘 경기 · 훈련 영상이 있으면 영상룸에서 정리해 보세요.`;
   return HELLO_COACH[day % HELLO_COACH.length];
 }
 
@@ -266,8 +277,10 @@ export async function render(el) {
     el.innerHTML = `${morningHead()}
       <div class="tiles">
         ${pending ? `<a class="tile" href="#/pay"><span class="eyebrow">PENDING</span><h3>${esc(t.name)} 결제하기</h3><p>결제가 완료되면 팀 코드가 발급되고 락커룸이 열립니다.</p></a>` : `
-        ${role() === 'coach' ? `<a class="tile" href="#/team/new"><span class="eyebrow">CREATE</span><h3>팀계정 만들기</h3><p>${FREE_MODE ? '팀 정보 입력 → 바로 팀 코드 발급 (무료)' : '팀 정보 입력 → 바로 팀 코드 발급 · 10일 무료 체험'}</p></a>` : ''}
-        <a class="tile" href="#/team/join"><span class="eyebrow">JOIN</span><h3>팀 코드로 입장</h3><p>코치에게 받은 코드로 락커룸에 입장합니다.</p></a>`}
+        ${role() === 'coach' ? (state.profile?.parent
+    ? `<a class="tile" href="#/team/new"><span class="eyebrow">CREATE</span><h3>개인 계정 만들기</h3><p>선수 이름 입력 → 바로 보호자 코드 발급${FREE_MODE ? ' (무료)' : ' · 10일 무료 체험'}</p></a>`
+    : `<a class="tile" href="#/team/new"><span class="eyebrow">CREATE</span><h3>새로 만들기</h3><p>팀 계정 · 지도자 계정 중에서 골라요${FREE_MODE ? ' (무료)' : ' · 10일 무료 체험'}</p></a>`) : ''}
+        ${state.profile?.parent ? '' : `<a class="tile" href="#/team/join"><span class="eyebrow">JOIN</span><h3>코드로 입장</h3><p>팀 코드 · 지도자 코드 · 보호자 코드를 넣고 들어가요.</p></a>`}`}
         <a class="tile" href="#/me"><span class="eyebrow">PROFILE</span><h3>내 프로필</h3><p>사진 · 키 · 몸무게 · 포지션</p></a>
       </div>
       <div data-todo></div>`;
@@ -276,6 +289,7 @@ export async function render(el) {
     return;
   }
 
+  if (isPersonal() && isCoach()) return parentHome(el);
   const base = ['teams', t.id];
   const today = todayStr();
   const posts = collection(db, ...base, 'posts');
@@ -387,6 +401,7 @@ export async function render(el) {
   const hero = isSquad() && hasFeature('proto3'); // 선수 카드 (시제품)
   el.innerHTML = `${head}
   ${isSquad() ? dailyCta : ''}
+  ${parentBand()}
   ${hero ? '<div data-phero></div>' : ''}
   <div data-idp></div>
   <div class="home-grid two">${todayCard}${myCard}</div>
@@ -397,5 +412,59 @@ export async function render(el) {
   todoPad(el.querySelector('[data-todo]'));
   homeIdpCard(el.querySelector('[data-idp]'));
   if (hero) homePlayerHero(el.querySelector('[data-phero]'));
+  el.querySelector('[data-plink]')?.addEventListener('click', () => import('./onboard.js').then((m) => m.parentCodeModal()));
   if (isSquad()) await answersCard(el.querySelector('[data-answers]'));
+}
+
+// ───────── 개인 계정 · 보호자 홈: 아이 연결 상태 + 자주 쓰는 곳 ─────────
+async function parentHome(el) {
+  const t = state.team;
+  el.innerHTML = `${morningHead()}<div data-pbody class="muted small">불러오는 중…</div>`;
+  startClock(el);
+  let kids = []; let code = ''; let shared = [];
+  try {
+    const [ms, bill, sh] = await Promise.all([getDocs(collection(db, 'teams', t.id, 'members')), getDoc(doc(db, 'teams', t.id, 'private', 'billing')),
+      getDocs(query(collection(db, 'teams', t.id, 'logs'), where('shared', '==', true))).catch(() => null)]);
+    kids = ms.docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => m.role === 'player');
+    code = bill.data()?.code || '';
+    shared = (sh?.docs || []).map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+  } catch (e) { fail(e); }
+  const kid = kids.find((m) => m.approved !== false); const wait = kids.find((m) => m.approved === false);
+  const child = esc(t.childName || t.name);
+  const link = kid
+    ? `<section class="card p-link ok"><div><span class="eyebrow">CONNECTED</span><h3>${esc(kid.name)} 연결됨</h3><p class="muted small">${esc([kid.position, kid.number && `${kid.number}번`, kid.affiliation].filter(Boolean).join(' · ') || '선수 계정')}</p></div><a class="btn ghost sm" href="#/locker">선수 연결 보기</a></section>`
+    : wait
+      ? `<section class="card p-link warn"><div><span class="eyebrow">WAITING</span><h3>${esc(wait.name)} 연결 신청이 왔어요</h3><p class="muted small">우리 선수가 맞는지 확인하고 승인해 주세요.</p></div><a class="btn sm" href="#/locker">승인하러 가기</a></section>`
+      : `<section class="card p-link"><div><span class="eyebrow">CONNECT</span><h3>${child} 선수와 연결하기</h3>
+          <ol class="p-steps"><li>선수가 <b>선수 계정</b>으로 가입해요</li><li>아래 <b>보호자 코드</b>를 넣어요</li><li>보호자가 <b>선수 연결</b>에서 승인하면 끝</li></ol></div>
+          ${code ? `<div class="p-code"><small>보호자 코드</small><b data-pcode>${esc(code)}</b><button type="button" class="btn sm" data-pcopy>복사</button></div>` : ''}</section>`;
+  const v = hasFeature('proto3');
+  const go2 = [
+    ...(v ? [['/analysis', 'VIDEO', '영상룸', '선수 영상에 화살표 · 링 · 멈춤을 넣어 mp4로 만들어요']] : []),
+    ['/tactics', 'BOARD', '전술보드', '포지션 · 움직임을 그려서 선수에게 설명해요'],
+    ['/records', 'RECORD', '기록실', '뛴 경기 · 출전 시간 · 득점 · 도움 · 공격 포인트'],
+    ['/data', 'DATA', '데이터실', '컨디션 · 수면 · 기록 흐름'],
+    ...(v ? [['/idp', 'GROWTH', '성장 평가', '능력치 · 성장 기록']] : []),
+    ['/goals', 'GOAL', '목표', '선수와 함께 정하는 목표'],
+  ];
+  // 선수가 '보호자님께 보여주기'를 켠 일지만 (나머지 일지 글은 선수만 봐요)
+  const sharedCard = `<section class="card p-shared"><div class="card-head"><h3>선수가 보여 준 일지 <small class="muted">${shared.length}</small></h3></div>
+    ${shared.length ? `<ul class="list">${shared.map((x) => `<li data-sj="${esc(x.id)}"><div><strong>${esc(x.date.slice(5).replace('-', '.'))} · ${x.kind === 'match' ? `경기${x.match?.opponent ? ` vs ${esc(x.match.opponent)}` : ''}` : '훈련'}</strong><small>${x.coachComment ? `내 한마디: ${esc(x.coachComment.slice(0, 40))}` : '읽고 한마디 남기기'}</small></div><span class="muted small">열기 ›</span></li>`).join('')}</ul>`
+      : '<p class="muted small">일지 글은 선수만 봐요. 선수가 일지마다 <b>보호자님께 보여주기</b>를 켜면 여기에 보여요. 컨디션 · 수면 · 경기 기록 같은 숫자는 데이터실 · 기록실에서 늘 볼 수 있어요.</p>'}</section>`;
+  el.querySelector('[data-pbody]').outerHTML = `${link}${kid ? sharedCard : ''}
+    <div class="tiles">${go2.map(([h, e, n, d]) => `<a class="tile" href="#${h}"><span class="eyebrow">${e}</span><h3>${n}</h3><p>${d}</p></a>`).join('')}</div>`;
+  el.querySelectorAll('[data-sj]').forEach((li) => (li.onclick = async () => {
+    const x = shared.find((y) => y.id === li.dataset.sj); if (!x) return;
+    const P = await import('./personal.js');
+    const m = modal(`<span class="eyebrow">SHARED JOURNAL · ${esc(x.date)}</span><h2>${esc(kid?.name || '')} 선수 일지</h2>
+      ${P.journalHtml(x) ? `<h4>훈련 일지</h4>${P.journalHtml(x)}` : ''}${P.matchHtml(x)}
+      <label>보호자 한마디<textarea rows="2" maxlength="300" data-cc placeholder="예) 오늘 끝까지 뛴 거 멋졌어!">${esc(x.coachComment || '')}</textarea></label>
+      <div class="row end"><button class="btn" data-ccsave>한마디 남기기</button></div>`, { wide: true });
+    m.el.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = x.match?.scenes?.[+box.dataset.viewPad]; if (sc?.pad) createPad(box, sc.pad, { editable: false }); });
+    m.el.querySelectorAll('[data-view-spad]').forEach((box) => { const sp = x.sessions?.[box.dataset.viewSpad]?.pad; if (sp) createPad(box, sp, { editable: false }); });
+    m.el.querySelector('[data-ccsave]').onclick = async () => {
+      try { await updateDoc(doc(db, 'teams', t.id, 'logs', x.id), { coachComment: m.el.querySelector('[data-cc]').value.trim() }); m.close(); toast('한마디를 남겼어요. 선수 일지에 보여요.'); parentHome(el); } catch (e) { fail(e); }
+    };
+  }));
+  el.querySelector('[data-pcopy]')?.addEventListener('click', () => (navigator.clipboard?.writeText(code) || Promise.reject()).then(() => toast('보호자 코드를 복사했어요.'), () => toast(`보호자 코드: ${code}`)));
 }

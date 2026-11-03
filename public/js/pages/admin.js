@@ -1,10 +1,10 @@
 // 운영자 — 모든 팀 · 모든 사용자 화면 맨 위에 띄우는 '전체 공지' (system/notice 문서 하나)
 import {
-  auth, db, doc, getDoc, setDoc, getDocs, addDoc, deleteDoc, updateDoc, collection, query, where, serverTimestamp, writeBatch, Timestamp, sendEmailVerification,
+  auth, db, doc, getDoc, setDoc, getDocs, addDoc, deleteDoc, updateDoc, collection, query, where, orderBy, limit, serverTimestamp, writeBatch, Timestamp, sendEmailVerification,
 } from '../fb.js';
 import { esc, toast, fail, pageHead, fmtDate, CATEGORIES, normCat, confirmBox, modal, emailKey } from '../ui.js';
 import { genTeamCode } from './onboard.js';
-import { state, go, hooks, compActive } from '../store.js';
+import { state, go, hooks, compActive, SPACES, spaceKind } from '../store.js';
 
 const tabs = (cur) => `<div class="tabs admin-tabs">${[['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원']].map(([h, l]) => `<a href="#${h}" class="${h === cur ? 'active' : ''}">${l}</a>`).join('')}</div>`;
 
@@ -32,6 +32,10 @@ export async function page(el) {
       <div class="card-head"><h3>데이터 백업 <small class="muted">모든 팀 · 모든 회원 데이터를 파일 하나로</small></h3><button type="button" class="btn sm" data-backup>백업 내려받기</button></div>
       <p class="muted small" data-bmsg>한 달에 한 번쯤 내려받아 컴퓨터 · 드라이브에 보관해 두세요. 실수로 지워졌을 때 이 파일로 되살릴 수 있어요. 데이터 1개 = 읽기 1번이라 무료 한도에서 빠져요 (한가한 밤에 하기).</p>
     </section>
+    <section class="card">
+      <div class="card-head"><h3>기능 오류 기록 <small class="muted">영상 내보내기 등이 실패하면 자동으로 남아요 (최근 30개)</small></h3><button type="button" class="link-btn small" data-erefresh>새로고침</button></div>
+      <div data-ebody class="muted small">불러오는 중…</div>
+    </section>
     <form class="card">
       <div class="card-head"><h3>공지 쓰기</h3><span class="tag ${n.on ? 'solid' : ''}">${n.on ? '지금 띄우는 중' : '내려간 상태'}</span></div>
       <fieldset><legend>종류</legend><div class="pick-chips">
@@ -51,6 +55,8 @@ export async function page(el) {
   loadUsage(el);
   el.querySelector('[data-urefresh]').onclick = () => loadUsage(el);
   el.querySelector('[data-backup]').onclick = (e) => backup(e.currentTarget, el.querySelector('[data-bmsg]'));
+  loadErrLogs(el);
+  el.querySelector('[data-erefresh]').onclick = () => loadErrLogs(el);
 
   const form = el.querySelector('form');
   const val = () => ({ level: form.level.value, title: form.title.value.trim(), body: form.body.value.trim() });
@@ -136,7 +142,7 @@ export async function teams(el) {
     el.querySelector('[data-rows]').innerHTML = rows.map((t) => {
       const [u, cls] = usage(t);
       return `<tr>
-        <td data-l="팀"><a href="#/teams/${t.id}"><strong>${esc(t.name)}</strong></a>${t.restricted ? '<br><span class="tag danger">기능 제한</span>' : ''}${t.hidden ? '<br><span class="tag">목록에서 숨김</span>' : ''}${t.nameWarn ? '<br><span class="tag warn">팀명 주의 중</span>' : ''}</td>
+        <td data-l="팀"><a href="#/teams/${t.id}"><strong>${esc(t.name)}</strong></a>${t.restricted ? '<br><span class="tag danger">기능 제한</span>' : ''}${t.kind && SPACES[t.kind] ? `<br><span class="tag solid">${SPACES[t.kind].name}</span>` : ''}${t.hidden ? '<br><span class="tag">목록에서 숨김</span>' : ''}${t.nameWarn ? '<br><span class="tag warn">팀명 주의 중</span>' : ''}</td>
         <td data-l="구분">${esc(t.category || '')}</td>
         <td data-l="대표">${esc(t.ownerName || '-')}</td>
         <td data-l="지도자 · 선수">${t.coaches == null ? '-' : `${t.coaches} · ${t.players}`}</td>
@@ -146,13 +152,14 @@ export async function teams(el) {
         <td data-l=""><div class="acts"><button class="btn ghost sm" data-feat="${t.id}">기능${Object.values(feats[t.id] || {}).filter(Boolean).length ? ` <b class="dot-n">${Object.values(feats[t.id]).filter(Boolean).length}</b>` : ''}</button>
           <button class="btn ${t.comp ? 'ghost' : ''} sm" data-comp="${t.id}">${t.comp ? '무료 제공 변경' : '무료 제공'}</button>
           <button class="btn ${t.nameWarn ? '' : 'ghost'} sm" data-nwarn="${t.id}">${t.nameWarn ? '팀명 주의 풀기' : '팀명 주의'}</button>
-          <button class="btn ${t.restricted ? '' : 'ghost'} sm" data-restrict="${t.id}">${t.restricted ? '제한 풀기' : '기능 제한'}</button><button class="btn ${t.hidden ? '' : 'ghost'} sm" data-hide="${t.id}">${t.hidden ? '목록에 보이기' : '목록에서 숨기기'}</button></div></td></tr>`;
+          <button class="btn ${t.restricted ? '' : 'ghost'} sm" data-restrict="${t.id}">${t.restricted ? '제한 풀기' : '기능 제한'}</button><button class="btn ${t.hidden ? '' : 'ghost'} sm" data-hide="${t.id}">${t.hidden ? '목록에 보이기' : '목록에서 숨기기'}</button><button class="btn ghost sm" data-kind="${t.id}">종류 바꾸기</button></div></td></tr>`;
     }).join('') || '<tr><td colspan="9" class="muted center">조건에 맞는 팀이 없습니다.</td></tr>';
     el.querySelectorAll('[data-comp]').forEach((b) => (b.onclick = () => toggleComp(list.find((t) => t.id === b.dataset.comp))));
     el.querySelectorAll('[data-feat]').forEach((b) => (b.onclick = () => featModal(list.find((t) => t.id === b.dataset.feat))));
     el.querySelectorAll('[data-nwarn]').forEach((b) => (b.onclick = () => nameWarn(list.find((t) => t.id === b.dataset.nwarn))));
     el.querySelectorAll('[data-restrict]').forEach((b) => (b.onclick = () => restrict(list.find((t) => t.id === b.dataset.restrict))));
     el.querySelectorAll('[data-hide]').forEach((b) => (b.onclick = () => hideTeam(list.find((t) => t.id === b.dataset.hide))));
+    el.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = () => kindModal(list.find((t) => t.id === b.dataset.kind))));
   };
 
   // 팀 이름 주의: 팀 화면 위에 알림 띠 + 운영자 문의방에 메시지 (팀이 이름을 바꾸면 띠는 저절로 사라짐)
@@ -192,6 +199,23 @@ export async function teams(el) {
   }
 
   // 목록에서 숨기기: 팀 검색 · 팀 대화 목록에 안 나옴 (심사 · 시험용 팀). 그 팀 사람은 평소처럼 씀
+  // 종류 바꾸기 (팀 ↔ 지도자 계정 ↔ 개인 계정) — 신청을 받고 운영자가 옮김. 팀이 아니면 목록에서 숨김
+  function kindModal(t) {
+    const cur = spaceKind(t);
+    const m = modal(`<span class="eyebrow">KIND</span><h2>${esc(t.name)} 종류 바꾸기</h2>
+      <p class="muted small">지금: <b>${SPACES[cur].name}</b>. 기록 · 영상 · 사람은 그대로예요. 팀이 아니면 팀 검색 · 팀 대화 목록에서 숨겨져요. 요금제는 따로 맞춰 주세요.</p>
+      <div class="pick-chips">${Object.entries(SPACES).map(([k, v]) => `<label><input type="radio" name="k" value="${k}" ${k === cur ? 'checked' : ''}><span>${v.name}</span></label>`).join('')}</div>
+      <div class="row end"><button class="btn" data-ok>바꾸기</button></div>`);
+    m.el.querySelector('[data-ok]').onclick = async () => {
+      const k = m.el.querySelector('[name=k]:checked').value;
+      if (k === cur) { m.close(); return; }
+      try {
+        const patch = { kind: k === 'team' ? null : k, hidden: k !== 'team' };
+        await updateDoc(doc(db, 'teams', t.id), patch);
+        Object.assign(t, patch); m.close(); toast(`${SPACES[k].name}(으)로 바꿨어요.`); teams(el);
+      } catch (e) { fail(e); }
+    };
+  }
   async function hideTeam(t) {
     const on = !t.hidden;
     if (!(await confirmBox(on ? `${t.name} 팀을 팀 검색 · 팀 대화 목록에서 숨길까요? 이 팀 사람들은 평소처럼 써요.` : `${t.name} 팀을 다시 목록에 보일까요?`))) return;
@@ -401,6 +425,7 @@ export async function users(el) {
       }
       (await getDocs(collection(db, 'users', u.id, 'todos')).catch(() => ({ docs: [] }))).docs.forEach((d) => refs.push(d.ref));
       (await getDocs(collection(db, 'users', u.id, 'notes')).catch(() => ({ docs: [] }))).docs.forEach((d) => refs.push(d.ref));
+      (await getDocs(collection(db, 'users', u.id, 'journal')).catch(() => ({ docs: [] }))).docs.forEach((d) => refs.push(d.ref));
       if (u.consentToken) refs.push(doc(db, 'consents', u.consentToken));
       refs.push(doc(db, 'users', u.id));
       for (let i = 0; i < refs.length; i += 400) { const b = writeBatch(db); refs.slice(i, i + 400).forEach((x) => b.delete(x)); await b.commit(); }
@@ -482,4 +507,30 @@ async function loadUsage(el) {
   box.innerHTML = `${worst >= 0.85 ? '<p class="usage-warn">곧 무료 한도가 다 차요 — 다 차면 모든 사용자가 불러오기 · 저장을 못 해요. 종량제(Blaze)로 바꾸는 걸 생각해 보세요.</p>' : ''}
     ${rows}
     <p class="muted small">한국 시간 <b>${kst(reset)}</b>에 다시 채워져요 (${hm} 남음) · ${kst(at)} 기준 · 숫자는 몇 분 늦게 반영돼요${d.demo ? ' · 데모 예시 숫자' : ''}</p>`;
+}
+
+// ── 기능 오류 기록 (운영자만) — errlog.js 가 남긴 errLogs 최근 30개 ──
+const ERR_WHERE = { export: '영상 내보내기 실패', 'export-hw': '영상 압축 칩 멈춤 (소프트웨어로 다시 함)', 'export-unsupported': '영상 내보내기 안 되는 브라우저' };
+// 사용자 브라우저를 짧게: 카톡 안 · 삼성 인터넷 · 엣지 · 크롬 · 사파리 + 기기
+function browserOf(ua = '') {
+  const b = /KAKAOTALK/i.test(ua) ? '카톡 안 브라우저' : /NAVER/i.test(ua) ? '네이버 앱' : /SamsungBrowser/i.test(ua) ? '삼성 인터넷' : /Whale/i.test(ua) ? '웨일' : /Edg\//.test(ua) ? '엣지' : /CriOS|Chrome\//.test(ua) ? '크롬' : /Firefox|FxiOS/.test(ua) ? '파이어폭스' : /Safari/.test(ua) ? '사파리' : '기타';
+  const d = /iPhone/.test(ua) ? '아이폰' : /iPad/.test(ua) ? '아이패드' : /Android/.test(ua) ? (/Mobile/.test(ua) ? '안드로이드 폰' : '안드로이드 태블릿') : /Windows/.test(ua) ? '윈도우' : /Mac OS X/.test(ua) ? '맥' : '';
+  return `${b}${d ? ` · ${d}` : ''}`;
+}
+async function loadErrLogs(el) {
+  const box = el.querySelector('[data-ebody]');
+  if (!box) return;
+  box.textContent = '불러오는 중…';
+  let docs;
+  try {
+    docs = (await getDocs(query(collection(db, 'errLogs'), orderBy('at', 'desc'), limit(30)))).docs;
+  } catch (e) { box.innerHTML = `<p>불러오지 못했어요: ${esc(e.message || e)} <small>(보안 규칙에 errLogs 가 들어갔는지 확인)</small></p>`; return; }
+  if (!docs.length) { box.innerHTML = '<p>아직 기록된 오류가 없어요.</p>'; return; }
+  box.innerHTML = `<div class="err-list">${docs.map((d) => { const x = d.data(); return `<div class="err-row"><div class="err-top"><b>${esc(ERR_WHERE[x.where] || x.where)}</b><span>${x.at ? fmtDate(x.at, true) : ''}</span></div>
+      <p>${esc(x.msg || '')}</p><small>${esc(browserOf(x.ua))}${x.info ? ` · ${esc(x.info)}` : ''}</small></div>`; }).join('')}</div>
+    <div class="row end"><button type="button" class="btn ghost sm" data-eclear>다 봤어요 · 모두 지우기</button></div>`;
+  box.querySelector('[data-eclear]').onclick = async () => {
+    if (!(await confirmBox(`오류 기록 ${docs.length}개를 지울까요?`))) return;
+    try { await Promise.all(docs.map((d) => deleteDoc(d.ref))); toast('지웠어요'); loadErrLogs(el); } catch (e) { fail(e); }
+  };
 }

@@ -28,14 +28,15 @@ export function policyHtml() {
 
   <h3>1. 수집하는 개인정보 항목</h3>
   <table class="tbl"><tbody>
-    <tr><th>모든 회원 (필수)</th><td>이메일, 비밀번호(암호화되어 보관), 이름, 계정 유형(지도자 · 선수)</td></tr>
+    <tr><th>모든 회원 (필수)</th><td>이메일, 비밀번호(암호화되어 보관), 이름, 계정 유형(지도자 · 선수 · 보호자)</td></tr>
     <tr><th>선수 (필수)</th><td>생년월일</td></tr>
     <tr><th>선수 (선택)</th><td>사진, 키, 몸무게, 포지션, 등번호, 주발, 소속(학교 · 학년 · 클럽), 소개</td></tr>
     <tr><th>지도자 (선택)</th><td>사진, 직책, 담당, 자격증, 출신학교, 지도 경력</td></tr>
     <tr><th>건강 정보 (민감정보, 선수 필수 · 별도 동의)</th><td>컨디션, 통증 · 부상 정도와 부위, 훈련 · 경기 중 부상 여부와 다친 때, 수면 시간 · 수면 질, 운동 강도(RPE) · 운동 시간, 키 · 몸무게(선택)</td></tr>
     <tr><th>서비스 이용 중 생성</th><td>훈련 · 경기 일지, 목표, 상담 내용, 대화 내용, 영상룸 영상 · 그림, 작전판 · 훈련 프로그램, 경기 기록, 스카웃 노트(지도자가 적은 선수 메모), 코치 노트(지도자 본인 메모), 문의 · 개선 제안</td></tr>
     <tr><th>소셜 로그인 (선택)</th><td>Google: 이메일 주소, 이름(가입 화면에 미리 채우는 데만 씀) · 카카오: 카카오 회원번호, 이메일 주소 — 각 서비스에서 이용자가 동의한 항목만 받으며, 비밀번호는 받지 않습니다</td></tr>
-    <tr><th>결제 (팀 대표 지도자)</th><td>주문번호, 요금제 · 이용기간, 결제 금액, 구매자 휴대폰 번호, 결제 수단 종류(카드), 승인 일시, 거래 번호 — 카드 번호 등 결제 정보는 (주)케이지이니시스 · 코리아포트원 주식회사가 직접 처리하며 서비스는 받거나 보관하지 않습니다</td></tr>
+    <tr><th>개인 계정 (보호자 · 선수)</th><td>선수 이름 · 학년 · 연령(보호자가 개인 계정을 만들 때), 연결 정보(어느 개인 계정에 연결했는지), 선수가 ‘보여주기’를 켠 일지 · 보호자 한마디</td></tr>
+    <tr><th>결제 (팀 대표 지도자 · 개인 계정 보호자)</th><td>주문번호, 요금제 · 이용기간, 결제 금액, 구매자 휴대폰 번호, 결제 수단 종류(카드), 승인 일시, 거래 번호 — 카드 번호 등 결제 정보는 (주)케이지이니시스 · 코리아포트원 주식회사가 직접 처리하며 서비스는 받거나 보관하지 않습니다</td></tr>
     <tr><th>만 14세 미만 회원의 보호자</th><td>보호자 이름, 관계, 휴대폰 번호, 동의 일시</td></tr>
     <tr><th>자동 수집</th><td>접속 기록(IP 주소, 접속 시각, 브라우저 정보)</td></tr>
   </tbody></table>
@@ -44,6 +45,7 @@ export function policyHtml() {
   <ul><li>회원 가입 · 로그인 · 본인 확인, 비밀번호 재설정</li>
     <li>팀 운영 기능 제공: 훈련 안내, 공지 · 스케줄, 일지 작성과 지도자의 일지검사, 목표 · 상담, 영상 분석, 대화</li>
     <li>선수의 컨디션 · 부상 관리를 위한 건강 정보 기록과 소속 팀 지도자 열람</li>
+    <li>개인 계정: 선수가 연결 · 동의한 보호자에게 선수의 건강 정보 · 경기 기록(숫자) 제공</li>
     <li>만 14세 미만 회원의 법정대리인 동의 확인</li>
     <li>문의 응대, 서비스 개선, 부정 이용 방지</li></ul>
 
@@ -56,6 +58,7 @@ export function policyHtml() {
   <ul><li>같은 팀 지도자: 소속 선수의 프로필, 일지, 건강 정보, 목표, 상담 내용</li>
     <li>같은 팀 구성원: 이름, 사진, 포지션 등 프로필(락커룸 · 선수단)</li>
     <li>만 14세 미만 선수의 보호자 정보(이름 · 관계 · 휴대폰 번호): 팀 대표가 입장 승인 때 보호자 동의를 확인하는 데 씁니다</li>
+    <li>개인 계정 보호자: 선수가 보호자 코드로 연결하고 <b>동의</b>하면, 선수의 컨디션 · 수면 · 자각도 · 부상 · 훈련 시간 · 키 · 몸무게와 경기 기록(상대 · 점수 · 출전 시간 · 골 · 도움 개수 · 평점)이 보호자에게 보입니다. <b>일지 글</b>은 선수가 일지마다 ‘보호자님께 보여주기’를 켠 것만 보입니다. 선수는 일지마다 보내지 않거나, <b>연결 끊기</b>로 언제든 그만둘 수 있습니다.</li>
     <li>다른 팀 · 다른 이용자: 팀 이름 · 구분 · 대표 지도자 이름만 보입니다. 선수단 · 일지 · 건강 정보 등 팀 안의 내용은 보이지 않습니다.</li>
     <li>커뮤니티(훈련 공유 · 지도자 게시판): 지도자가 직접 올린 글 · 훈련 프로그램과 작성자 이름이 서비스의 다른 지도자에게 보입니다.</li></ul>
 
@@ -96,7 +99,7 @@ export function policyHtml() {
 
   <h3>14. 시행일 · 변경 이력</h3>
   <p>이 처리방침은 ${esc(PRIVACY.effective)}부터 적용됩니다.</p>
-  <ul class="muted small"><li>2026-10-07 제정</li><li>2026-10-20 개정: 다른 팀에 보이는 범위를 실제와 같게 정정, 커뮤니티 · 운영자 접근 · 쿠키 등 항목 추가, 부상 기록 · 작전판 · 코치 노트 반영, 보호책임자 표시, 소셜 로그인(Google · 카카오) 수집 항목 추가</li><li>2026-10-23 개정: 유료 이용권 결제 기록 항목 · 보관 기간(5년 · 3년) · 결제 처리 위탁(토스페이먼츠) 추가</li><li>2026-11-05 개정 (2026-10-29 공지): 결제 처리 위탁 업체를 (주)케이지이니시스 · 코리아포트원 주식회사로 변경, 결제 때 구매자 휴대폰 번호 수집 추가</li></ul>
+  <ul class="muted small"><li>2026-10-07 제정</li><li>2026-10-20 개정: 다른 팀에 보이는 범위를 실제와 같게 정정, 커뮤니티 · 운영자 접근 · 쿠키 등 항목 추가, 부상 기록 · 작전판 · 코치 노트 반영, 보호책임자 표시, 소셜 로그인(Google · 카카오) 수집 항목 추가</li><li>2026-10-23 개정: 유료 이용권 결제 기록 항목 · 보관 기간(5년 · 3년) · 결제 처리 위탁(토스페이먼츠) 추가</li><li>2026-11-05 개정 (2026-10-29 공지): 결제 처리 위탁 업체를 (주)케이지이니시스 · 코리아포트원 주식회사로 변경, 결제 때 구매자 휴대폰 번호 수집 추가</li><li>2026-11-03 개정: 보호자 계정 · 개인 계정 추가 — 선수가 연결 · 동의하면 보호자에게 보이는 범위(건강 정보 · 경기 기록 숫자, 보여주기를 켠 일지) 명시</li></ul>
   </div>`;
 }
 
@@ -115,7 +118,7 @@ export function agreeFields() {
     <label class="chk"><input type="checkbox" name="agTerms" required> [필수] 이용약관 동의 <button type="button" class="link-btn small" data-terms>보기</button></label>
     <label class="chk"><input type="checkbox" name="agPrivacy" required> [필수] 개인정보 수집 · 이용 동의 <button type="button" class="link-btn small" data-policy>보기</button></label>
     <label class="chk"><input type="checkbox" name="agOverseas" required> [필수] 개인정보 국외 이전 동의 (Google · Vercel, 미국) <button type="button" class="link-btn small" data-policy>보기</button></label>
-    <div data-for="player"><label class="chk"><input type="checkbox" name="agHealth" required> [필수] 건강 정보(컨디션 · 통증 · 수면) 처리 동의 — 본인과 소속 팀 지도자만 봐요</label>
+    <div data-for="player"><label class="chk"><input type="checkbox" name="agHealth" required> [필수] 건강 정보(컨디션 · 통증 · 수면) 처리 동의 — 본인과 소속 팀 지도자만 봐요 (개인 계정에 연결하면 따로 동의한 뒤 보호자도)</label>
       <label class="birth">생년월일 <small class="muted">(만 14세 미만이면 보호자 동의가 필요해요)</small><input type="date" name="birth" required max="${new Date().toISOString().slice(0, 10)}"></label>
       <p class="muted small" data-agenote></p></div>
     <div data-for="coach"><label class="chk"><input type="checkbox" name="agAdult" required> [필수] 만 14세 이상입니다</label></div>
@@ -322,8 +325,14 @@ export function withdraw() {
         (await getDocs(query(collection(db, 'teams', t, 'goals'), where('ownerUid', '==', uid), where('scope', '==', 'personal')))).docs.forEach((d) => b.delete(d.ref));
         b.delete(doc(db, 'teams', t, 'members', uid));
       }
+      if (state.parentLink) { // 듀얼: 개인 계정에 올린 기록 · 연결도 지움
+        const pt = state.parentLink.id;
+        (await getDocs(query(collection(db, 'teams', pt, 'logs'), where('uid', '==', uid))).catch(() => ({ docs: [] }))).docs.forEach((d) => b.delete(d.ref));
+        b.delete(doc(db, 'teams', pt, 'members', uid));
+      }
       (await getDocs(collection(db, 'users', uid, 'todos'))).docs.forEach((d) => b.delete(d.ref));
       (await getDocs(collection(db, 'users', uid, 'notes')).catch(() => ({ docs: [] }))).docs.forEach((d) => b.delete(d.ref));
+      (await getDocs(collection(db, 'users', uid, 'journal')).catch(() => ({ docs: [] }))).docs.forEach((d) => b.delete(d.ref)); // 개인 계정 일지 글
       if (state.profile?.consentToken) b.delete(doc(db, 'consents', state.profile.consentToken));
       b.delete(doc(db, 'users', uid));
       await b.commit();

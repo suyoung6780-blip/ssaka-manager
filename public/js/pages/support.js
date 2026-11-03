@@ -171,7 +171,7 @@ export async function inbox(el, { id } = {}) {
   let filter = '전체';
   const draw = () => {
     const list = fbs.filter((f) => filter === '전체' || f.kind === filter || f.status === filter);
-    body.innerHTML = `<div class="chips wrap">${['전체', ...KINDS, '접수'].map((k) => `<button class="chip ${k === filter ? 'active' : ''}" data-f="${k}">${k === '접수' ? '답변 안 한 글' : k}</button>`).join('')}</div>
+    body.innerHTML = `<div class="chips wrap">${['전체', ...KINDS, '종류 변경', '접수'].map((k) => `<button class="chip ${k === filter ? 'active' : ''}" data-f="${k}">${k === '접수' ? '답변 안 한 글' : k}</button>`).join('')}</div>
       <div class="fb-list">${list.map((f) => fbItem(f, { admin: true })).join('') || empty('글이 없습니다.')}</div>`;
     body.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => { filter = b.dataset.f; draw(); }));
     body.querySelectorAll('.fb').forEach((c) => {

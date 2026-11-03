@@ -3,7 +3,7 @@ import {
 } from '../fb.js';
 import {
   esc, text, toast, fail, formData, modal, confirmBox, todayStr, pageHead, empty, avatar, ROLES, MATCH_TYPES, options, sortGroups, sortBar, bindSortBar, getSort } from '../ui.js';
-import { state, inTeam, isOwner, loadContext, publicProfile, nextNumbers, go, hooks, hasFeature, isCoach, refreshFeatures } from '../store.js';
+import { state, inTeam, isOwner, loadContext, publicProfile, nextNumbers, go, hooks, hasFeature, isCoach, refreshFeatures, isPersonal, parentLinked } from '../store.js';
 import { exportModal, dailyFields, SLEEP_Q } from '../wellness.js';
 import { profileFields, bindPhoto, profileData } from './auth.js';
 import { withdraw } from './privacy.js';
@@ -19,8 +19,16 @@ export function profile(el) {
   const p = state.profile;
   el.innerHTML = `${pageHead('PROFILE', '내 프로필')}
   ${hasFeature('proto3') && inTeam() && p.role === 'player' ? '<a class="card narrow p3-melink" href="#/idp"><b>내 성장 카드</b><span>OVR · 능력치 · 훈련일지 · 경기 기록 · 목표 · 경기 영상이 한 곳에 모여 있어요</span><em>열기 →</em></a>' : ''}
+  ${p.role === 'player' && inTeam() && !isPersonal() ? `<section class="card narrow pl-card">
+    <h3>개인 계정 연결 <small class="muted">(듀얼)</small></h3>
+    ${state.parentLink ? `<div class="kv"><span>${state.parentLink.approved ? '연결됨' : '승인 대기'}</span><strong>${esc(state.parentLink.owner)} · ${esc(state.parentLink.name)}</strong></div>
+      <p class="muted small">${state.parentLink.approved ? `${esc(state.team.name)}은(는) 그대로예요. 컨디션 · 수면 · 자각도 · 경기 기록(숫자)이 개인 계정에도 올라가요. 일지에 쓴 글은 올라가지 않아요. 일지마다 '개인 계정에도 올리기'를 끌 수 있어요.` : '보호자님이 승인하면 연결돼요.'}</p>
+      <button type="button" class="link-btn small danger-link" data-unlink>연결 끊기</button>`
+    : `<p class="muted small">보호자님이 <b>개인 계정</b>를 만들었다면, 받은 <b>보호자 코드</b>를 넣어 연결해요. ${esc(state.team.name)}은(는) 그대로예요.</p>
+      <button type="button" class="btn ghost" data-link>개인 계정 연결하기</button>`}
+  </section>` : ''}
   <form class="card narrow">
-    <div class="kv"><span>계정 유형</span><strong>${ROLES[p.role]}</strong></div>
+    <div class="kv"><span>계정 유형</span><strong>${p.parent ? '보호자' : ROLES[p.role]}</strong></div>
     <div class="kv"><span>이메일</span><strong>${esc(p.email)}</strong></div>
     ${profileFields(p)}
     <button class="btn full">저장</button>
@@ -29,6 +37,8 @@ export function profile(el) {
   </form>`;
   bindInstall(el);
   el.querySelector('[data-withdraw]').onclick = withdraw;
+  el.querySelector('[data-link]')?.addEventListener('click', () => import('./onboard.js').then((m) => m.parentCodeModal()));
+  el.querySelector('[data-unlink]')?.addEventListener('click', () => import('./onboard.js').then((m) => m.unlinkParent()));
   const form = el.querySelector('form');
   bindPhoto(form);
   form.onsubmit = async (e) => {
@@ -55,6 +65,31 @@ export function profile(el) {
 }
 
 // ───────── 오늘 기록 (자각도 · 취침시간 · 컨디션 · 부상도 · 일지) ─────────
+// 듀얼: 개인 계정에는 일지 글(배운 점 · 세션 · 장면 그림 등)은 빼고, 기록으로 쌓을 수 있는 숫자만 올림
+//  컨디션 · 자각도 · 수면 · 부상 · 훈련 시간 · 키 · 몸무게 + 경기(상대 · 점수 · 출전 시간 · 골 · 도움 개수 · 평점)
+const RECORD_KEYS = ['date', 'uid', 'name', 'kind', 'condition', 'rpe', 'injury', 'hurt', 'sleep', 'sleepMin', 'bedtime', 'wakeTime', 'sleepQ', 'trainMin', 'absent', 'height', 'weight', 'submitted'];
+const MATCH_KEYS = ['opponent', 'type', 'gf', 'ga', 'minutes', 'position', 'rating'];
+// 개인 계정 칸에 올리기: 숫자 기록(+ share 면 일지 글까지)으로 통째로 바꿈 — 보호자가 단 한마디 · 확인 표시는 그대로 둠
+//  (merge 로 올리면 예전에 보여준 글이 남으므로 매번 새로 씀)
+async function pushToSpace(sid, data, share, extra = {}) {
+  const pref = doc(db, 'teams', sid, 'logs', `${state.user.uid}_${data.date}`);
+  let keep = {};
+  try { const o = (await getDoc(pref)).data(); if (o) keep = Object.fromEntries(['checked', 'coachComment', 'checkedBy', 'checkedAt', 'answers'].filter((k) => o[k] !== undefined).map((k) => [k, o[k]])); } catch { /* 처음 */ }
+  const { toParent: _t, ...full } = data;
+  await setDoc(pref, { ...(share ? full : recordOnly(data)), ...keep, shared: !!share, ...extra, updatedAt: serverTimestamp() });
+}
+export function recordOnly(l) {
+  const o = {};
+  RECORD_KEYS.forEach((k) => { if (l[k] !== undefined) o[k] = l[k]; });
+  if (l.match) {
+    const m = {};
+    MATCH_KEYS.forEach((k) => { if (l.match[k] !== undefined) m[k] = l.match[k]; });
+    m.goals = (l.match.goals || []).map((g) => ({ min: g.min ?? null })); // 개수 · 분만 (장면 설명은 빼고)
+    m.assistsMine = (l.match.assistsMine || []).map((a) => ({ min: a.min ?? null }));
+    o.match = m;
+  } else o.match = null;
+  return o;
+}
 export function sleepHours(bed, wake) {
   if (!bed || !wake) return null;
   const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
@@ -177,19 +212,24 @@ export async function daily(el, _p, date0) {
   await refreshFeatures();
   const tid = state.team.id;
   const base = ['teams', tid, 'logs'];
+  // 개인 계정 선수: 일지 글은 나만 여는 칸(users/{uid}/journal)에 · 개인 계정에는 숫자 기록만 (보여주기를 켠 일지만 글까지)
+  const privJ = isPersonal() && !isCoach();
+  const jcol = privJ ? collection(db, 'users', state.user.uid, 'journal') : collection(db, ...base);
+  const jdoc = (d) => (privJ ? doc(jcol, d) : doc(db, ...base, `${state.user.uid}_${d}`));
   const glOn = hasFeature('proto3');
-  const [cur, hist, ps, programs, allPlans, ms, sc, mem] = await Promise.all([
-    getDoc(doc(db, ...base, `${state.user.uid}_${date}`)),
-    getDocs(query(collection(db, ...base), where('uid', '==', state.user.uid), orderBy('date', 'desc'), limit(60))),
+  const [cur, hist, ps, programs, allPlans, ms, sc, mem, spaceLog] = await Promise.all([
+    getDoc(jdoc(date)),
+    getDocs(privJ ? query(jcol, orderBy('date', 'desc'), limit(60)) : query(jcol, where('uid', '==', state.user.uid), orderBy('date', 'desc'), limit(60))),
     getDocs(query(collection(db, 'teams', tid, 'posts'), where('type', '==', 'daily'), where('date', '==', date))),
     loadPrograms(),
     getDocs(query(collection(db, 'teams', tid, 'posts'), where('type', '==', 'daily'), orderBy('date', 'desc'), limit(120))),
     getDocs(query(collection(db, 'teams', tid, 'matches'), where('date', '==', date))),
     getDocs(query(collection(db, 'teams', tid, 'posts'), where('type', '==', 'schedule'), where('date', '==', date))),
     glOn ? getDocs(collection(db, 'teams', tid, 'members')).catch(() => null) : null,
+    privJ ? getDoc(doc(db, ...base, `${state.user.uid}_${date}`)).catch(() => null) : null, // 보호자 한마디 · 확인 표시
   ]);
   const mates = mem ? mem.docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => m.role === 'player' && m.approved !== false).sort((a, b) => (+a.number || 99) - (+b.number || 99)) : [];
-  const l = cur.data() || {};
+  const l = { ...(cur.data() || {}), ...(spaceLog?.exists() ? Object.fromEntries(['checked', 'coachComment', 'checkedBy', 'checkedAt', 'answers'].map((k) => [k, spaceLog.data()[k]]).filter(([, v]) => v !== undefined)) : {}) };
   const myLogs = hist.docs.map((d) => d.data());
   const logs = myLogs.slice(0, 14).reverse();
   // 키는 매달 첫 기록에, 몸무게는 매주(월요일 시작) 첫 기록에 — 이미 적은 날이 있으면 안 물어봄
@@ -217,6 +257,7 @@ export async function daily(el, _p, date0) {
   const hasPlan = plans.some((p) => (p.blocks || []).length);
 
   el.innerHTML = `${pageHead('DAILY', '오늘 기록')}
+  <a class="jb-bar" href="#/journal"><span class="eyebrow">MY JOURNAL BOOK</span><b>내 일지 모아보기</b><small>지난 일지를 책처럼 한 장씩 넘겨 봐요 · 그날 뭐 했는지 · PDF로 저장</small><em>열기 ›</em></a>
   <section class="day-bar">
     <button class="btn ghost sm" data-go="${prevDate || ''}" ${prevDate ? '' : 'disabled'}>‹ 이전 훈련일</button>
     <div class="day-pick"><strong>${fmtDay(date)}</strong>${date === todayStr() ? ' <span class="tag solid">오늘</span>' : ''}
@@ -317,25 +358,8 @@ export async function daily(el, _p, date0) {
       <h3>최근 14일</h3>
       ${logs.length ? trend(logs) : empty('기록이 쌓이면 추이가 보입니다.')}
     </section>
-    <section class="card mylogs">
-      <div class="card-head"><h3>내 일지 모아보기</h3><small class="muted">${myLogs.length}개</small></div>
-      ${myLogs.length ? `<div class="ml-tools">
-        <button type="button" class="chip" data-pickall>전체 선택</button>
-        <button type="button" class="chip" data-pick10>최근 10개</button>
-        <button type="button" class="chip" data-picknone>선택 해제</button>
-        <button type="button" class="btn sm" data-pdf disabled>PDF로 저장</button>
-      </div>` : ''}
-      ${myLogs.length ? `<ul class="mylog-list">${myLogs.map((x) => {
-        const k = x.kind || (x.match && (x.match.good || x.match.bad) ? 'match' : 'train');
-        const st = x.checked ? '검사 완료' : x.submitted ? '제출함' : '작성 중';
-        return `<li data-mylog="${x.date}" class="${x.date === date ? 'on' : ''}">
-          <label class="ml-check" title="PDF로 저장할 일지 고르기"><input type="checkbox" data-pick="${x.date}"></label>
-          <span class="date-badge">${esc(x.date.slice(5).replace('-', '.'))}</span>
-          <div><strong>${k === 'match' ? `경기${x.match?.opponent ? ` vs ${esc(x.match.opponent)}` : ''}` : '훈련'}</strong>
-            <small class="${x.coachComment ? 'ml-cc' : ''}">${x.coachComment ? `코치 한마디: ${esc(x.coachComment.slice(0, 60))}` : st}</small></div>
-          <span class="tag ${x.checked ? 'solid' : ''}">${st}</span></li>`;
-      }).join('')}</ul>` : empty('아직 쓴 일지가 없어요.')}
-    </section>
+    ${parentLinked() ? `<label class="mini-switch pl-send"><input type="checkbox" name="toParent" ${l.toParent === false ? '' : 'checked'}> 개인 계정에도 기록 올리기 <small class="muted">(${esc(parentLinked().owner)} · 숫자 기록만)</small></label>` : ''}
+    ${parentLinked() || privJ ? `<label class="mini-switch pl-send"><input type="checkbox" name="shareText" ${l.shared ? 'checked' : ''}> 이 일지 글도 보호자님께 보여주기 <small class="muted">(꺼 두면 글은 나만 봐요)</small></label>` : ''}
     <div class="row end daily-save" data-sec="submit"><span class="dsave-st" data-save-st></span><button class="btn ghost" data-save>임시 저장</button><button class="btn" data-submit>${l.submitted ? '다시 제출' : '제출하기'}</button></div>
   </form>`;
 
@@ -362,35 +386,6 @@ export async function daily(el, _p, date0) {
   form.querySelectorAll('[name=hurt]').forEach((r) => r.addEventListener('change', syncHurt));
   syncHurt();
   el.querySelector('[data-date]').onchange = (e) => e.target.value && daily(el, _p, e.target.value);
-  // 내 일지: 누르면 그 날 일지 보기
-  el.querySelectorAll('[data-mylog]').forEach((li) => (li.onclick = (e) => {
-    if (e.target.closest('.ml-check')) return; // 체크칸은 고르기만
-    const x = myLogs.find((y) => y.date === li.dataset.mylog);
-    const m = modal(`<span class="eyebrow">MY JOURNAL · ${esc(x.date)}</span><h2>${fmtDay(x.date)} 일지</h2>
-      ${journalHtml(x) ? `<h4>훈련 일지</h4>${journalHtml(x)}` : ''}${matchHtml(x)}
-      ${x.coachComment ? `<div class="coach-note"><span class="tag solid">코치 한마디</span><p>${text(x.coachComment)}</p></div>` : ''}
-      <div class="row end"><button class="btn ghost" data-pdf1>PDF로 저장</button><button class="btn ghost" data-open-day>이 날 일지 열기 (수정)</button></div>`, { wide: true });
-    m.el.querySelector('[data-pdf1]').onclick = () => saveJournalsPdf([x]);
-    m.el.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = x.match?.scenes?.[+box.dataset.viewPad]; if (sc?.pad) createPad(box, sc.pad, { editable: false }); });
-    m.el.querySelectorAll('[data-view-spad]').forEach((box) => { const sp = x.sessions?.[box.dataset.viewSpad]?.pad; if (sp) createPad(box, sp, { editable: false }); });
-    m.el.querySelector('[data-open-day]').onclick = () => { m.close(); daily(el, _p, x.date); window.scrollTo(0, 0); };
-  }));
-  // PDF: 여러 개를 골라 한 파일로
-  const picks = () => [...el.querySelectorAll('[data-pick]:checked')].map((c) => c.dataset.pick);
-  const syncPdf = () => {
-    const n = picks().length;
-    const b = el.querySelector('[data-pdf]');
-    if (b) { b.disabled = !n; b.textContent = n ? `PDF로 저장 (${n}개)` : 'PDF로 저장'; }
-  };
-  const setPicks = (fn) => { el.querySelectorAll('[data-pick]').forEach((c, i) => { c.checked = fn(i); }); syncPdf(); };
-  el.querySelectorAll('[data-pick]').forEach((c) => (c.onchange = syncPdf));
-  el.querySelector('[data-pickall]')?.addEventListener('click', () => setPicks(() => true));
-  el.querySelector('[data-pick10]')?.addEventListener('click', () => setPicks((i) => i < 10));
-  el.querySelector('[data-picknone]')?.addEventListener('click', () => setPicks(() => false));
-  el.querySelector('[data-pdf]')?.addEventListener('click', () => {
-    const ds = picks();
-    saveJournalsPdf(myLogs.filter((x) => ds.includes(x.date)).sort((a, b) => a.date.localeCompare(b.date)));
-  });
   // 1 몸 상태 → 2 일지 → 3 제출: 어디까지 썼는지 위 단계와 아래 저장 줄에 보여 줌
   const syncSteps = () => {
     const on = (n) => !!form.querySelector(`[name="${n}"]:checked`);
@@ -524,8 +519,9 @@ export async function daily(el, _p, date0) {
         return;
       }
     }
+    const PL = parentLinked(); const toParent = !!PL && d.toParent === 'on'; const shareText = d.shareText === 'on'; delete d.toParent; delete d.shareText;
     const data = {
-      ...d, date, uid: state.user.uid, name: state.profile.name,
+      ...d, date, uid: state.user.uid, name: state.profile.name, ...(PL ? { toParent } : {}), ...(PL || privJ ? { shared: shareText } : {}),
       condition: +d.condition || null, rpe: d.hurt ? null : +d.rpe || null, injury: +d.injury || 0, goalScore: +d.goalScore || null,
       hurt: d.hurt || '', hurtWhen: d.hurt ? (d.hurtWhen || '').trim() : '',
       sleep: sleepHours(d.bedtime, d.wakeTime), sleepMin: sleepMin(d.bedtime, d.wakeTime), updatedAt: serverTimestamp(),
@@ -549,12 +545,22 @@ export async function daily(el, _p, date0) {
     if (e.submitter) e.submitter.textContent = submit ? '제출하는 중…' : '저장하는 중…';
     try {
       // 한 번에 저장 (예전엔 두 번 따로 보내서 휴대폰에서 느렸음). 세션은 통째로 바꿈 (merge 는 지운 세션을 남겨 둠)
-      const ref = doc(db, ...base, `${state.user.uid}_${date}`);
+      const ref = jdoc(date);
       const b = writeBatch(db);
       b.set(ref, data, { merge: true });
       if (data.sessions) b.update(ref, { sessions: data.sessions });
       await b.commit();
-      toast(submit ? '일지를 제출했어요! 코치님이 확인할 거예요.' : '임시 저장했어요. 다 쓰면 제출하기를 눌러주세요.');
+      if (privJ) await pushToSpace(tid, data, shareText); // 개인 계정: 보호자가 보는 칸엔 숫자 기록 (+ 보여주기 켠 글)
+      // 듀얼: 보호자 공간에도 같은 일지 (끄면 보낸 것도 지움) — 실패해도 팀 일지는 이미 저장됨
+      let sent = false;
+      if (PL) {
+        const pref = doc(db, 'teams', PL.id, 'logs', `${state.user.uid}_${date}`);
+        try {
+          if (toParent) { await pushToSpace(PL.id, data, shareText, { fromTeam: state.team.name || '' }); sent = true; }
+          else await deleteDoc(pref).catch(() => {});
+        } catch { toast('개인 계정에는 올리지 못했어요. 잠시 뒤 다시 저장해 주세요.'); }
+      }
+      if (!(PL && toParent && !sent)) toast(`${submit ? '일지를 제출했어요! 코치님이 확인할 거예요.' : '임시 저장했어요. 다 쓰면 제출하기를 눌러주세요.'}${sent ? ' 개인 계정에도 올렸어요.' : ''}`);
       daily(el, _p, date);
     } catch (err) {
       fail(err);
@@ -562,6 +568,101 @@ export async function daily(el, _p, date0) {
       if (e.submitter && label) e.submitter.textContent = label;
     }
   };
+}
+
+// ───────── 내 일지 모아보기: 지난 일지를 책처럼 하루 한 장씩 (그날 뭐 했지) + 아래 전체 목록 · PDF ─────────
+//  ‹ › 버튼 · 키보드 ← → · 휴대폰은 옆으로 밀기 · 위 달 버튼 · 아래 목록에서 날짜 바로 가기
+export async function journalPage(el) {
+  const uid = state.user.uid; const tid = state.team.id;
+  const privJ = isPersonal() && !isCoach();
+  const [js, sp] = await Promise.all([
+    getDocs(privJ ? query(collection(db, 'users', uid, 'journal'), orderBy('date', 'desc'), limit(400))
+      : query(collection(db, 'teams', tid, 'logs'), where('uid', '==', uid), orderBy('date', 'desc'), limit(400))),
+    privJ ? getDocs(query(collection(db, 'teams', tid, 'logs'), where('uid', '==', uid))).catch(() => null) : null, // 보호자 한마디
+  ]);
+  const cc = new Map((sp?.docs || []).map((d) => [d.data().date, d.data()]));
+  const desc = js.docs.map((d) => { const x = d.data(); const c = cc.get(x.date); return c?.coachComment ? { ...x, coachComment: c.coachComment } : x; }).filter((x) => x.date);
+  const logs = [...desc].reverse(); // 책 순서: 오래된 날 → 최근
+  const back = '<a class="btn ghost" href="#/daily">오늘 기록으로</a>';
+  if (!logs.length) { el.innerHTML = `${pageHead('JOURNAL BOOK', '내 일지 모아보기', back)}${empty('아직 쓴 일지가 없어요. 오늘 기록에서 일지를 쓰면 여기에 한 장씩 모여요.')}`; return; }
+  let i = logs.length - 1;
+  try { const d = sessionStorage.getItem('ssaka.jb.at'); const n = logs.findIndex((x) => x.date === d); if (n >= 0) i = n; } catch { /* */ }
+  const months = [...new Set(logs.map((x) => x.date.slice(0, 7)))];
+  const W = ['일', '월', '화', '수', '목', '금', '토'];
+  const kindOf = (x) => x.kind || (x.match && (x.match.opponent || x.match.good) ? 'match' : 'train');
+  el.innerHTML = `${pageHead('JOURNAL BOOK', '내 일지 모아보기', back)}
+    <div class="jbook" tabindex="-1">
+      <div class="jb-months">${months.map((mo) => `<button type="button" class="chip" data-mo="${mo}">${mo.slice(2, 4)}년 ${+mo.slice(5)}월</button>`).join('')}</div>
+      <div class="jb-page" data-page></div>
+      <footer class="jb-foot"><button type="button" class="btn ghost" data-prev>‹ 이전 날</button><span data-jcnt></span><button type="button" class="btn ghost" data-next>다음 날 ›</button></footer>
+    </div>
+    <section class="card mylogs">
+      <div class="card-head"><h3>모든 일지</h3><small class="muted">${desc.length}개 · 누르면 위 책이 그 날로 넘어가요</small></div>
+      <div class="ml-tools">
+        <button type="button" class="chip" data-pickall>전체 선택</button>
+        <button type="button" class="chip" data-pick10>최근 10개</button>
+        <button type="button" class="chip" data-picknone>선택 해제</button>
+        <button type="button" class="btn sm" data-pdf disabled>PDF로 저장</button>
+      </div>
+      <ul class="mylog-list">${desc.map((x) => {
+        const st = x.checked ? '검사 완료' : x.submitted ? '제출함' : '작성 중';
+        return `<li data-mylog="${x.date}">
+          <label class="ml-check" title="PDF로 저장할 일지 고르기"><input type="checkbox" data-pick="${x.date}"></label>
+          <span class="date-badge">${esc(x.date.slice(5).replace('-', '.'))}</span>
+          <div><strong>${kindOf(x) === 'match' ? `경기${x.match?.opponent ? ` vs ${esc(x.match.opponent)}` : ''}` : '훈련'}${x.shared ? ' <span class="tag pl-tag">보호자님께 보여줌</span>' : ''}</strong>
+            <small class="${x.coachComment ? 'ml-cc' : ''}">${x.coachComment ? `${isPersonal() ? '보호자' : '코치'} 한마디: ${esc(x.coachComment.slice(0, 60))}` : st}</small></div>
+          <span class="tag ${x.checked ? 'solid' : ''}">${st}</span></li>`;
+      }).join('')}</ul>
+    </section>`;
+  const chip = (label, v) => (v == null || v === '' ? '' : `<span class="jb-chip"><small>${label}</small><b>${v}</b></span>`);
+  const draw = (dir = 0) => {
+    const x = logs[i]; const dt = new Date(`${x.date}T00:00`); const k = kindOf(x); const sl = sleepOf(x);
+    try { sessionStorage.setItem('ssaka.jb.at', x.date); } catch { /* */ }
+    const body = `${journalHtml(x) ? `<h4>훈련 일지</h4>${journalHtml(x)}` : ''}${matchHtml(x)}`;
+    const page = el.querySelector('[data-page]');
+    page.className = `jb-page ${dir > 0 ? 'in-r' : dir < 0 ? 'in-l' : ''}`;
+    page.innerHTML = `<div class="jb-date"><b>${dt.getMonth() + 1}월 ${dt.getDate()}일</b><span>${W[dt.getDay()]}요일 · ${dt.getFullYear()}</span>
+        <span class="tag ${k === 'match' ? 'solid' : ''}">${k === 'match' ? `경기${x.match?.opponent ? ` vs ${esc(x.match.opponent)}` : ''}` : '훈련'}</span>${x.shared ? '<span class="tag pl-tag">보호자님께 보여줌</span>' : ''}</div>
+      <div class="jb-chips">${chip('컨디션', x.condition != null ? `${x.condition}/5` : null)}${chip('수면', sl != null ? sleepLong(sl) : null)}${chip('자각도', x.rpe != null ? `${x.rpe}/10` : null)}${chip(k === 'match' ? '출전' : '훈련 시간', x.match?.minutes != null ? `${x.match.minutes}분` : x.trainMin != null ? `${x.trainMin}분` : null)}${chip('평점', x.match?.rating ? `${x.match.rating}/10` : null)}</div>
+      ${body || '<p class="muted jb-empty">이 날은 몸 상태만 적었어요.</p>'}
+      ${x.coachComment ? `<div class="coach-note"><span class="tag solid">${isPersonal() ? '보호자 한마디' : '코치 한마디'}</span><p>${text(x.coachComment)}</p></div>` : ''}
+      <div class="row end"><button type="button" class="link-btn small" data-pdf1>이 장 PDF로 저장</button><button type="button" class="link-btn small" data-edit>이 날 일지 열기 (고치기)</button></div>`;
+    page.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = x.match?.scenes?.[+box.dataset.viewPad]; if (sc?.pad) createPad(box, sc.pad, { editable: false }); });
+    page.querySelectorAll('[data-view-spad]').forEach((box) => { const sp2 = x.sessions?.[box.dataset.viewSpad]?.pad; if (sp2) createPad(box, sp2, { editable: false }); });
+    page.querySelector('[data-pdf1]').onclick = () => saveJournalsPdf([x]);
+    page.querySelector('[data-edit]').onclick = () => { try { sessionStorage.setItem('ssaka.daily.date', x.date); } catch { /* */ } go('/daily'); };
+    el.querySelector('[data-jcnt]').textContent = `${i + 1} / ${logs.length}`;
+    el.querySelector('[data-prev]').disabled = i === 0;
+    el.querySelector('[data-next]').disabled = i === logs.length - 1;
+    el.querySelectorAll('[data-mo]').forEach((b) => b.classList.toggle('active', b.dataset.mo === x.date.slice(0, 7)));
+    el.querySelectorAll('[data-mylog]').forEach((li) => li.classList.toggle('on', li.dataset.mylog === x.date));
+  };
+  const goTo = (n) => { n = Math.max(0, Math.min(logs.length - 1, n)); if (n === i) return; const d = n > i ? 1 : -1; i = n; draw(d); };
+  el.querySelector('[data-prev]').onclick = () => goTo(i - 1);
+  el.querySelector('[data-next]').onclick = () => goTo(i + 1);
+  el.querySelectorAll('[data-mo]').forEach((b) => (b.onclick = () => goTo(logs.findIndex((x) => x.date.startsWith(b.dataset.mo)))));
+  el.querySelectorAll('[data-mylog]').forEach((li) => (li.onclick = (e) => {
+    if (e.target.closest('.ml-check')) return; // 체크칸은 고르기만
+    goTo(logs.findIndex((x) => x.date === li.dataset.mylog));
+    el.querySelector('.jbook').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+  const key = (e) => { if (e.target.closest?.('input, textarea, select')) return; if (e.key === 'ArrowLeft') goTo(i - 1); if (e.key === 'ArrowRight') goTo(i + 1); };
+  document.addEventListener('keydown', key);
+  state.cleanup.push(() => document.removeEventListener('keydown', key));
+  // 휴대폰: 옆으로 밀어서 넘기기 (그림 위에서는 넘기지 않음)
+  let sx = null; const pg = el.querySelector('[data-page]');
+  pg.addEventListener('touchstart', (e) => { sx = e.target.closest('canvas') ? null : e.touches[0].clientX; }, { passive: true });
+  pg.addEventListener('touchend', (e) => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 60) goTo(i + (dx < 0 ? 1 : -1)); }, { passive: true });
+  // PDF: 여러 개를 골라 한 파일로
+  const picks = () => [...el.querySelectorAll('[data-pick]:checked')].map((c) => c.dataset.pick);
+  const syncPdf = () => { const n = picks().length; const b = el.querySelector('[data-pdf]'); b.disabled = !n; b.textContent = n ? `PDF로 저장 (${n}개)` : 'PDF로 저장'; };
+  const setPicks = (fn) => { el.querySelectorAll('[data-pick]').forEach((c, n) => { c.checked = fn(n); }); syncPdf(); };
+  el.querySelectorAll('[data-pick]').forEach((c) => (c.onchange = syncPdf));
+  el.querySelector('[data-pickall]').onclick = () => setPicks(() => true);
+  el.querySelector('[data-pick10]').onclick = () => setPicks((n) => n < 10);
+  el.querySelector('[data-picknone]').onclick = () => setPicks(() => false);
+  el.querySelector('[data-pdf]').onclick = () => { const ds = picks(); saveJournalsPdf(logs.filter((x) => ds.includes(x.date))); };
+  draw();
 }
 
 // 경기 일지 (코치 보기)

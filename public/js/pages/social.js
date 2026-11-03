@@ -33,7 +33,7 @@ export function searchPanel(el) {
   }));
 
   getDocs(query(collection(db, 'teams'), where('status', '==', 'active')))
-    .then((s) => { teamCache = s.docs.map((d) => ({ id: d.id, ...d.data() })).filter((t) => !t.hidden || t.id === state.team?.id); draw(); }) // 숨긴 팀(심사 · 시험용)은 목록에 안 나옴
+    .then((s) => { teamCache = s.docs.map((d) => ({ id: d.id, ...d.data() })).filter((t) => !t.hidden || (t.id === state.team?.id && !t.kind)); draw(); }) // 숨긴 팀(심사 · 시험용)은 목록에 안 나옴 · 지도자 계정 · 개인 계정은 자기 것도 안 나옴
     .catch(fail);
 }
 
