@@ -37,8 +37,13 @@ export function codeModal(code, title, kind = spaceKind()) {
   return m;
 }
 
+// 무료 체험은 한 아이디(이메일)당 한 번 — trials/{이메일} (규칙과 같은 열쇠)
+const trialKey = () => (auth.currentUser?.email || '').toLowerCase() || state.user.uid;
+const trialUsed = async () => { if (FREE_MODE || auth.demo) return false; try { return (await getDoc(doc(db, 'trials', trialKey()))).exists(); } catch { return false; } };
+
 // 팀 · 팀 코드 · 대표 지도자 입장을 한 번에 (하나라도 실패하면 전부 취소)
 async function makeTeam(info) {
+  const usedTrial = await trialUsed();
   const teamRef = doc(collection(db, 'teams'));
   let code = '';
   for (let i = 0; i < 5 && !code; i++) {
@@ -47,7 +52,9 @@ async function makeTeam(info) {
   }
   if (!code) throw new Error('팀 코드를 만들지 못했습니다. 다시 시도해 주세요.');
   const b = writeBatch(db);
-  b.set(teamRef, { ...info, status: 'active', ...(FREE_MODE ? { free: true } : { trial: true }) }); // 새 팀: 무료 체험으로 시작
+  // 새 팀: 베타는 무료 · 유료 전환 뒤엔 14일 체험 (이미 체험했으면 결제 대기로 만들고 바로 결제 화면)
+  b.set(teamRef, { ...info, ...(FREE_MODE ? { status: 'active', free: true } : usedTrial ? { status: 'pending' } : { status: 'active', trial: true }) });
+  if (!FREE_MODE && !usedTrial) b.set(doc(db, 'trials', trialKey()), { teamId: teamRef.id, uid: state.user.uid, createdAt: serverTimestamp() });
   b.set(doc(db, 'teamCodes', code), { teamId: teamRef.id, createdAt: serverTimestamp() });
   b.set(doc(db, 'teams', teamRef.id, 'private', 'billing'), { code, issuedAt: serverTimestamp() });
   b.set(doc(db, 'teams', teamRef.id, 'members', state.user.uid), {
@@ -61,7 +68,7 @@ async function makeTeam(info) {
   const next = FREE_MODE ? '/' : '/pay';
   if (location.hash === `#${next}`) { go(next); setTimeout(() => codeModal(code, undefined, info.kind || 'team'), 0); return; }
   const kind = info.kind || 'team';
-  window.addEventListener('hashchange', () => setTimeout(() => codeModal(code, FREE_MODE ? undefined : `${SPACES[kind].code}가 만들어졌어요 · ${TRIAL_DAYS}일 무료 체험 시작`, kind), 0), { once: true });
+  window.addEventListener('hashchange', () => setTimeout(() => codeModal(code, FREE_MODE ? undefined : usedTrial ? `${SPACES[kind].code}가 만들어졌어요 · 결제하면 바로 쓸 수 있어요` : `${SPACES[kind].code}가 만들어졌어요 · ${TRIAL_DAYS}일 무료 체험 시작`, kind), 0), { once: true });
   go(next);
 }
 
@@ -92,11 +99,17 @@ export function createTeam(el) {
       <p class="muted small">만들면 <b>보호자 코드</b>가 나와요. 선수가 자기 <b>선수 계정</b>으로 이 코드를 넣고 보호자가 승인하면 연결돼요. 선수가 클럽 팀에 있어도 팀은 그대로예요. 다른 팀에는 보이지 않아요.</p></div>
     ${FREE_MODE ? `<div class="price-box"><span>이용료</span><strong>무료</strong><small>만들면 바로 10자리 코드가 발급됩니다</small></div>
     <button class="btn full" data-go>만들고 코드 받기</button>` : `
-    <div class="price-box"><span>처음 ${TRIAL_DAYS}일</span><strong>무료 체험</strong><small>만들면 바로 코드가 발급돼요 · 체험이 끝나면 요금제를 골라 결제해야 계속 쓸 수 있어요</small></div>
+    <div data-trialbox><div class="price-box"><span>처음 ${TRIAL_DAYS}일</span><strong>무료 체험</strong><small>만들면 바로 코드가 발급돼요 · 체험은 한 아이디당 한 번 · 끝나면 요금제를 골라 결제해야 계속 쓸 수 있어요</small></div></div>
     <p class="muted small"><a href="#/pricing">요금 안내</a> · <a href="#/refund">환불정책</a></p>
     <button class="btn full" data-go>만들고 체험 시작</button>`}
   </form>`;
   const form = el.querySelector('form');
+  // 이미 체험한 아이디: 체험 대신 '만들고 결제하기'
+  trialUsed().then((u) => {
+    if (!u || !el.querySelector('[data-trialbox]')) return;
+    el.querySelector('[data-trialbox]').innerHTML = '<div class="price-box"><span>무료 체험</span><strong>이미 사용함</strong><small>무료 체험은 한 아이디당 한 번이에요 · 만들면 바로 요금제를 골라 결제해요</small></div>';
+    el.querySelector('[data-go]').textContent = '만들고 결제하기';
+  });
   // 고른 종류의 칸만 보이고 보냄 (숨긴 칸은 꺼서 필수 검사 · 제출에서 빠지게)
   const sync = () => {
     kind = form.querySelector('[name=kind]:checked').value;
@@ -161,7 +174,7 @@ function planCards(cycle, pick, need, only = null) {
     ${only ? '' : `<div class="plan-card legend t-legend"><b class="plan-name">${LEGEND.name}</b><small class="plan-sub">${LEGEND.sub}</small>${wasTag(LEGEND.list)}<strong class="plan-price sm">${LEGEND.price}</strong><ul><li>선수 ${LEGEND.players}</li><li>지도자 여러 명 · 여러 팀</li></ul><a class="btn ghost sm" href="#/support">운영자에게 상담</a></div>`}
   </div>`;
 }
-const cycleSeg = (cycle) => `<div class="seg plan-cycle">${Object.entries(CYCLES).map(([k, c]) => `<button type="button" class="${k === cycle ? 'on' : ''}" data-cycle="${k}">${c.label}${k === 'year' ? ' <small>2개월 무료</small>' : ''}</button>`).join('')}</div>`;
+const cycleSeg = (cycle) => `<div class="seg plan-cycle">${Object.entries(CYCLES).map(([k]) => `<button type="button" class="${k === cycle ? 'on' : ''}" data-cycle="${k}">${k === 'year' ? '12개월 한 번에 <small>2개월 무료</small>' : '1개월 · 매달 정기결제'}</button>`).join('')}</div>`;
 
 // 우리 팀 요금제 고르기: 선수 수 구간과 지도자 수 구간 중 높은 쪽 (선수 없이 지도자 3명까지는 가퍼)
 const TIERS = PLANS.filter((p) => p.players > 0);
@@ -225,11 +238,11 @@ export function pricing(el) {
       <h3>인원은 이렇게 세요</h3>${countRules}
       <h3>알아 두세요</h3>
       <ul>
-        <li>자동 결제가 아니에요. 이용기간이 끝나기 전에 팀 대표가 직접 연장 결제해요 (남은 기간에 이어서 늘어나요).</li>
-        <li>12개월 결제는 10개월 값이에요 — 두 달이 무료인 셈이에요.</li>
+        <li><b>1개월 요금제는 정기결제예요.</b> 처음 결제한 날부터 30일마다 같은 금액이 등록한 카드로 자동 결제돼요. 결제 화면에서 언제든 해지할 수 있고, 해지해도 이미 낸 기간은 끝까지 써요.</li>
+        <li><b>12개월 요금제는 한 번만 결제돼요</b> (자동으로 다시 결제되지 않아요). 10개월 값이라 두 달이 무료인 셈이에요.</li>
         <li>결제는 KG이니시스(포트원 결제 연동)로 안전하게 처리돼요 (신용 · 체크카드).</li>
         <li>결제하지 않아도 팀 기록은 지워지지 않아요. 다시 결제하면 그대로 이어서 써요.</li>
-        <li>환불은 <a href="#/refund">환불정책</a>을 따라요 — 결제 후 7일 안에 쓰지 않았으면 전액 환불돼요.</li>
+        <li>환불은 <a href="#/refund">환불정책</a>을 따라요 — 처음 결제는 7일 안이면 썼든 안 썼든 전액 환불돼요 (한 번만).</li>
       </ul>
       <div class="row">${state.user ? (state.team ? '<a class="btn" href="#/pay">우리 팀 결제하기</a>' : '<a class="btn" href="#/team/new">팀 만들고 무료 체험</a>') : '<a class="btn" href="#/signup">가입하고 무료 체험</a>'}<a class="btn ghost" href="#/refund">환불정책</a></div>
     </section>`;
@@ -250,11 +263,15 @@ export async function pay(el) {
     const ok = snap.docs.map((d) => d.data()).filter((m) => m.approved !== false);
     need = { players: ok.filter((m) => m.role === 'player').length, coaches: Math.max(1, ok.filter((m) => m.role === 'coach').length) };
   } catch { /* 못 읽으면 제한 없이 */ }
+  // 정기결제 상태 (서버만 씀 · 대표 · 운영자만 읽음)
+  let sub = null;
+  try { const sd = await getDoc(doc(db, 'subs', t.id)); sub = sd.exists() ? sd.data() : null; } catch { /* 못 읽으면 없음 */ }
+  const subOn = ['on', 'failed', 'error', 'starting'].includes(sub?.status);
   const personal = spaceKind(t) === 'personal'; // 개인 계정은 원더키드만
   const rec = personal ? WONDERKID : recommend(need.players, need.coaches).plan;
   let cycle = 'month';
   const pool = personal ? [WONDERKID] : PLANS;
-  let chosen = personal ? WONDERKID.id : (pl.kind === 'paid' && PLANS.find((p) => p.id === pl.plan && need.players <= p.players && need.coaches <= p.coaches)?.id) || rec?.id || null;
+  let chosen = subOn ? sub.plan : personal ? WONDERKID.id : (pl.kind === 'paid' && PLANS.find((p) => p.id === pl.plan && need.players <= p.players && need.coaches <= p.coaches)?.id) || rec?.id || null;
   const cur = () => { const p = pool.find((x) => x.id === chosen); return p ? { p, price: planPrice(p, cycle) } : null; };
   const fmtTel = (d) => (d.length > 7 ? `${d.slice(0, 3)}-${d.slice(3, d.length - 4)}-${d.slice(-4)}` : d);
   let payTel = fmtTel(String(state.profile?.payPhone || ''));
@@ -262,7 +279,10 @@ export async function pay(el) {
     const c = cur();
     const start = Math.max(Date.now(), pl.kind === 'paid' ? pl.until : 0);
     const end = start + CYCLES[cycle].days * 864e5;
-    el.innerHTML = `${pageHead('PAYMENT', pl.kind === 'paid' ? '이용기간 연장' : '요금제 고르기 · 결제')}
+    const isSub = cycle === 'month';
+    const next = c && isSub ? end : 0;
+    el.innerHTML = `${pageHead('PAYMENT', subOn ? '정기결제 관리' : pl.kind === 'paid' ? '이용기간 연장' : '요금제 고르기 · 결제')}
+    ${subOn || sub?.status === 'off' ? subBox(sub, pl) : ''}
     <section class="card plan-now ${pl.kind === 'none' ? 'need' : ''}">
       <div class="kv"><span>팀</span><strong>${esc(t.name)} · ${esc(t.category)}</strong></div>
       <div class="kv"><span>지금</span><strong>${esc(planLine(pl))}</strong></div>
@@ -270,7 +290,7 @@ export async function pay(el) {
       ${pl.kind === 'comp' ? '<p class="muted small">운영자 무료 제공 팀이라 결제하지 않아도 돼요.</p>' : ''}
       ${freeMode() && pl.kind !== 'paid' ? '<p class="plan-free-note">지금은 베타 기간이라 <b>결제하지 않아도 모든 기능을 무료로</b> 쓸 수 있어요. 유료로 바뀌기 30일 전에 알려 드려요.</p>' : ''}
     </section>
-    ${cycleSeg(cycle)}
+    ${subOn ? '<h3 class="sub-h">요금제 바꾸기 <small class="muted">다음 결제부터 바뀌어요</small></h3>' : cycleSeg(cycle)}
     ${personal ? '' : `<section class="card plan-calc">
       <h3>우리 팀 인원</h3>
       <div class="calc-grid">
@@ -281,33 +301,147 @@ export async function pay(el) {
     </section>`}
     <form data-planform>${planCards(cycle, true, personal ? null : need, personal ? [WONDERKID] : null)}</form>
     ${!rec ? '<p class="plan-alert">인원이 프리미어 요금제보다 많아요 — 인빈시블 요금제는 운영자에게 상담해 주세요.</p>' : ''}
-    <section class="card pay-sum">
-      <div class="kv"><span>요금제</span><strong>${c ? `${c.p.name} · ${CYCLES[cycle].label}` : '위에서 골라 주세요'}</strong></div>
-      <div class="kv"><span>이용기간</span><strong>${c ? `${fmtDate(new Date(start))} ~ ${fmtDate(new Date(end))}${pl.kind === 'paid' ? ' (남은 기간에 이어서)' : ''}` : '-'}</strong></div>
+    ${subOn ? `<section class="card pay-sum"><button type="button" class="btn full" data-subplan ${c && c.p.id !== sub.plan ? '' : 'disabled'}>${c && c.p.id !== sub.plan ? `다음 결제(${fmtDate(new Date(sub.nextAt?.toMillis?.() || pl.until || Date.now()))})부터 ${esc(c.p.name)} · 월 ${won(c.price)}으로 바꾸기` : '바꿀 요금제를 위에서 골라 주세요'}</button>
+      <p class="muted small">12개월로 바꾸려면 먼저 정기결제를 해지해 주세요 (낸 기간은 끝까지 써요).</p></section>` : `<section class="card pay-sum">
+      <div class="kv"><span>요금제</span><strong>${c ? `${c.p.name} · ${isSub ? '매달 정기결제' : '12개월 한 번 결제'}` : '위에서 골라 주세요'}</strong></div>
+      <div class="kv"><span>${isSub ? '첫 이용기간' : '이용기간'}</span><strong>${c ? `${fmtDate(new Date(start))} ~ ${fmtDate(new Date(end))}${pl.kind === 'paid' ? ' (남은 기간에 이어서)' : ''}` : '-'}</strong></div>
+      ${isSub && c ? `<div class="kv"><span>다음 자동 결제</span><strong>${fmtDate(new Date(next))} · 그 뒤 30일마다</strong></div>` : ''}
       ${c && need.players ? `<div class="kv"><span>선수 한 명당</span><strong>월 ${won(perHead(c.p, need.players, cycle))}</strong></div>` : ''}
-      <div class="price-box"><span>결제 금액 (부가세 포함)</span><strong>${c ? won(c.price) : '-'}</strong></div>
+      <div class="price-box"><span>${isSub ? '매달 결제 금액 (부가세 포함)' : '결제 금액 (부가세 포함)'}</span><strong>${c ? `${won(c.price)}${isSub ? '<i>/월</i>' : ''}` : '-'}</strong></div>
       <label class="pay-tel">구매자 휴대폰 번호 <small class="muted">(필수 · 결제 확인 · 영수증 안내용, KG이니시스 · 포트원에 전달)</small>
         <input type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" placeholder="010-1234-5678" data-paytel value="${esc(payTel)}"></label>
       <label class="pay-agree"><input type="checkbox" data-agree> <span>[필수] 결제 내용 · <a href="#/terms" target="_blank">이용약관</a> · <a href="#/refund" target="_blank">환불정책</a>을 확인했고 동의합니다</span></label>
-      <p class="muted small">자동 결제가 아니에요 — 한 번만 결제되고, 끝나기 전에 직접 연장해요. 결제 후 7일 안에 쓰지 않았으면 전액 환불돼요.</p>
-      <button type="button" class="btn full" data-paybtn ${c ? '' : 'disabled'}>${c ? `${won(c.price)} 결제하기` : '요금제를 골라 주세요'}</button>
+      ${isSub ? `<label class="pay-agree sub-agree"><input type="checkbox" data-subagree> <span>[필수] <b>정기결제에 동의합니다.</b> 오늘 ${c ? won(c.price) : ''}이 결제되고, 그 뒤 <b>30일마다${c ? ` (다음: ${fmtDate(new Date(next))})` : ''} 같은 금액이 등록한 카드로 자동 결제</b>돼요. 이 화면에서 언제든 해지할 수 있고, 해지해도 이미 낸 기간은 끝까지 써요.</span></label>
+      <p class="muted small">정기결제 — 처음에 카드를 한 번 등록하면 매달 자동으로 결제돼요. 결제 3일 전에 홈에서 알려 드려요. 처음 결제는 7일 안이면 썼든 안 썼든 전액 환불돼요 (한 번만).</p>`
+    : '<p class="muted small">12개월은 한 번만 결제돼요 — 자동으로 다시 결제되지 않아요. 처음 결제는 7일 안이면 썼든 안 썼든 전액 환불돼요 (한 번만).</p>'}
+      <button type="button" class="btn full" data-paybtn ${c ? '' : 'disabled'}>${!c ? '요금제를 골라 주세요' : isSub ? `월 ${won(c.price)} 정기결제 시작 (카드 등록)` : `${won(c.price)} 결제하기`}</button>
       ${PAY_TEST ? '<p class="muted small center">테스트 모드 — 실제로 돈이 나가지 않아요.</p>' : ''}
-    </section>
+    </section>`}
     <p class="muted small center"><a href="#/pricing">요금 안내</a> · <a href="#/refund">환불정책</a> · <a href="#/support">결제 문의</a></p>`;
     el.querySelectorAll('[data-cycle]').forEach((b) => (b.onclick = () => { cycle = b.dataset.cycle; draw(); }));
     el.querySelectorAll('[name=plan]').forEach((r) => { r.checked = r.value === chosen; r.onchange = () => { chosen = r.value; draw(); }; });
     const telIn = el.querySelector('[data-paytel]');
-    telIn.oninput = () => { const d = telIn.value.replace(/\D/g, '').slice(0, 11); telIn.value = d.length > 7 ? `${d.slice(0, 3)}-${d.slice(3, d.length - 4)}-${d.slice(-4)}` : d.length > 3 ? `${d.slice(0, 3)}-${d.slice(3)}` : d; payTel = telIn.value; };
-    el.querySelector('[data-paybtn]').onclick = (e) => {
+    if (telIn) telIn.oninput = () => { const d = telIn.value.replace(/\D/g, '').slice(0, 11); telIn.value = d.length > 7 ? `${d.slice(0, 3)}-${d.slice(3, d.length - 4)}-${d.slice(-4)}` : d.length > 3 ? `${d.slice(0, 3)}-${d.slice(3)}` : d; payTel = telIn.value; };
+    bindSubBox(el, t, sub);
+    el.querySelector('[data-subplan]')?.addEventListener('click', async (e) => {
+      const c2 = cur(); if (!c2) return;
+      if (!(await confirmBox(`다음 결제부터 ${c2.p.name} 요금제(월 ${won(c2.price)})로 바꿀까요?\n지금 이용기간은 그대로예요.`))) return;
+      await subCall('subPlan', { teamId: t.id, plan: c2.p.id }, e.currentTarget, '요금제를 바꿨어요. 다음 결제부터 적용돼요.');
+    });
+    el.querySelector('[data-paybtn]')?.addEventListener('click', (e) => {
       if (!cur()) return;
       const tel = payTel.replace(/\D/g, '');
       if (!/^01[016789]\d{7,8}$/.test(tel)) { el.querySelector('[data-paytel]').focus(); return toast('구매자 휴대폰 번호를 확인해 주세요 (예: 010-1234-5678).'); }
       if (!el.querySelector('[data-agree]').checked) return toast('결제 내용 · 이용약관 · 환불정책 동의에 체크해 주세요.');
+      if (cycle === 'month' && !el.querySelector('[data-subagree]')?.checked) return toast('정기결제 동의에 체크해 주세요.');
       if (tel !== String(state.profile.payPhone || '')) { state.profile.payPhone = tel; updateDoc(doc(db, 'users', state.user.uid), { payPhone: tel }).catch(() => {}); } // 다음 결제 때 미리 채움 (본인 · 운영자만 보는 개인 계정에만)
-      portoneCheckout(t, cur(), cycle, e.currentTarget);
-    };
+      if (cycle === 'month') billingCheckout(t, 'new', cur().p, e.currentTarget);
+      else portoneCheckout(t, cur(), cycle, e.currentTarget);
+    });
   };
   draw();
+}
+
+// ───────── 정기결제 (1개월 요금제) ─────────
+// 카드 등록(포트원 빌링키 발급창 · KG이니시스 정기결제 채널) → 서버가 첫 달 결제 + 다음 달 예약 · 매달 서버가 다음 달을 다시 예약
+const SUB_ST = { on: ['on', '정기결제 중'], starting: ['on', '시작하는 중'], failed: ['bad', '결제 실패'], error: ['bad', '예약 확인 필요'], off: ['off', '해지됨'] };
+const msOf = (v) => (v?.toMillis ? v.toMillis() : +v || 0);
+function subBox(sub, pl) {
+  const [cls, label] = SUB_ST[sub.status] || SUB_ST.off;
+  const p = ALL_PLANS.find((x) => x.id === sub.plan);
+  if (sub.status === 'off') {
+    return `<section class="card sub-box off"><div class="sub-top"><h3>정기결제</h3><span class="sub-st off">${label}</span></div>
+      <p class="muted">정기결제를 해지했어요${pl.kind === 'paid' ? ` — <b>${fmtDate(new Date(pl.until))}</b>까지 그대로 쓸 수 있어요` : ''}. 다시 쓰려면 아래에서 요금제를 고르고 결제하세요.</p></section>`;
+  }
+  return `<section class="card sub-box ${cls}">
+    <div class="sub-top"><h3>정기결제</h3><span class="sub-st ${cls}">${label}</span></div>
+    ${sub.status === 'failed' ? `<p class="plan-alert">카드 결제가 안 됐어요${sub.note ? ` (${esc(sub.note)})` : ''}. 카드를 바꾸거나 다시 결제해 주세요. ${pl.kind === 'paid' ? `${fmtDate(new Date(pl.until))}까지는 그대로 써요.` : ''}</p>` : ''}
+    ${sub.over ? `<p class="plan-alert">승인된 인원(선수 ${+sub.players || 0}명 · 지도자 ${+sub.coaches || 0}명)이 지금 요금제보다 많아요. 아래에서 더 큰 요금제로 바꿔 주세요.</p>` : ''}
+    ${sub.status === 'error' ? `<p class="plan-alert">${esc(sub.note || '다음 결제 예약을 확인해야 해요')} — [다시 예약]을 누르거나 운영자에게 문의해 주세요.</p>` : ''}
+    <div class="kv"><span>요금제</span><strong>${esc(p?.name || sub.plan || '-')} · 월 ${won(sub.price || 0)}</strong></div>
+    <div class="kv"><span>이용기간</span><strong>${pl.kind === 'paid' ? `${fmtDate(new Date(pl.until))}까지` : '-'}</strong></div>
+    <div class="kv"><span>다음 자동 결제</span><strong>${sub.status === 'on' && msOf(sub.nextAt) ? `${fmtDate(new Date(msOf(sub.nextAt)))} · ${won(sub.price || 0)}` : '-'}</strong></div>
+    <div class="kv"><span>결제 카드</span><strong>${esc(sub.card || '등록된 카드')}</strong></div>
+    <div class="row sub-act">
+      ${sub.status === 'failed' || sub.status === 'error' ? `<button type="button" class="btn" data-subretry>${sub.status === 'failed' ? '지금 다시 결제' : '다시 예약'}</button>` : ''}
+      <button type="button" class="btn ghost" data-subcard>카드 바꾸기</button>
+      <button type="button" class="btn ghost danger" data-subcancel>정기결제 해지</button>
+    </div>
+    <p class="muted small">해지하면 다음 결제부터 나가지 않고, 이미 낸 기간은 끝까지 써요. 결제 3일 전에 홈에서 알려 드려요.</p>
+  </section>`;
+}
+function bindSubBox(el, t, sub) {
+  el.querySelector('[data-subcard]')?.addEventListener('click', (e) => billingCheckout(t, 'card', null, e.currentTarget));
+  el.querySelector('[data-subretry]')?.addEventListener('click', (e) => subCall('subRetry', { teamId: t.id }, e.currentTarget, '결제했어요.'));
+  el.querySelector('[data-subcancel]')?.addEventListener('click', async (e) => {
+    if (!(await confirmBox(`정기결제를 해지할까요?\n\n다음 결제부터 나가지 않아요. ${teamPlan().kind === 'paid' ? `${fmtDate(new Date(teamPlan().until))}까지는 그대로 쓸 수 있어요.` : ''} 등록한 카드 정보도 지워져요.`))) return;
+    await subCall('subCancel', { teamId: t.id }, e.currentTarget, '정기결제를 해지했어요. 이미 낸 기간은 끝까지 써요.');
+  });
+}
+const buyer = () => ({ name: state.profile?.name || '', phone: String(state.profile?.payPhone || ''), email: state.user?.email || '' });
+async function subCall(step, body, btn, okMsg) {
+  if (auth.demo) return toast('체험 모드에서는 결제 · 해지가 되지 않아요.');
+  const label = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '처리하는 중…'; }
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const r = await fetch(`/api/pay?step=${step}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ ...body, ...buyer() }) });
+    const o = await r.json().catch(() => ({}));
+    if (!r.ok || !o.ok) throw new Error(o.message || '처리하지 못했어요. 잠시 후 다시 해 주세요.');
+    if (o.paymentId) return confirmPayment({ paymentId: o.paymentId });
+    await loadContext();
+    toast(okMsg);
+    await hooks.route();
+    return o;
+  } catch (err) { fail(err); } finally { if (btn?.isConnected) { btn.disabled = false; btn.textContent = label; } }
+  return null;
+}
+async function billingCheckout(t, mode, p, btn) {
+  if (auth.demo && !/^(localhost|127\.)/.test(location.hostname)) return toast('체험 모드에서는 결제되지 않아요.');
+  const label = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '카드 등록창 여는 중…'; }
+  try {
+    const token = auth.demo ? 'demo' : await auth.currentUser.getIdToken();
+    const [r] = await Promise.all([
+      fetch('/api/pay?step=subStart', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ teamId: t.id, plan: p?.id || '', mode }) }),
+      loadScript(PORTONE_SDK),
+    ]);
+    const o = await r.json().catch(() => ({}));
+    if (!r.ok || !o.ok) throw new Error(o.message || '카드 등록창을 열지 못했어요. 잠시 후 다시 해 주세요.');
+    if (typeof window.PortOne?.requestIssueBillingKey !== 'function') throw new Error('결제 모듈을 불러오지 못했어요. 새로고침해 주세요.');
+    try { sessionStorage.setItem('ssaka.billing', JSON.stringify({ issueId: o.issueId, teamId: t.id })); } catch { /* */ }
+    const b = buyer();
+    const res = await window.PortOne.requestIssueBillingKey({
+      storeId: o.storeId, channelKey: o.channelKey, billingKeyMethod: 'CARD', issueId: o.issueId, issueName: o.issueName,
+      customer: { customerId: state.user?.uid, fullName: b.name || '지도자', phoneNumber: b.phone.replace(/\D/g, ''), email: b.email || undefined },
+      redirectUrl: `${location.origin}${location.pathname}?pay=billing#/pay`, // 휴대폰: 카드 등록 화면에서 이 주소로 돌아옴
+    });
+    if (!res) return; // 휴대폰은 위 주소로 넘어감
+    if (res.code) throw new Error(res.message || '카드 등록이 취소되었어요.');
+    if (auth.demo) return toast('체험 모드라 카드 등록창까지만 확인했어요.');
+    await confirmBilling({ issueId: o.issueId, teamId: t.id, billingKey: res.billingKey });
+  } catch (err) {
+    fail(err);
+  } finally {
+    if (btn?.isConnected) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+// 카드 등록이 끝나면 (PC: 바로 · 휴대폰: ?pay=billing&billingKey= 로 돌아온 뒤): 서버가 확인 → 첫 결제 · 예약
+export async function confirmBilling({ issueId, teamId, billingKey }) {
+  try { const s = JSON.parse(sessionStorage.getItem('ssaka.billing') || 'null'); sessionStorage.removeItem('ssaka.billing'); issueId ||= s?.issueId; teamId ||= s?.teamId; } catch { /* */ }
+  const m = modal('<div class="loading">정기결제 확인 중… 창을 닫지 마세요</div>');
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const r = await fetch('/api/pay?step=subConfirm', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ issueId, teamId, billingKey, ...buyer() }) });
+    const o = await r.json().catch(() => ({}));
+    m.close();
+    if (!r.ok || !o.ok) throw new Error(o.message || '정기결제를 확인하지 못했어요. 돈이 나갔다면 운영자에게 문의해 주세요.');
+    if (o.paymentId) return confirmPayment({ paymentId: o.paymentId, sub: true });
+    await loadContext();
+    toast(o.again ? '이미 처리됐어요.' : '카드를 바꿨어요. 다음 결제부터 새 카드로 나가요.');
+    await hooks.route();
+  } catch (err) { m.close(); fail(err); }
+  return null;
 }
 
 // '결제하기'를 누르면: 포트원(PortOne V2) 결제창 — KG이니시스 채널 (포트원 콘솔에서 테스트 채널 → 심사 후 실연동 채널)
@@ -352,7 +486,7 @@ async function portoneCheckout(t, { p }, cycle, btn) {
 }
 
 // 결제창이 끝나면 (PC: 바로 · 휴대폰: ?pay=portone&paymentId= 로 돌아온 뒤): 서버가 포트원에서 확인 · 이용기간 연장 → 결과 창
-export async function confirmPayment({ paymentId }) {
+export async function confirmPayment({ paymentId, sub = false }) {
   const m = modal('<div class="loading">결제 확인 중… 창을 닫지 마세요</div>');
   try {
     const token = await auth.currentUser.getIdToken();
@@ -370,6 +504,7 @@ export async function confirmPayment({ paymentId }) {
     done.el.innerHTML = `<button class="modal-x">✕</button>
       <span class="eyebrow">PAYMENT COMPLETE</span><h2>결제 완료</h2>
       <p>${esc(res.planName || '')} 요금제로 <b>${esc(res.until || '')}</b>까지 쓸 수 있어요.</p>
+      ${sub || res.sub ? `<p class="muted">정기결제 중이에요 — <b>${esc(res.until || '')}</b>에 다음 달 요금이 자동으로 결제돼요. 결제 화면에서 언제든 해지할 수 있어요.</p>` : ''}
       ${res.receiptUrl ? `<p><a href="${esc(res.receiptUrl)}" target="_blank" rel="noopener">영수증 보기</a></p>` : ''}
       <div class="row end"><a class="btn" href="#/">홈으로</a></div>`;
     done.el.querySelector('.modal-x').onclick = () => done.close();

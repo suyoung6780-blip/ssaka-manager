@@ -7,6 +7,7 @@ import {
 import { esc, fmtDate, todayStr, fail, toast, modal } from '../ui.js';
 import { createPad } from '../tactic.js';
 import { state, inTeam, isSquad, isCoach, isOwner, teamActive, teamPlan, role, freeMode, hasFeature, isPersonal } from '../store.js';
+import { feed, onFeed, markAllSeen } from '../news.js';
 
 // 듀얼: 클럽 팀 선수 홈 맨 위 — 개인 계정 연결 상태 (연결됐으면 늘 보이게)
 function parentBand() {
@@ -268,6 +269,45 @@ async function todoPad(box) {
   draw();
 }
 
+// 새 소식 (선수: 나에 대한 것 · 공지 · 일정 … / 지도자: 선수들이 올린 것 · 다른 지도자 글 …) — 안 본 것만, 보면 사라짐
+function mountFeed(el) {
+  const box = el.querySelector('[data-feed]');
+  if (!box) return;
+  const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? '방금' : m < 60 ? `${m}분 전` : m < 1440 ? `${Math.round(m / 60)}시간 전` : `${Math.round(m / 1440)}일 전`; };
+  let open = false;
+  const draw = () => {
+    if (!box.isConnected) { off(); return; }
+    const f = feed();
+    if (!f.length) { box.innerHTML = ''; return; }
+    const show = open ? f.slice(0, 30) : f.slice(0, 5);
+    box.innerHTML = `<section class="card hf"><div class="hf-head"><h3>새 소식 <b class="cd-badge">${f.length}</b></h3><button type="button" class="link-btn small" data-hfall>모두 읽음</button></div>
+      <ul class="hf-list">${show.map((x) => `<li class="${x.me ? 'me' : ''}"><a href="${esc(x.href)}"><span class="hf-k">${esc(KIND[x.sec] || '')}</span><span class="hf-t">${esc(x.text)}</span><small>${ago(x.t)}</small></a></li>`).join('')}</ul>
+      ${f.length > 5 ? `<button type="button" class="link-btn small hf-more" data-hfmore>${open ? '접기' : `${f.length - 5}개 더 보기`}</button>` : ''}</section>`;
+    box.querySelector('[data-hfall]').onclick = () => markAllSeen();
+    box.querySelector('[data-hfmore]')?.addEventListener('click', () => { open = !open; draw(); });
+  };
+  const off = onFeed(draw);
+  state.cleanup.push(off);
+  draw();
+}
+const KIND = { '/notice': '공지', '/schedule': '일정', '/meeting': '미팅', '/training': '훈련', '/analysis': '영상', '/goals': '목표', '/journal-check': '일지', '/daily': '일지', '/gamemodel': '게임모델', '/chat': '대화', '/match-notes': '경기' };
+
+// 정기결제 알림 (팀 대표만): 자동 결제 3일 전 · 결제 실패 · 예약 확인 필요
+async function subNotice(el) {
+  const box = el.querySelector('[data-subnote]');
+  if (!box || !state.team) return;
+  try {
+    const d = await getDoc(doc(db, 'subs', state.team.id)); const s = d.exists() ? d.data() : null;
+    if (!s || !box.isConnected) return;
+    const at = s.nextAt?.toMillis ? s.nextAt.toMillis() : 0;
+    const won = (n) => `${(+n || 0).toLocaleString('ko-KR')}원`;
+    if (s.status === 'failed') box.outerHTML = `<a class="banner" href="#/pay">정기결제 카드 결제가 안 됐어요 — 카드를 바꾸거나 다시 결제해 주세요 →</a>`;
+    else if (s.over && s.status === 'on') box.outerHTML = `<a class="banner" href="#/pay">승인된 인원(선수 ${+s.players || 0}명)이 지금 요금제보다 많아요 — 다음 결제 전에 요금제를 올려 주세요 →</a>`;
+    else if (s.status === 'error') box.outerHTML = `<a class="banner" href="#/pay">정기결제 다음 결제 예약을 확인해 주세요 →</a>`;
+    else if (s.status === 'on' && at && at - Date.now() < 3 * 864e5 && at > Date.now()) box.outerHTML = `<a class="banner sub-soon" href="#/pay"><b>${fmtDate(new Date(at))}</b>에 정기결제 ${won(s.price)}이 자동 결제돼요 · 해지 · 카드 바꾸기는 결제 화면에서 →</a>`;
+  } catch { /* 못 읽으면 안 보여 줌 */ }
+}
+
 export async function render(el) {
   const t = state.team;
 
@@ -278,8 +318,8 @@ export async function render(el) {
       <div class="tiles">
         ${pending ? `<a class="tile" href="#/pay"><span class="eyebrow">PENDING</span><h3>${esc(t.name)} 결제하기</h3><p>결제가 완료되면 팀 코드가 발급되고 락커룸이 열립니다.</p></a>` : `
         ${role() === 'coach' ? (state.profile?.parent
-    ? `<a class="tile" href="#/team/new"><span class="eyebrow">CREATE</span><h3>개인 계정 만들기</h3><p>선수 이름 입력 → 바로 보호자 코드 발급${FREE_MODE ? ' (무료)' : ' · 10일 무료 체험'}</p></a>`
-    : `<a class="tile" href="#/team/new"><span class="eyebrow">CREATE</span><h3>새로 만들기</h3><p>팀 계정 · 지도자 계정 중에서 골라요${FREE_MODE ? ' (무료)' : ' · 10일 무료 체험'}</p></a>`) : ''}
+    ? `<a class="tile" href="#/team/new"><span class="eyebrow">CREATE</span><h3>개인 계정 만들기</h3><p>선수 이름 입력 → 바로 보호자 코드 발급${FREE_MODE ? ' (무료)' : ' · 14일 무료 체험 (한 아이디당 한 번)'}</p></a>`
+    : `<a class="tile" href="#/team/new"><span class="eyebrow">CREATE</span><h3>새로 만들기</h3><p>팀 계정 · 지도자 계정 중에서 골라요${FREE_MODE ? ' (무료)' : ' · 14일 무료 체험 (한 아이디당 한 번)'}</p></a>`) : ''}
         ${state.profile?.parent ? '' : `<a class="tile" href="#/team/join"><span class="eyebrow">JOIN</span><h3>코드로 입장</h3><p>팀 코드 · 지도자 코드 · 보호자 코드를 넣고 들어가요.</p></a>`}`}
         <a class="tile" href="#/me"><span class="eyebrow">PROFILE</span><h3>내 프로필</h3><p>사진 · 키 · 몸무게 · 포지션</p></a>
       </div>
@@ -381,6 +421,8 @@ export async function render(el) {
   const head = `${morningHead(stats)}
   ${!teamActive() ? `<div class="banner">팀 이용기간이 만료되었습니다. ${isOwner() ? '<a href="#/pay">연장 결제 →</a>' : '팀 관리자에게 문의하세요.'}</div>` : ''}
   ${planBanner()}
+  ${isOwner() ? '<div data-subnote></div>' : ''}
+  ${inTeam() ? '<div data-feed></div>' : ''}
   ${waitingN ? `<a class="banner wait-banner" href="#/locker">입장 승인 대기 <b>${waitingN}명</b> — 락커룸에서 승인해 주세요 →</a>` : ''}`;
 
   if (coach) {
@@ -392,6 +434,7 @@ export async function render(el) {
     ${weekCard}
     <div class="home-grid two"><div data-todo></div>${noticeCard}</div>`;
     startClock(el);
+    subNotice(el); mountFeed(el);
     todoPad(el.querySelector('[data-todo]'));
     homeIdpCard(el.querySelector('[data-idp]'));
     await coachDesk(el.querySelector('[data-desk]'), { sched: schedAll, matches: allMatches, plans, players, logs: logs7 || [], todaySubmitted: submitted.length });
@@ -409,6 +452,7 @@ export async function render(el) {
   ${weekCard}
   <div class="home-grid two"><div data-todo></div>${noticeCard}</div>`;
   startClock(el);
+  mountFeed(el);
   todoPad(el.querySelector('[data-todo]'));
   homeIdpCard(el.querySelector('[data-idp]'));
   if (hero) homePlayerHero(el.querySelector('[data-phero]'));
@@ -419,8 +463,9 @@ export async function render(el) {
 // ───────── 개인 계정 · 보호자 홈: 아이 연결 상태 + 자주 쓰는 곳 ─────────
 async function parentHome(el) {
   const t = state.team;
-  el.innerHTML = `${morningHead()}<div data-pbody class="muted small">불러오는 중…</div>`;
+  el.innerHTML = `${morningHead()}${isOwner() ? '<div data-subnote></div>' : ''}<div data-feed></div><div data-pbody class="muted small">불러오는 중…</div>`;
   startClock(el);
+  subNotice(el); mountFeed(el);
   let kids = []; let code = ''; let shared = [];
   try {
     const [ms, bill, sh] = await Promise.all([getDocs(collection(db, 'teams', t.id, 'members')), getDoc(doc(db, 'teams', t.id, 'private', 'billing')),

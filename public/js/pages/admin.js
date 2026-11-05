@@ -89,7 +89,10 @@ function usage(t) {
   if (t.free) return ['무료(시범)', ''];
   if (t.status === 'pending') return ['결제 대기', 'warn'];
   const until = t.paidUntil?.toMillis?.() || 0;
-  return until > Date.now() ? [`유료 ~${fmtDate(t.paidUntil)}`, ''] : ['만료', 'warn'];
+  // 첫 결제 7일 안: 쓰든 안 쓰든 전액 환불 대상 (환불 요청이 오면 여기서 확인)
+  const fp = t.firstPaidAt?.toMillis?.() || 0;
+  const r7 = fp && Date.now() < fp + 7 * 864e5 ? ` · 첫 결제 7일 전액 환불 ~${fmtDate(new Date(fp + 7 * 864e5))}` : '';
+  return until > Date.now() ? [`유료 ~${fmtDate(t.paidUntil)}${r7}`, ''] : ['만료', 'warn'];
 }
 
 export async function teams(el) {

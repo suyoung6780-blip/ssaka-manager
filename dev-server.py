@@ -96,6 +96,13 @@ class Handler(SimpleHTTPRequestHandler):
         n = int(self.headers.get('Content-Length') or 0)
         q = json.loads(self.rfile.read(n) or b'{}')
         J = lambda o: self.send_bytes(json.dumps(o, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
+        if step == 'subStart':  # 체험 모드: 정기결제 카드 등록창까지만 (PORTONE_BILLING_CHANNEL_KEY 를 넣고 켜면 열림)
+            sid, bck = os.environ.get('PORTONE_STORE_ID', ''), os.environ.get('PORTONE_BILLING_CHANNEL_KEY', '')
+            if not (sid and bck):
+                return J({'ok': False, 'message': '데모: 포트원 상점 아이디 · 정기결제 채널 키가 아직 없어요.'})
+            return J({'ok': True, 'storeId': sid, 'channelKey': bck, 'issueId': f"DEMO-bk-{int(_t.time() * 1000)}", 'issueName': '싸카매니저 정기결제 카드 등록'})
+        if step.startswith('sub'):
+            return J({'ok': False, 'message': '체험 모드에서는 정기결제가 되지 않아요.'})
         if step == 'complete':  # 체험 모드: 승인 확인 · 기간 연장은 하지 않음
             return J({'ok': False, 'message': '체험 모드라 결제창까지만 확인했어요 (기간 연장은 실제 사이트에서). 테스트 결제는 포트원이 자동으로 취소해요.'})
         sid, ck = os.environ.get('PORTONE_STORE_ID', ''), os.environ.get('PORTONE_CHANNEL_KEY', '')

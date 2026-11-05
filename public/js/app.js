@@ -53,7 +53,7 @@ const lazy = (load, name) => async (el, params) => {
 const L = {
   admin: () => import('./pages/admin.js'), support: () => import('./pages/support.js'), guide: () => import('./pages/guide.js'),
   community: () => import('./pages/community.js'), analysis: () => import('./pages/analysis.js'), goalAna: () => import('./proto/goalAna.js'),
-  notes: () => import('./pages/notes.js'), refund: () => import('./pages/refund.js'),
+  notes: () => import('./pages/notes.js'), refund: () => import('./pages/refund.js'), matchNotes: () => import('./pages/matchNotes.js'),
 };
 const routes = [
   ['/login', authPages.login, 'public'],
@@ -69,6 +69,8 @@ const routes = [
   ['/idp', idp.page, 'squad'],
   ['/idp/:uid', idp.page, 'squad'],
   ['/records', team.records, 'squad'],
+  ['/match-notes', lazy(L.matchNotes, 'page'), 'squad'], // 경기 노트 (지도자 · 경기 중 메모 / 선수 · 나에게 온 피드백)
+  ['/match-notes/:id', lazy(L.matchNotes, 'page'), 'coach'],
   ['/data', data.page, 'squad'],
   ['/training', trainingDaily.daily, 'squad'],
   ['/training/notes', trainingDaily.notes, 'coach'],
@@ -87,6 +89,8 @@ const routes = [
   ['/daily', personal.daily, 'player'], // 오늘 기록은 선수만
   ['/journal', personal.journalPage, 'player'], // 내 일지 모아보기 (책처럼)
   ['/journal-check', personal.journalCheck, 'coach'],
+  ['/journal-roll', personal.journalRoll, 'coach'], // 일지 몰아보기 (날짜별 · 선수별)
+  ['/journal-check/:uid', personal.journalPage, 'coach'], // 선수 한 명의 역대 일지
   ['/scout', social.scout, 'coach'],
   ['/teams/:id', social.teamView],
   ['/chat', social.chatList, 'coach'],
@@ -273,7 +277,7 @@ function navItems() {
   sec('HOME', [['/', '홈'], ...(player ? [['/daily', '오늘 기록'], ['/journal', '내 일지']] : [])]);
   sec('TEAM', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄'], ...(squad ? [['/locker', '락커룸']] : []), ...(coach ? [['/chat', '팀 대화']] : [])] : []);
   sec('TRAINING', squad ? [['/gamemodel', '게임모델'], ['/training', '훈련장'], ...(coach ? [['/tactics', '전술보드']] : []), ...(hasFeature('proto3') ? [['/analysis', '영상룸']] : []), ['/meeting', '미팅룸']] : []);
-  sec('MATCH', squad ? (hasFeature('proto3') ? [['/records', '기록실'], ['/analysis/goals', '분석실']] : [['/records', '경기 기록실'], ['/analysis', '분석실']]) : []);
+  sec('MATCH', squad ? [...(hasFeature('proto3') ? [['/records', '기록실'], ['/analysis/goals', '분석실']] : [['/records', '경기 기록실'], ['/analysis', '분석실']]), ['/match-notes', '경기 노트']] : []);
   sec('GROWTH', squad ? [...(hasFeature('proto3') ? [['/idp', '성장 평가']] : []), ['/goals', '목표'], ['/data', '데이터실'], ...(coach ? [['/journal-check', '일지검사']] : [])] : []);
   sec('MY', [['/me', '프로필'], ...(coach ? [['/notes', '코치 노트'], ['/scout', '스카웃 노트']] : [])]);
   sec('COMMUNITY', coach ? [['/community/training', '훈련 공유'], ['/community/talk', '지도자 게시판']] : []);
@@ -373,6 +377,13 @@ async function handlePaymentReturn() {
   const q = new URLSearchParams(location.search);
   if (!q.has('pay')) return;
   history.replaceState(null, '', location.pathname + location.hash);
+  // 정기결제 카드 등록: ?pay=billing&billingKey=…(&code=…&message=…)
+  if (q.get('pay') === 'billing') {
+    if (q.get('code') || !q.get('billingKey')) { toast(`카드 등록이 취소되었거나 실패했습니다. ${q.get('message') || ''}`); return; }
+    if (auth.demo) { toast('체험 모드라 카드 등록창까지만 확인했어요.'); return; }
+    await onboard.confirmBilling({ billingKey: q.get('billingKey') });
+    return;
+  }
   if (q.get('code') || !q.get('paymentId')) {
     toast(`결제가 취소되었거나 실패했습니다. ${q.get('message') || ''}`);
     return;

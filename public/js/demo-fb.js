@@ -252,7 +252,17 @@ if (LOCAL) {
     video: { url: '/__media/u12a.mp4', name: 'u12a.mp4' }, events: [], halfStart: {}, authorName: '김코치', createdAt: now() });
 }seed('teams/T1/matches/m0', { date: '2025-11-08', matchType: '대회', ageGroup: 'U13', opponent: '성남FC U13', gf: 3, ga: 2, scorers: [{ name: '이선수', goals: 1 }], assists: [] });
 seed('teams/T1/matches/m00', { date: '2025-09-20', matchType: '연습경기', ageGroup: 'U15', opponent: '수원 U15', gf: 1, ga: 1, scorers: [], assists: [] });
-seed('teams/T1/matches/m1', { date: today, matchType: '리그', ageGroup: 'U15', opponent: 'A', gf: 2, ga: 1, scorers: [{ name: '박선수', goals: 2 }], assists: [] });
+seed('teams/T1/matches/m1', { date: today, matchType: '리그', ageGroup: 'U15', opponent: 'A', gf: 2, ga: 1, scorers: [{ name: '박선수', goals: 2 }], assists: [], noteId: 'mnDemo' });
+// 경기 노트 예시 (m1 경기와 연결) — 박선수(p1)에게 보여 준 메모 2개 · 지도자끼리 메모 2개
+{
+  const t0 = Date.now() - 3 * 3600e3;
+  seed('teams/T1/matchNotes/mnDemo', { opponent: 'A', date: today, periods: 2, plen: 25, matchId: 'm1', clock: { phase: 'end', idx: 1 }, count: 4, seenUids: ['p1'], seenAtBy: { p1: Date.now() - 2 * 3600e3 }, by: '김코치', byUid: U, createdAt: now(), updatedAt: now() });
+  [['경기 전', -1, '상대 4-4-2 · 9번 발 빠름', [], false],
+    ['전반 8′', 0, '뒷공간 침투 타이밍 아주 좋았어 — 첫 골 장면처럼 계속', ['p1'], true],
+    ['전반 21′', 0, '왼쪽 수비 전환 늦음 · 라인 맞추기', ['p2'], false],
+    ['후반 14′', 1, '두 번째 골 전 압박 시작이 좋았어 · 체력 관리는 같이 보자', ['p1'], true]]
+    .forEach(([label, p, text, uids, shared], i) => seed(`teams/T1/matchNotes/mnDemo/items/d${i}`, { label, p, m: 0, text, at: t0 + i * 600e3, by: '김코치', byUid: U, uids, shared, seeUids: shared ? uids : [], createdAt: now() }));
+}
 seed('teams/T1/matches/m2', { date: (() => { const d = new Date(); d.setDate(d.getDate() - 3); return ymd(d); })(), matchType: '스토브리그', ageGroup: 'U14', opponent: 'B', gf: 0, ga: 0, scorers: [], assists: [] });
 seed('teams/T1/goals/g1', { scope: 'team', title: '리그 3위 이내', category: '결과 · 성적', period: '시즌', due: '2026-11-30', target: 3, current: 5, unit: '위', lower: true, desc: '남은 6경기 4승 이상', status: 'doing', ownerUid: U, createdAt: now() });
 seed('teams/T1/goals/g3', { scope: 'team', title: '클린시트 10경기', category: '경기력', period: '시즌', target: 10, current: 4, unit: '경기', status: 'doing', ownerUid: U, createdAt: now() });
@@ -298,7 +308,7 @@ seed(`teams/T1/logs/p1_${today}`, {
   },
 });
 { const d2 = (() => { const d = new Date(); d.setDate(d.getDate() - 2); return ymd(d); })();
-  seed(`teams/T1/logs/p1_${d2}`, { uid: 'p1', name: '박선수', date: d2, kind: 'train', condition: 4, sleep: 8, rpe: 3, trainMin: 60, sleepQ: 4, injury: 0, submitted: true, submittedAt: now(), checked: true, coachComment: '회복 훈련도 성실하게 잘했어!',
+  seed(`teams/T1/logs/p1_${d2}`, { uid: 'p1', name: '박선수', date: d2, kind: 'train', condition: 4, sleep: 8, rpe: 3, trainMin: 60, sleepQ: 4, injury: 0, submitted: true, submittedAt: now(), checked: true, checkedAt: now(), coachComment: '회복 훈련도 성실하게 잘했어!',
     sessions: { 'dl2-0': { name: '회복 조깅', focus: 4, good: '천천히 끝까지 뛰었어요', hard: '', next: '' }, 'dl2-1': { name: '스트레칭', focus: 3, good: '', hard: '햄스트링이 뻣뻣해요', next: '집에서도 스트레칭', ask: '햄스트링 스트레칭은 몇 초씩 하면 돼요?' } },
     answers: { 'dl2-1': { text: '한 번에 30초씩, 양쪽 3번! 반동 주지 말고 천천히 늘려 줘.', by: '김코치' } },
     learned: '회복도 훈련이다', tomorrow: '압박 탈출 연습' }); }
@@ -407,6 +417,12 @@ if (QS.has('dual')) {
   seed('teams/TP1/members/p1', { name: '박선수', role: 'player', position: 'ST', number: '9', dual: true, approved: QS.get('dual') !== 'wait' });
   const pl = store.get('users/p1'); if (pl) pl.parentSpace = 'TP1';
 }
+// ?sub=on · ?sub=failed · ?sub=off → 결제 화면의 정기결제 칸 · 홈 알림 미리 보기
+if (QS.get('sub')) {
+  const nx = Date.now() + 2 * 864e5;
+  Object.assign(store.get('teams/T1'), { free: false, plan: 'pro', planCycle: 'month', paidUntil: Timestamp.fromMillis(nx) });
+  seed('subs/T1', { uid: U, plan: 'pro', price: 44900, status: QS.get('sub'), card: '신한카드 · 1234', nextAt: QS.get('sub') === 'on' ? Timestamp.fromMillis(nx) : null, note: QS.get('sub') === 'failed' ? '잔액 부족' : '', startedAt: Timestamp.fromMillis(Date.now() - 28 * 864e5) });
+}
 if (QS.get('space') === 'gaffer') Object.assign(store.get('teams/T1'), { kind: 'gaffer', hidden: true, name: '수원 유소년 지도자 계정', category: '지도자 계정' });
 const FRESH = QS.has('new');
 // 데모 계정: 이메일 · 비밀번호 · 인증 여부를 이 브라우저에 기억 (새로고침해도 유지)
@@ -453,7 +469,7 @@ const PROF_KEY = 'ssaka.demo.profiles';
 try { Object.entries(JSON.parse(localStorage.getItem(PROF_KEY) || '{}')).forEach(([k, v]) => store.set(k, v)); } catch { /* */ }
 const saveProfiles = () => { try { localStorage.setItem(PROF_KEY, JSON.stringify(Object.fromEntries([...store].filter(([k]) => /^users\/u-[^/]+$/.test(k))))); } catch { /* */ } };
 // 시제품 3.0: 이 컴퓨터에서 고친 IDP · 경기분석 작업 기록 · 목표는 새로고침해도 남게 (처음 상태로: 주소 끝에 ?p3reset=1)
-const P3_KEY = 'ssaka-demo-p3'; const P3_RE = /^teams\/T1\/(idp\/|idpConfig\/|matchWork\/|goals\/|matches\/|logs\/|posts\/(p3match|match1)$)/;
+const P3_KEY = 'ssaka-demo-p3'; const P3_RE = /^teams\/T1\/(idp\/|idpConfig\/|matchWork\/|matchNotes\/|goals\/|matches\/|logs\/|posts\/(p3match|match1)$)/;
 if (LOCAL && !QS.get('space')) { try { if (QS.has('p3reset')) localStorage.removeItem(P3_KEY); else Object.entries(JSON.parse(localStorage.getItem(P3_KEY) || '{}')).forEach(([k, v]) => store.set(k, v)); } catch { /* */ } }
 const saveP3 = () => { if (!LOCAL || QS.get('space')) return; // 개인 · 모임 미리 보기에서 바꾼 건 팀 데모에 안 남김
   try { localStorage.setItem(P3_KEY, JSON.stringify(Object.fromEntries([...store].filter(([k]) => P3_RE.test(k))))); } catch { /* */ } };

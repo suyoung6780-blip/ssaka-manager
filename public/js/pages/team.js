@@ -528,12 +528,13 @@ export async function records(el) {
         ${rows.map((m) => `<tr data-mid="${m.id}"><td>${esc(m.date)}</td><td>${esc(m.matchType)}</td>${groups.length ? `<td>${esc(m.ageGroup || '-')}</td>` : ''}<td>${esc(m.opponent)}${m.venue ? ` <small>(${m.venue === 'home' ? '홈' : '원정'})</small>` : ''}</td>
           <td><span class="res ${result(m)}">${result(m)}</span> <strong>${+m.gf} : ${+m.ga}</strong></td>
           <td><small>${(m.scorers || []).map((s) => `${esc(s.name)}${+s.goals > 1 ? `(${s.goals})` : ''}`).join(', ')}</small></td>
-          <td>${isCoach() ? '<button class="link-btn small" data-edit>수정</button>' : ''}</td></tr>`).join('')}</table>` : empty('경기 기록이 없습니다.')}
+          <td>${m.noteId ? '<button class="link-btn small" data-memo>경기 노트</button> ' : ''}${isCoach() ? '<button class="link-btn small" data-edit>수정</button>' : ''}</td></tr>`).join('')}</table>` : empty('경기 기록이 없습니다.')}
     </section>`;
 
     GL.bindFilterBar(el, flt, draw);
     el.querySelector('[data-new]')?.addEventListener('click', () => matchForm());
     el.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => matchForm(ms.find((m) => m.id === b.closest('tr').dataset.mid))));
+    el.querySelectorAll('[data-memo]').forEach((b) => (b.onclick = () => matchMemos(ms.find((m) => m.id === b.closest('tr').dataset.mid))));
     el.querySelectorAll('.gl-prop').forEach((card) => {
       const g = gathered[+card.dataset.gi];
       card.querySelector('[data-gl-skip]').onclick = () => { dismissed.add(g.key + g.logIds.join(',')); try { localStorage.setItem(DKEY, JSON.stringify([...dismissed])); } catch { /* */ } draw(); };
@@ -556,6 +557,21 @@ export async function records(el) {
   // 선수는 UID로 고름 (이름도 함께 저장 · 예전 기록은 이름이 같은 선수로 표시)
   const pickRow = (s = {}) => `<div class="pick"><select><option value="">선수 선택</option>${[...players].sort(byName).map((p) => `<option value="${esc(p.id)}" ${s.uid ? (s.uid === p.id ? 'selected' : '') : s.name === p.name ? 'selected' : ''}>${esc(p.number ? `${p.number} ` : '')}${esc(p.name)}</option>`).join('')}<option value="자책골" ${s.name === '자책골' ? 'selected' : ''}>상대 자책골</option></select>
     <input type="number" min="1" max="20" value="${esc(s.goals || 1)}"><button type="button" class="link-btn" data-rm>✕</button></div>`;
+
+  // 경기 노트 메모 (지도자: 전부 · 선수: 코치님이 나에게 보여 준 메모만)
+  async function matchMemos(m) {
+    const coach = isCoach();
+    const md = modal(`<span class="eyebrow">MATCH NOTE · ${esc(m.date)}</span><h2>vs ${esc(m.opponent || '')} <small>${+m.gf} : ${+m.ga}</small></h2><div data-mm class="muted">불러오는 중…</div>`, { wide: true });
+    try {
+      const { memosFor } = await import('./matchNotes.js');
+      const rows = await memosFor(m.noteId, coach);
+      const nm = (u) => { const p = players.find((x) => x.id === u); return p ? `${p.number ? `${p.number} ` : ''}${p.name}` : ''; };
+      md.el.querySelector('[data-mm]').outerHTML = rows.length ? `<div class="mn-items read">${rows.map((x) => `<div class="mn-item"><span class="mn-t">${esc(x.label)}</span><p>${(x.uids || []).length ? `<span class="mn-who">${x.uids.map(nm).filter(Boolean).map((w) => `<b>${esc(w)}</b>`).join('')}${coach && x.shared ? '<em>선수에게 보임</em>' : ''}</span>` : ''}${text(x.text)}</p></div>`).join('')}</div>
+        ${coach ? `<div class="row end"><a class="btn ghost sm" href="#/match-notes/${esc(m.noteId)}">경기 노트 열기</a></div>` : '<p class="muted small">코치님이 나에게 보여 준 메모예요.</p>'}`
+        : `<p class="muted">${coach ? '이 경기 노트에 아직 메모가 없어요.' : '코치님이 나에게 보여 준 메모가 아직 없어요.'}</p>`;
+      md.el.querySelector('a.btn')?.addEventListener('click', () => md.close());
+    } catch (err) { md.close(); fail(err); }
+  }
 
   function matchForm(m = {}, note = '') {
     const md = modal(`

@@ -21,7 +21,7 @@ export function seasonData(links, idpList) {
   (links.logs || []).forEach((l) => {
     const mj = l.match || {};
     const isMatch = l.kind === 'match' || mj.minutes != null && mj.minutes !== '' || mj.rating != null || (mj.scenes || []).length || mj.good || mj.bad;
-    if (!isMatch) return;
+    if (!isMatch || mj.played === false) return; // 안 뛴 경기는 출전에서 뺌
     const r = row(l.date);
     if (!r.type && mj.type) r.type = mj.type;
     if (!r.opp && mj.opponent) r.opp = mj.opponent;

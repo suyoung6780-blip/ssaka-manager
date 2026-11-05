@@ -55,7 +55,7 @@ export function seatLimit(t = state.team) {
   const pl = p.kind === 'paid' && PLANS.find((x) => x.id === p.plan);
   return pl ? { player: pl.players, coach: pl.coaches, name: pl.name } : null;
 }
-// 이용 가능: 결제 기간 안 · 운영자 무료 제공 · 새 팀 체험 10일 · 예전 팀 무료 기간
+// 이용 가능: 결제 기간 안 · 운영자 무료 제공 · 새 팀 체험 14일 · 예전 팀 무료 기간
 export const teamActive = () => !!state.team && teamPlan().kind !== 'none';
 export const teamPath = (...p) => ['teams', state.team.id, ...p].join('/');
 
