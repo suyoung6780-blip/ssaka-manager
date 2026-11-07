@@ -32,10 +32,10 @@ FS = f'https://firestore.googleapis.com/v1/projects/{PROJECT}/databases/(default
 DOCS = f'projects/{PROJECT}/databases/(default)/documents'
 API = 'https://api.portone.io'
 # public/js/config.js 의 PLANS · CYCLES 와 같아야 함
-PLANS = {'wonderkid': ('원더키드', 9900), 'gaffer': ('가퍼', 14900), 'rising': ('넌리그', 29900), 'pro': ('챔피언십', 44900), 'champion': ('프리미어', 59900)}
+PLANS = {'wonderkid': ('원더키드', 9900), 'gaffer': ('가퍼', 14900), 'grassroots': ('그래스루츠', 19900), 'rising': ('넌리그', 29900), 'pro': ('챔피언십', 44900), 'champion': ('프리미어', 59900)}
 CYCLES = {'month': ('1개월', 30, 1), 'year': ('12개월', 365, 10)}
 # 요금제 인원 (승인된 선수, 지도자) — public/js/config.js 의 players · coaches 와 같아야 함
-CAPS = {'wonderkid': (1, 1), 'gaffer': (0, 3), 'rising': (30, 3), 'pro': (50, 6), 'champion': (80, 10)}
+CAPS = {'wonderkid': (1, 1), 'gaffer': (0, 1), 'grassroots': (10, 1), 'rising': (30, 3), 'pro': (50, 6), 'champion': (80, 10)}
 
 
 def _env(k):

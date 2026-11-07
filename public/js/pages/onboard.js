@@ -158,7 +158,7 @@ function planCards(cycle, pick, need, only = null) {
     <ul><li>선수 1명</li><li>보호자 1명</li><li class="muted">${WONDERKID.note}</li></ul></div>`;
   const list = only || PLANS;
   const n = only ? only.length : (FREE_MODE ? 1 : 0) + (pick ? 0 : 1) + PLANS.length + 1;
-  return `<div class="plan-grid ${n === 6 ? 'six' : n === 7 ? 'seven' : n === 1 ? 'one' : ''}">${only ? '' : `${demo}${wk}`}${list.map((p) => {
+  return `<div class="plan-grid ${n === 6 ? 'six' : n === 7 ? 'seven' : n === 8 ? 'eight' : n === 1 ? 'one' : ''}">${only ? '' : `${demo}${wk}`}${list.map((p) => {
     const fits = !need || (need.players <= p.players && need.coaches <= p.coaches);
     const price = planPrice(p, cycle);
     return `<label class="plan-card t-${p.id} ${p.best ? 'best' : ''} ${fits ? '' : 'small-fit'}">
@@ -176,10 +176,10 @@ function planCards(cycle, pick, need, only = null) {
 }
 const cycleSeg = (cycle) => `<div class="seg plan-cycle">${Object.entries(CYCLES).map(([k]) => `<button type="button" class="${k === cycle ? 'on' : ''}" data-cycle="${k}">${k === 'year' ? '12개월 한 번에 <small>2개월 무료</small>' : '1개월 · 매달 정기결제'}</button>`).join('')}</div>`;
 
-// 우리 팀 요금제 고르기: 선수 수 구간과 지도자 수 구간 중 높은 쪽 (선수 없이 지도자 3명까지는 가퍼)
+// 우리 팀 요금제 고르기: 선수 수 구간과 지도자 수 구간 중 높은 쪽 (선수 없이 지도자 1명은 가퍼)
 const TIERS = PLANS.filter((p) => p.players > 0);
 export function recommend(players, coaches) {
-  if (players === 0 && coaches <= PLANS[0].coaches) return { plan: PLANS[0], why: `선수 없이 지도자 ${coaches}명 → 지도자 전용` };
+  if (players === 0 && coaches <= PLANS[0].coaches) return { plan: PLANS[0], why: `선수 없이 지도자 ${coaches}명 → 지도자 1인` };
   const by = (key, n) => { const i = TIERS.findIndex((t) => n <= t[key]); return i < 0 ? TIERS.length : i; };
   const ip = players ? by('players', players) : 0; const ic = by('coaches', coaches);
   const i = Math.max(ip, ic);
@@ -200,7 +200,7 @@ function teamResult(players, coaches, cycle) {
 }
 // 구간별 선수 한 명당 (시작 · 중간 · 꽉 찼을 때)
 function perTable() {
-  const rows = [...TIERS.map((t, i) => { const lo = i ? TIERS[i - 1].players + 1 : 10; const mid = Math.round((lo + t.players) / 2); return [t.name, `${i ? `${lo}~` : '~'}${t.players}명`, won(t.month), [lo, mid, t.players].map((n) => `${n}명 → ${won(Math.round(t.month / n))}`), won(Math.round((t.month * 10) / 12 / t.players))]; }),
+  const rows = [...TIERS.map((t, i) => { const lo = i ? TIERS[i - 1].players + 1 : 5; const mid = Math.round((lo + t.players) / 2); return [t.name, `${i ? `${lo}~` : '~'}${t.players}명`, won(t.month), [lo, mid, t.players].map((n) => `${n}명 → ${won(Math.round(t.month / n))}`), won(Math.round((t.month * 10) / 12 / t.players))]; }),
     [LEGEND.name, '81명~', '99,900원~', [81, 100, 120].map((n) => `${n}명 → ${won(Math.round(99900 / n))}`), '상담']];
   return `<div class="tbl-wrap"><table class="tbl per-tbl"><thead><tr><th>요금제</th><th>선수</th><th>월 요금</th><th>구간 시작</th><th>중간</th><th>꽉 찼을 때</th><th>12개월 · 꽉 찼을 때</th></tr></thead><tbody>
     ${rows.map((r, i) => `<tr class="t-${i < TIERS.length ? TIERS[i].id : 'legend'}"><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td>${r[3].map((x) => `<td>${x}</td>`).join('')}<td>${r[4]}</td></tr>`).join('')}</tbody></table></div>`;
@@ -208,7 +208,7 @@ function perTable() {
 const countRules = `<ul class="plan-rules">
   <li><b>승인된 사람만</b> 세요 — 락커룸에서 승인 대기 중인 사람은 안 세요.</li>
   <li><b>둘 중 높은 쪽</b> — 선수 수 구간과 지도자 수 구간 중 높은 쪽으로 정해져요.</li>
-  <li><b>선수가 있으면 넌리그부터</b> — 선수 없이 지도자 3명까지는 가퍼, 보호자 1명 + 선수 1명은 원더키드(개인 계정)예요.</li>
+  <li><b>선수가 있으면 그래스루츠부터</b> — 선수 10명 · 지도자 1명까지는 그래스루츠(레슨 · 소그룹), 선수 없이 지도자 1명은 가퍼, 보호자 1명 + 선수 1명은 원더키드(개인 계정)예요.</li>
   <li><b>넘어도 바로 막지 않아요</b> — 다음 결제 때 맞는 요금제로 바꾸면 돼요.</li></ul>`;
 
 // 공개 요금 안내 (로그인 없이도) — 선수 · 지도자 수를 움직여 우리 팀 요금 보기

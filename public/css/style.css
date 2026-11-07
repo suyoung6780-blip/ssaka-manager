@@ -3544,7 +3544,7 @@ html.pad-locked, html.pad-locked body { overflow: hidden; overscroll-behavior: n
 .plan-free-note { margin: 0 0 12px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--pri, #39e75f) 12%, transparent); border: 1px solid color-mix(in srgb, var(--pri, #39e75f) 35%, transparent); font-size: 14px; line-height: 1.55; }
 .plan-grid.six { grid-template-columns: repeat(3, minmax(0, 1fr)); } @media (max-width: 760px) { .plan-grid.six { grid-template-columns: repeat(2, minmax(0, 1fr)); } } @media (max-width: 520px) { .plan-grid.six { grid-template-columns: minmax(0, 1fr); } }
 /* 요금제 색 — 데모 초록 · 가퍼 청록 · 라이징 파랑 · 프로 보라 · 챔피언 금색 · 레전드 빨강 */
-.t-demo { --tc: #39e75f; } .t-wonderkid { --tc: #ff8fc7; } .t-gaffer { --tc: #2ec5d3; } .t-rising { --tc: #4ea1ff; } .t-pro { --tc: #a78bfa; } .t-champion { --tc: #f5b70a; } .t-legend { --tc: #ff5a5f; }
+.t-demo { --tc: #39e75f; } .t-wonderkid { --tc: #ff8fc7; } .t-gaffer { --tc: #2ec5d3; } .t-grassroots { --tc: #ff9f43; } .t-rising { --tc: #4ea1ff; } .t-pro { --tc: #a78bfa; } .t-champion { --tc: #f5b70a; } .t-legend { --tc: #ff5a5f; }
 .plan-card[class*="t-"] { border-top: 4px solid var(--tc); background: linear-gradient(180deg, color-mix(in srgb, var(--tc) 12%, var(--surface)) 0%, var(--surface) 55%); }
 .plan-card[class*="t-"] .plan-name { color: var(--tc); }
 .plan-card[class*="t-"] .plan-badge { background: var(--tc); color: #0b0d0c; }
@@ -4999,6 +4999,9 @@ html:has(.modal-wrap) body { overflow: hidden; }
 @media (max-width: 1280px) { .plan-grid.seven { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .plan-grid.seven { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .plan-grid.seven { grid-template-columns: minmax(0, 1fr); } }
+.plan-grid.eight { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 900px) { .plan-grid.eight { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .plan-grid.eight { grid-template-columns: minmax(0, 1fr); } }
 .plan-grid.one { grid-template-columns: minmax(0, 360px); }
 .pl-agree { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0 8px; font-size: 13px; font-weight: 500; line-height: 1.5; }
 .pl-agree input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--text); flex: none; }

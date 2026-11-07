@@ -108,7 +108,7 @@ class Handler(SimpleHTTPRequestHandler):
         sid, ck = os.environ.get('PORTONE_STORE_ID', ''), os.environ.get('PORTONE_CHANNEL_KEY', '')
         if not (sid and ck):
             return J({'ok': False, 'message': '데모: 포트원 상점 아이디 · 채널 키가 아직 없어요.'})
-        prices = {'gaffer': ('가퍼', 14900), 'rising': ('라이징', 29000), 'pro': ('프로', 39000), 'champion': ('챔피언', 54900)}
+        prices = {'wonderkid': ('원더키드', 9900), 'gaffer': ('가퍼', 14900), 'grassroots': ('그래스루츠', 19900), 'rising': ('넌리그', 29900), 'pro': ('챔피언십', 44900), 'champion': ('프리미어', 59900)}
         cyc = {'month': ('1개월', 1), 'year': ('12개월', 10)}
         p, c = prices.get(q.get('plan'), prices['pro']), cyc.get(q.get('cycle'), cyc['month'])
         return J({'ok': True, 'storeId': sid, 'channelKey': ck, 'paymentId': f"DEMO-{q.get('plan')}-{q.get('cycle')}-{int(_t.time() * 1000)}",
