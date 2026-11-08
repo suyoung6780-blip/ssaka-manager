@@ -462,6 +462,9 @@ let authCb = () => {};
   J('p5', { opponent: '성남 FC U15', gf: 2, ga: 1, position: 'RW', assistsMine: [{ min: 17, scorerUid: 'p1', scorerName: '박선수' }] });
   J('p2', { opponent: '성남FC U15', gf: 2, ga: 1, position: 'GK', conceded: [{ min: 74, x: 50, y: 13, route: '역습' }] });
   J('p4', { opponent: '성남 U15', gf: 2, ga: 2, position: 'CB', conceded: [{ min: 75, x: 54, y: 15, route: '역습' }] });
+  // 같은 날 두 번째 경기 (U14 연습경기) — 기록실에서 '그날 경기 한 번에' 보기용
+  J('p3', { type: '연습경기', ageGroup: 'U14', opponent: '광주 U14', gf: 3, ga: 0, position: 'CM', goals: [{ min: 12, x: 33, y: 14, route: '중앙 침투 패스', assistUid: 'p6', assistName: '윤선수' }, { min: 40, x: 38, y: 6, route: '코너킥' }] });
+  J('p6', { type: '연습경기', ageGroup: 'U14', opponent: '광주 U14', gf: 3, ga: 0, position: 'LW', goals: [{ min: 55, x: 20, y: 12, route: '개인 돌파' }], assistsMine: [{ min: 12, scorerUid: 'p3', scorerName: '최선수' }] });
 }
 const setUser = (u) => { auth.currentUser = u; setTimeout(() => authCb(u), 0); };
 // 데모에서 직접 가입한 계정의 프로필(users/u-…)도 이 브라우저에 기억

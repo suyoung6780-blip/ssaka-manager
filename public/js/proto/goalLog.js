@@ -48,7 +48,9 @@ export function pitchSvg(side, dots = [], { cls = '' } = {}) {
     <text x="34" y="${side === 'against' ? D + 5.4 : -3.3}" class="gl-gtxt">${side === 'against' ? '우리 골대' : '상대 골대'}</text>
     <g data-dots>${dots.map((p) => dotSvg(side, p)).join('')}</g></svg>`;
 }
-const dotSvg = (side, p) => (p.x == null ? '' : `<circle cx="${p.x}" cy="${py(side, p.y)}" r="${p.r || 1.6}" class="gl-dot ${p.cls || ''}"><title>${esc(p.t || '')}</title></circle>`);
+const dotSvg = (side, p) => (p.x == null ? '' : p.n != null // 번호 점 (표의 줄 번호와 같음)
+  ? `<g class="gl-ndot ${p.cls || ''}" ${p.dot ? `data-dot="${p.dot}"` : ''}><circle cx="${p.x}" cy="${py(side, p.y)}" r="3.2"/><text x="${p.x}" y="${py(side, p.y) + 1.4}">${p.n}</text><title>${esc(p.t || '')}</title></g>`
+  : `<circle cx="${p.x}" cy="${py(side, p.y)}" r="${p.r || 1.6}" class="gl-dot ${p.cls || ''}"><title>${esc(p.t || '')}</title></circle>`);
 
 // 누르면 그 자리에 점 하나 (onPick(x, y))
 function bindPick(svg, side, cur, onPick) {
@@ -228,29 +230,87 @@ export function mergeEvents(old = [], add = []) {
   return out.sort((a, b) => (a.side === b.side ? (a.min ?? 999) - (b.min ?? 999) : a.side === 'for' ? -1 : 1));
 }
 
-// 제안 카드 (경기 기록실 맨 위)
+// 제안 카드 (경기 기록실 맨 위) — 날짜마다 한 장: 그날 경기들을 줄줄이, 점수는 −/+, 장면은 체크 → 한 번에 올리기
+const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+const dayLabel = (d) => { const t = new Date(`${d}T00:00:00`); return isNaN(t) ? d : `${t.getMonth() + 1}월 ${t.getDate()}일 (${DOW[t.getDay()]})`; };
+const CIRC = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨'];
+const tdS = (v) => (v ? esc(v) : '<span class="muted">-</span>');
+function sceneTables(g) {
+  // 골 넣은 곳 · 실점한 곳: 경기장 그림에 번호 점 (표의 번호와 같음)
+  const fd = g.goals.map((x, i) => ({ x: x.x, y: x.y, n: i + 1, cls: 'f', dot: `f${i}`, t: `${x.min ?? ''}′ ${x.name || ''}` })).filter((d) => d.x != null);
+  const ad = g.conceded.map((x, i) => ({ x: x.x, y: x.y, n: i + 1, cls: 'a', dot: `a${i}`, t: `${x.min ?? ''}′ ${x.route || ''}` })).filter((d) => d.x != null);
+  const maps = fd.length || ad.length ? `<div class="gl-maps">${g.goals.length ? `<figure><figcaption>골 넣은 곳</figcaption>${pitchSvg('for', fd)}${fd.length < g.goals.length ? `<small class="muted">위치 안 적은 골 ${g.goals.length - fd.length}개</small>` : ''}</figure>` : ''}
+    ${g.conceded.length ? `<figure><figcaption>실점한 곳</figcaption>${pitchSvg('against', ad)}${ad.length < g.conceded.length ? `<small class="muted">위치 안 적은 실점 ${g.conceded.length - ad.length}개</small>` : ''}</figure>` : ''}</div>` : '';
+  const no = (side, i) => `<i class="gl-n ${side}">${i + 1}</i>`;
+  const fr = g.goals.map((x, i) => `<tr><td><input type="checkbox" checked data-gf-ev="${i}" aria-label="이 골 넣기">${no('f', i)}</td><td class="gl-min">${x.min != null ? `${x.min}′` : '-'}</td><td><b>${esc(x.name || '?')}</b></td><td>${tdS(x.assistName)}</td><td>${tdS(x.route)}</td><td>${tdS(x.x != null ? zoneOf(x.x, x.y) : '')}</td></tr>`).join('');
+  const ar = g.conceded.map((x, i) => `<tr><td><input type="checkbox" checked data-ga-ev="${i}" aria-label="이 실점 넣기">${no('a', i)}</td><td class="gl-min">${x.min != null ? `${x.min}′` : '-'}</td><td>${tdS(x.route)}</td><td>${tdS(x.x != null ? zoneOf(x.x, x.y) : '')}</td><td class="muted">${esc(x.by.join(' · '))}</td></tr>`).join('');
+  if (!fr && !ar) return '<p class="muted small gl-none">골 · 실점 장면은 안 적혔어요 — 점수만 올라가요</p>';
+  return `${maps}${fr ? `<div class="tbl-scroll"><table class="gl-scene"><caption>득점 <b>${g.goals.length}</b></caption><tr><th></th><th>분</th><th>골</th><th>도움</th><th>상황</th><th>위치</th></tr>${fr}</table></div>` : ''}
+    ${ar ? `<div class="tbl-scroll"><table class="gl-scene against"><caption>실점 <b>${g.conceded.length}</b></caption><tr><th></th><th>분</th><th>상황</th><th>위치</th><th>적은 선수</th></tr>${ar}</table></div>` : ''}`;
+}
 export function gatherHtml(list, dismissed) {
   const show = list.filter((g) => !dismissed.has(g.key + g.logIds.join(',')));
   if (!show.length) return '';
-  const hl = (x) => (x.conflict ? `<span class="gl-warn">${esc(x.v)}</span>` : esc(x.v || '-'));
-  const diff = (l, x) => (x.conflict ? `<li><span>${l}</span>${x.all.map(([v, n], i) => `<em class="${i ? '' : 'top'}">${esc(v)} <i>${n}명</i></em>`).join('')}</li>` : '');
-  return `<details class="card gl-gather" ${show.length <= 2 ? 'open' : ''}><summary><b>선수 일지에서 모은 경기</b><span class="gl-cnt">${show.length}</span><small class="muted">확인하면 기록실에 들어가요</small></summary>
-    ${show.map((g, i) => {
-      const t = g.target;
-      return `<article class="gl-prop" data-gi="${list.indexOf(g)}">
-      <header><span class="date-badge">${esc(g.date.slice(5).replace('-', '.'))}</span>
-        <strong>${t ? `${esc(t.ageGroup ? `${t.ageGroup} · ` : '')}vs ${esc(t.opponent)} <b>${+t.gf} : ${+t.ga}</b>` : `${g.age.v ? `${esc(g.age.v)} · ` : ''}vs ${hl(g.opponent)} <b>${hl(g.gf)} : ${hl(g.ga)}</b>`}</strong>
-        <small class="muted">일지 ${g.logs.length}명${g.pending.length < g.logs.length ? ` · 새로 ${g.pending.length}명` : ''}</small></header>
-      <ul class="gl-plist">
-        ${g.goals.length ? `<li><span>득점</span>${g.goals.map((x) => `<em>${x.min != null ? `${x.min}′ ` : ''}${esc(x.name || '?')}${x.assistName ? ` <i>← ${esc(x.assistName)}</i>` : ''}${x.route ? ` · ${esc(x.route)}` : ''}</em>`).join('')}</li>` : ''}
-        ${g.conceded.length ? `<li><span>실점</span>${g.conceded.map((x) => `<em>${x.min != null ? `${x.min}′ ` : ''}${esc(x.route || '')}${x.x != null ? ` · ${esc(zoneOf(x.x, x.y))}` : ''} <i>${esc(x.by.join(' · '))}</i></em>`).join('')}</li>` : ''}
-        ${!g.goals.length && !g.conceded.length ? '<li class="muted small">골 · 실점 장면은 안 적혔어요</li>' : ''}
-      </ul>
-      ${!t && (g.opponent.conflict || g.gf.conflict || g.ga.conflict) ? `<div class="gl-diff"><b>선수마다 다르게 적었어요</b> <small class="muted">가장 많이 적은 값(초록)으로 채웠어요 · 확인 창에서 고칠 수 있어요</small><ul class="gl-plist">${diff('상대', g.opponent)}${diff('득점', g.gf)}${diff('실점', g.ga)}</ul></div>` : ''}
-      ${g.warn.length ? `<p class="gl-note">${g.warn.map(esc).join('<br>')}</p>` : ''}
-      <div class="row end"><button type="button" class="btn ghost sm" data-gl-skip>이번엔 안 올리기</button>
-        <button type="button" class="btn sm" data-gl-ok>${t ? `장면 ${g.events.length}개 이 경기에 넣기` : '확인하고 기록실에 올리기'}</button></div>
-    </article>`; }).join('')}</details>`;
+  const days = [...new Set(show.map((g) => g.date))].sort().reverse();
+  const chips = (k, x) => (x.conflict ? x.all.map(([v, n], i) => `<button type="button" class="gl-pick ${i ? '' : 'top'}" data-set-${k}="${esc(v)}">${esc(v)} <i>${n}명</i></button>`).join('') : '');
+  const stepper = (k, v) => `<span class="gl-step"><button type="button" data-step="${k}" data-d="-1" aria-label="빼기">−</button><b data-v="${k}">${+v || 0}</b><button type="button" data-step="${k}" data-d="1" aria-label="더하기">+</button></span>`;
+  return `<details class="card gl-gather" open><summary><b>선수 일지에서 모은 경기</b><span class="gl-cnt">${show.length}</span><small class="muted">날짜마다 확인하고 한 번에 올려요</small></summary>
+    ${days.map((d) => { const gs = show.filter((g) => g.date === d); return `<section class="gl-day" data-day="${esc(d)}">
+      <h4>${dayLabel(d)} <small class="muted">경기 ${gs.length}개</small></h4>
+      ${gs.map((g, i) => { const t = g.target; return `<article class="gl-prop" data-gi="${list.indexOf(g)}">
+        <header><span class="gl-no">${CIRC[i] || i + 1}</span>
+          ${t ? `<strong>${esc(t.matchType || '')}${t.ageGroup ? ` · ${esc(t.ageGroup)}` : ''} vs ${esc(t.opponent)}</strong><small class="gl-in">기록실에 있는 경기 · 장면만 더해요</small>`
+            : `<strong>${esc(g.type.v || '')}${g.age.v ? ` · ${esc(g.age.v)}` : ''} vs</strong><input class="gl-opp" data-opp value="${esc(g.opponent.v)}" placeholder="상대팀" aria-label="상대팀">`}
+          <small class="muted">일지 ${g.logs.length}명</small></header>
+        ${t ? `<p class="gl-score">우리 <b>${+t.gf}</b> : <b>${+t.ga}</b> 상대</p>`
+          : `<div class="gl-score">우리 ${stepper('gf', g.gf.v)} : ${stepper('ga', g.ga.v)} 상대</div>`}
+        ${!t && (g.opponent.conflict || g.gf.conflict || g.ga.conflict) ? `<div class="gl-diff"><b>선수마다 다르게 적었어요</b> <small class="muted">누르면 그 값으로 바뀌어요</small>
+          ${g.opponent.conflict ? `<div><span>상대</span>${chips('opp', g.opponent)}</div>` : ''}${g.gf.conflict ? `<div><span>득점</span>${chips('gf', g.gf)}</div>` : ''}${g.ga.conflict ? `<div><span>실점</span>${chips('ga', g.ga)}</div>` : ''}</div>` : ''}
+        ${sceneTables(g)}
+        <p class="gl-note" data-warn hidden></p>
+        <div class="row end gl-acts"><button type="button" class="btn ghost sm" data-gl-skip>이 경기 빼기</button><button type="button" class="btn ghost sm" data-gl-detail>자세히 고치기</button></div>
+      </article>`; }).join('')}
+      <button type="button" class="btn gl-upday" data-gl-day="${esc(d)}">이 날 경기 <b data-n>${gs.length}</b>개 모두 올리기</button>
+    </section>`; }).join('')}</details>`;
+}
+// 날짜 카드 조작: 점수 −/+ · 선수마다 다른 값 고르기 · 장면 체크 · 빼기 → read(card) 로 지금 값 읽기
+export function readProp(card, g) {
+  const on = (sel) => [...card.querySelectorAll(sel)].filter((c) => c.checked).map((c) => +Object.values(c.dataset)[0]);
+  const goals = on('[data-gf-ev]').map((i) => g.goals[i]); const conceded = on('[data-ga-ev]').map((i) => g.conceded[i]);
+  const num = (k) => +(card.querySelector(`[data-v="${k}"]`)?.textContent ?? 0);
+  const cnt = (arr, k, nk) => { const o = {}; arr.forEach((x) => { if (!x[k] || x[k] === 'og') return; (o[x[k]] ||= { uid: x[k], name: x[nk], goals: 0 }).goals += 1; }); return Object.values(o); };
+  return {
+    opponent: (card.querySelector('[data-opp]')?.value || '').trim(), gf: num('gf'), ga: num('ga'),
+    scorers: cnt(goals, 'uid', 'name'), assists: cnt(goals, 'assistUid', 'assistName'),
+    events: [...goals.map((x) => ({ side: 'for', min: x.min ?? null, route: x.route || '', ...(x.x != null ? { x: x.x, y: x.y } : {}), uid: x.uid || '', name: x.name || '', ...(x.assistUid ? { assistUid: x.assistUid, assistName: x.assistName } : {}) })),
+      ...conceded.map((x) => ({ side: 'against', min: x.min ?? null, route: x.route || '', ...(x.x != null ? { x: x.x, y: x.y } : {}), by: x.by }))],
+    nGoals: goals.length, nConc: conceded.length,
+  };
+}
+export function bindGather(root, list, { skip, detail, upload }) {
+  root.querySelectorAll('.gl-prop').forEach((card) => {
+    const g = list[+card.dataset.gi];
+    const warn = () => {
+      const r = readProp(card, g); const w = [];
+      if (!g.target && r.nGoals && r.gf !== r.nGoals) w.push(`체크한 골 ${r.nGoals}개 · 점수는 ${r.gf}골`);
+      if (!g.target && r.nConc && r.ga !== r.nConc) w.push(`체크한 실점 ${r.nConc}개 · 점수는 ${r.ga}실점`);
+      const p = card.querySelector('[data-warn]'); p.hidden = !w.length; p.textContent = w.join(' · ');
+    };
+    card.querySelectorAll('[data-step]').forEach((b) => (b.onclick = () => { const v = card.querySelector(`[data-v="${b.dataset.step}"]`); v.textContent = Math.max(0, Math.min(99, +v.textContent + +b.dataset.d)); warn(); }));
+    card.querySelectorAll('[data-set-opp]').forEach((b) => (b.onclick = () => { card.querySelector('[data-opp]').value = b.dataset.setOpp; }));
+    ['gf', 'ga'].forEach((k) => card.querySelectorAll(`[data-set-${k}]`).forEach((b) => (b.onclick = () => { card.querySelector(`[data-v="${k}"]`).textContent = +b.dataset[`set${k[0].toUpperCase()}${k[1]}`] || 0; warn(); })));
+    card.querySelectorAll('input[type=checkbox]').forEach((c) => (c.onchange = () => { c.closest('tr').classList.toggle('off', !c.checked); card.querySelector(`[data-dot="${c.dataset.gfEv != null ? `f${c.dataset.gfEv}` : `a${c.dataset.gaEv}`}"]`)?.classList.toggle('off', !c.checked); warn(); }));
+    card.querySelector('[data-gl-skip]').onclick = () => skip(g);
+    card.querySelector('[data-gl-detail]').onclick = () => detail(g, readProp(card, g));
+    warn();
+  });
+  root.querySelectorAll('[data-gl-day]').forEach((b) => (b.onclick = () => {
+    const cards = [...b.closest('.gl-day').querySelectorAll('.gl-prop')];
+    const items = cards.map((c) => { const g = list[+c.dataset.gi]; return { g, ...readProp(c, g) }; });
+    const noOpp = items.find((x) => !x.g.target && !x.opponent);
+    if (noOpp) { const inp = cards[items.indexOf(noOpp)].querySelector('[data-opp]'); inp.focus(); inp.classList.add('err'); return; }
+    upload(items, b);
+  }));
 }
 
 // ───────── 기록실 입력 창: 득점 · 실점 장면 ─────────

@@ -1674,7 +1674,8 @@ export function createPad(container, initial, { editable = true, motion = false,
     const portrait = matchMedia('(orientation: portrait)');
     const syncHint = () => { let ok = false; try { ok = localStorage.getItem(PORTRAIT_OK) === '1'; } catch { /* */ } hint.hidden = ok || !portrait.matches || container.classList.contains('pad-full'); };
     syncHint();
-    hint.querySelector('[data-rot-go]').onclick = () => { setFull(true); try { screen.orientation?.lock?.('landscape').catch(() => {}); } catch { /* 지원 안 하는 폰 */ } };
+    // 가로로 크게: 가로로 돌렸다가 다시 세로로 들면 저절로 원래 크기로 (auto)
+    hint.querySelector('[data-rot-go]').onclick = () => { setFull(true, true); try { screen.orientation?.lock?.('landscape').catch(() => {}); } catch { /* 지원 안 하는 폰 */ } };
     hint.querySelector('[data-rot-no]').onclick = () => { try { localStorage.setItem(PORTRAIT_OK, '1'); } catch { /* */ } document.querySelectorAll('.pad-rotate').forEach((x) => { x.hidden = true; }); };
     // 휴대폰을 돌리면: 가로 → 마지막으로 만진 작전판이 화면에 보이면 저절로 크게, 세로 → 저절로 커진 것은 원래대로
     const onRot = () => {

@@ -458,6 +458,7 @@ export async function records(el) {
   const groups = AGE_GROUPS[state.team.category] || [];
   const years = [...new Set(ms.map((m) => (m.date || '').slice(0, 4)).filter(Boolean))].sort().reverse();
   const flt = { year: '전체', type: '전체', age: '전체' };
+  let anaOpen = false; let anaScorer = ''; // 득점 · 실점 분석 펼침 (기록실 안에서)
   const pass = (m, skip) => (skip === 'year' || flt.year === '전체' || (m.date || '').startsWith(flt.year))
     && (skip === 'type' || flt.type === '전체' || m.matchType === flt.type)
     && (skip === 'age' || flt.age === '전체' || m.ageGroup === flt.age);
@@ -507,7 +508,7 @@ export async function records(el) {
       </div>
     </section>
     ${rows.length ? `<section class="card rec-flow"><div class="card-head"><h3>최근 ${Math.min(10, rows.length)}경기 흐름</h3><span class="rf-key"><i class="f"></i>득점 <i class="a"></i>실점</span></div>${formChart(rows)}</section>` : ''}
-    ${p3 ? `<a class="card gl-golink" href="#/analysis/goals"><b>득점 · 실점 분석</b><span>어디서 · 어떻게 · 언제 넣고 먹는지 — 상황별 · 상대별 · 선수별 · 기간 비교</span><em>분석실에서 보기 →</em></a>` : ''}
+    ${p3 ? `<details class="card gl-golink" data-gl-ana ${anaOpen ? 'open' : ''}><summary><b>득점 · 실점 분석</b><span>어디서 · 어떻게 · 언제 넣고 먹는지 — 지금 고른 경기로</span><em>${anaOpen ? '접기' : '펼쳐 보기'}</em></summary><div data-ana-body></div></details>` : ''}
     <div class="grid2 top">
       <section class="card"><h3>득점 순위</h3>${rankBars(topS, '골')}</section>
       <section class="card"><h3>도움 순위</h3>${rankBars(topA, '개')}</section>
@@ -535,17 +536,41 @@ export async function records(el) {
     el.querySelector('[data-new]')?.addEventListener('click', () => matchForm());
     el.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => matchForm(ms.find((m) => m.id === b.closest('tr').dataset.mid))));
     el.querySelectorAll('[data-memo]').forEach((b) => (b.onclick = () => matchMemos(ms.find((m) => m.id === b.closest('tr').dataset.mid))));
-    el.querySelectorAll('.gl-prop').forEach((card) => {
-      const g = gathered[+card.dataset.gi];
-      card.querySelector('[data-gl-skip]').onclick = () => { dismissed.add(g.key + g.logIds.join(',')); try { localStorage.setItem(DKEY, JSON.stringify([...dismissed])); } catch { /* */ } draw(); };
-      card.querySelector('[data-gl-ok]').onclick = () => {
+    const skipKey = (g) => g.key + g.logIds.join(',');
+    const keepScroll = (fn) => { const y = window.scrollY; fn(); requestAnimationFrame(() => window.scrollTo(0, y)); };
+    GL.bindGather(el, gathered, {
+      skip: (g) => { dismissed.add(skipKey(g)); try { localStorage.setItem(DKEY, JSON.stringify([...dismissed])); } catch { /* */ } keepScroll(draw); },
+      // 자세히 고치기: 지금 고른 값 그대로 경기 기록 창에서 (홈/원정 · 메모 · 장면 위치까지)
+      detail: (g, r) => {
         const t = g.target;
         const fromLogs = [...new Set([...(t?.fromLogs || []), ...g.logIds])];
-        if (t) return matchForm({ ...t, events: GL.mergeEvents(t.events, g.events), scorers: (t.scorers || []).length ? t.scorers : g.scorers, assists: (t.assists || []).length ? t.assists : g.assists, fromLogs }, '선수 일지에서 모은 장면을 이 경기에 넣어요. 확인하고 저장해 주세요.');
-        matchForm({ date: g.date, matchType: g.type.v || MATCH_TYPES[0], ageGroup: g.age.v, opponent: g.opponent.v, gf: g.gf.v === '' ? 0 : +g.gf.v, ga: g.ga.v === '' ? 0 : +g.ga.v,
-          scorers: g.scorers, assists: g.assists, events: g.events, fromLogs }, `선수 일지 ${g.logs.length}개에서 모았어요. 다르게 적은 칸이 있으면 고치고 저장해 주세요.${g.warn.length ? ` (${g.warn.join(' · ')})` : ''}`);
-      };
+        if (t) return matchForm({ ...t, events: GL.mergeEvents(t.events, r.events), scorers: (t.scorers || []).length ? t.scorers : r.scorers, assists: (t.assists || []).length ? t.assists : r.assists, fromLogs }, '선수 일지에서 모은 장면을 이 경기에 넣어요. 확인하고 저장해 주세요.');
+        matchForm({ date: g.date, matchType: g.type.v || MATCH_TYPES[0], ageGroup: g.age.v, opponent: r.opponent, gf: r.gf, ga: r.ga, scorers: r.scorers, assists: r.assists, events: r.events, fromLogs }, `선수 일지 ${g.logs.length}개에서 모았어요.`);
+      },
+      // 이 날 경기 모두 올리기: 새 경기는 기록실에 만들고, 이미 있는 경기는 장면만 더함
+      upload: async (items, btn) => {
+        btn.disabled = true;
+        try {
+          await Promise.all(items.map(({ g, opponent, gf, ga, scorers, assists, events }) => {
+            const t = g.target;
+            const fromLogs = [...new Set([...(t?.fromLogs || []), ...g.logIds])];
+            if (t) return updateDoc(tdoc('matches', t.id), { events: GL.mergeEvents(t.events, events), ...((t.scorers || []).length ? {} : { scorers }), ...((t.assists || []).length ? {} : { assists }), fromLogs });
+            return addDoc(tcol('matches'), { date: g.date, matchType: g.type.v || MATCH_TYPES[0], ...(g.age.v ? { ageGroup: g.age.v } : {}), opponent, gf, ga, scorers, assists, events, fromLogs, memo: '', createdAt: serverTimestamp() });
+          }));
+          toast(`${items.length}경기를 기록실에 올렸어요`);
+          const y = window.scrollY; await records(el); window.scrollTo(0, y);
+        } catch (err) { btn.disabled = false; fail(err); }
+      },
     });
+    // 득점 · 실점 분석: 다른 화면으로 넘어가지 않고 이 자리에서 펼쳐 보기
+    const ana = el.querySelector('[data-gl-ana]');
+    if (ana) {
+      const body = ana.querySelector('[data-ana-body]');
+      const paint = () => { body.innerHTML = `${GL.analysisHtml(rows, anaScorer)}<div class="row end"><a class="btn ghost sm" href="#/analysis/goals">분석실에서 더 자세히 →</a></div>`;
+        body.querySelectorAll('[data-gl-scorer]').forEach((b) => (b.onclick = () => { anaScorer = b.dataset.glScorer; paint(); })); };
+      ana.addEventListener('toggle', () => { anaOpen = ana.open; ana.querySelector('summary em').textContent = ana.open ? '접기' : '펼쳐 보기'; if (ana.open) paint(); });
+      if (ana.open) paint();
+    }
   };
 
   // 선수별 골/도움 입력 줄
