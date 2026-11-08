@@ -2,7 +2,7 @@
 // 위치는 하프 경기장 기준 미터: x = 우리 왼쪽 터치라인부터 가로(0~68), y = 그 골라인부터 거리(0~52.5)
 //  득점: 상대 골대가 위 / 실점: 우리 골대가 아래 — 둘 다 '우리가 위로 공격'하는 방향이라 왼쪽 · 오른쪽이 같음
 // 보안 규칙은 그대로: 선수는 자기 일지만 쓰고, 코치가 일지를 읽어 기록실에 저장
-import { esc, options } from '../ui.js';
+import { esc, options, MATCH_TYPES } from '../ui.js';
 
 // 경기 › 기록실 · 분석실 머리 (두 화면 공통) — 영상 분석은 따로 '영상룸'
 export const matchTabs = (cur) => `<nav class="gl-mtabs"><a href="#/records" class="${cur === 'records' ? 'on' : ''}">기록실</a><a href="#/analysis/goals" class="${cur === 'analysis' ? 'on' : ''}">분석실</a></nav>`;
@@ -248,7 +248,7 @@ function sceneTables(g) {
   return `${maps}${fr ? `<div class="tbl-scroll"><table class="gl-scene"><caption>득점 <b>${g.goals.length}</b></caption><tr><th></th><th>분</th><th>골</th><th>도움</th><th>상황</th><th>위치</th></tr>${fr}</table></div>` : ''}
     ${ar ? `<div class="tbl-scroll"><table class="gl-scene against"><caption>실점 <b>${g.conceded.length}</b></caption><tr><th></th><th>분</th><th>상황</th><th>위치</th><th>적은 선수</th></tr>${ar}</table></div>` : ''}`;
 }
-export function gatherHtml(list, dismissed) {
+export function gatherHtml(list, dismissed, groups = []) {
   const show = list.filter((g) => !dismissed.has(g.key + g.logIds.join(',')));
   if (!show.length) return '';
   const days = [...new Set(show.map((g) => g.date))].sort().reverse();
@@ -264,9 +264,15 @@ export function gatherHtml(list, dismissed) {
           <small class="muted">일지 ${g.logs.length}명</small></header>
         ${t ? `<p class="gl-score">우리 <b>${+t.gf}</b> : <b>${+t.ga}</b> 상대</p>`
           : `<div class="gl-score">우리 ${stepper('gf', g.gf.v)} : ${stepper('ga', g.ga.v)} 상대</div>`}
+        <div class="gl-meta">${t ? '' : `<label><span>경기</span><select data-mt>${options(MATCH_TYPES, g.type.v || MATCH_TYPES[0])}</select></label>
+          ${groups.length ? `<label><span>학년</span><select data-age>${options([['', '선택'], ...groups], g.age.v)}</select></label>` : ''}`}
+          <div class="gl-venue" role="group" aria-label="홈/원정"><span>홈/원정</span>${[['home', '홈'], ['away', '원정'], ['neutral', '중립']].map(([v, l]) => `<button type="button" data-venue="${v}" class="${(t?.venue || '') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         ${!t && (g.opponent.conflict || g.gf.conflict || g.ga.conflict) ? `<div class="gl-diff"><b>선수마다 다르게 적었어요</b> <small class="muted">누르면 그 값으로 바뀌어요</small>
           ${g.opponent.conflict ? `<div><span>상대</span>${chips('opp', g.opponent)}</div>` : ''}${g.gf.conflict ? `<div><span>득점</span>${chips('gf', g.gf)}</div>` : ''}${g.ga.conflict ? `<div><span>실점</span>${chips('ga', g.ga)}</div>` : ''}</div>` : ''}
         ${sceneTables(g)}
+        <div class="gl-extra" data-extra hidden></div>
+        <button type="button" class="link-btn small gl-extra-open" data-extra-open>+ 선수가 안 적은 골 · 실점 넣기</button>
+        <input class="gl-memo" data-memo maxlength="300" placeholder="메모 (선택)" value="${esc(t?.memo || '')}" aria-label="메모">
         <p class="gl-note" data-warn hidden></p>
         <div class="row end gl-acts"><button type="button" class="btn ghost sm" data-gl-skip>이 경기 빼기</button><button type="button" class="btn ghost sm" data-gl-detail>자세히 고치기</button></div>
       </article>`; }).join('')}
@@ -276,18 +282,23 @@ export function gatherHtml(list, dismissed) {
 // 날짜 카드 조작: 점수 −/+ · 선수마다 다른 값 고르기 · 장면 체크 · 빼기 → read(card) 로 지금 값 읽기
 export function readProp(card, g) {
   const on = (sel) => [...card.querySelectorAll(sel)].filter((c) => c.checked).map((c) => +Object.values(c.dataset)[0]);
-  const goals = on('[data-gf-ev]').map((i) => g.goals[i]); const conceded = on('[data-ga-ev]').map((i) => g.conceded[i]);
+  const ex = card._extra ? card._extra() : []; // 코치가 직접 넣은 장면
+  const goals = [...on('[data-gf-ev]').map((i) => g.goals[i]), ...ex.filter((e) => e.side === 'for')];
+  const conceded = [...on('[data-ga-ev]').map((i) => g.conceded[i]), ...ex.filter((e) => e.side === 'against').map((e) => ({ ...e, by: [] }))];
   const num = (k) => +(card.querySelector(`[data-v="${k}"]`)?.textContent ?? 0);
   const cnt = (arr, k, nk) => { const o = {}; arr.forEach((x) => { if (!x[k] || x[k] === 'og') return; (o[x[k]] ||= { uid: x[k], name: x[nk], goals: 0 }).goals += 1; }); return Object.values(o); };
   return {
     opponent: (card.querySelector('[data-opp]')?.value || '').trim(), gf: num('gf'), ga: num('ga'),
+    matchType: card.querySelector('[data-mt]')?.value || g.target?.matchType || g.type.v || MATCH_TYPES[0],
+    ageGroup: card.querySelector('[data-age]') ? card.querySelector('[data-age]').value : (g.target?.ageGroup ?? g.age.v ?? ''),
+    venue: card.querySelector('[data-venue].on')?.dataset.venue || '', memo: (card.querySelector('[data-memo]')?.value || '').trim(),
     scorers: cnt(goals, 'uid', 'name'), assists: cnt(goals, 'assistUid', 'assistName'),
     events: [...goals.map((x) => ({ side: 'for', min: x.min ?? null, route: x.route || '', ...(x.x != null ? { x: x.x, y: x.y } : {}), uid: x.uid || '', name: x.name || '', ...(x.assistUid ? { assistUid: x.assistUid, assistName: x.assistName } : {}) })),
       ...conceded.map((x) => ({ side: 'against', min: x.min ?? null, route: x.route || '', ...(x.x != null ? { x: x.x, y: x.y } : {}), by: x.by }))],
     nGoals: goals.length, nConc: conceded.length,
   };
 }
-export function bindGather(root, list, { skip, detail, upload }) {
+export function bindGather(root, list, { skip, detail, upload, players = [] }) {
   root.querySelectorAll('.gl-prop').forEach((card) => {
     const g = list[+card.dataset.gi];
     const warn = () => {
@@ -300,6 +311,14 @@ export function bindGather(root, list, { skip, detail, upload }) {
     card.querySelectorAll('[data-set-opp]').forEach((b) => (b.onclick = () => { card.querySelector('[data-opp]').value = b.dataset.setOpp; }));
     ['gf', 'ga'].forEach((k) => card.querySelectorAll(`[data-set-${k}]`).forEach((b) => (b.onclick = () => { card.querySelector(`[data-v="${k}"]`).textContent = +b.dataset[`set${k[0].toUpperCase()}${k[1]}`] || 0; warn(); })));
     card.querySelectorAll('input[type=checkbox]').forEach((c) => (c.onchange = () => { c.closest('tr').classList.toggle('off', !c.checked); card.querySelector(`[data-dot="${c.dataset.gfEv != null ? `f${c.dataset.gfEv}` : `a${c.dataset.gaEv}`}"]`)?.classList.toggle('off', !c.checked); warn(); }));
+    card.querySelectorAll('[data-venue]').forEach((b) => (b.onclick = () => { card.querySelectorAll('[data-venue]').forEach((x) => x.classList.toggle('on', x === b)); b.parentElement.classList.remove('err'); }));
+    card.querySelector('[data-opp]')?.addEventListener('input', (e) => e.target.classList.remove('err'));
+    // 선수가 안 적은 장면: 경기 기록 창과 같은 칸(분 · 선수 · 도움 · 상황 · 위치)을 이 자리에서
+    card.querySelector('[data-extra-open]').onclick = (e) => {
+      const box = card.querySelector('[data-extra]'); box.hidden = false; e.currentTarget.hidden = true;
+      const get = mountEditor(box, [], players); card._extra = () => get();
+      box.addEventListener('input', warn); box.addEventListener('click', () => setTimeout(warn, 0));
+    };
     card.querySelector('[data-gl-skip]').onclick = () => skip(g);
     card.querySelector('[data-gl-detail]').onclick = () => detail(g, readProp(card, g));
     warn();
@@ -307,8 +326,11 @@ export function bindGather(root, list, { skip, detail, upload }) {
   root.querySelectorAll('[data-gl-day]').forEach((b) => (b.onclick = () => {
     const cards = [...b.closest('.gl-day').querySelectorAll('.gl-prop')];
     const items = cards.map((c) => { const g = list[+c.dataset.gi]; return { g, ...readProp(c, g) }; });
+    // 꼭 필요한 칸: 상대 · 홈/원정 (나중에 다시 고치지 않게)
     const noOpp = items.find((x) => !x.g.target && !x.opponent);
     if (noOpp) { const inp = cards[items.indexOf(noOpp)].querySelector('[data-opp]'); inp.focus(); inp.classList.add('err'); return; }
+    const noVen = items.find((x) => !x.venue && !x.g.target?.venue);
+    if (noVen) { const v = cards[items.indexOf(noVen)].querySelector('.gl-venue'); v.classList.add('err'); v.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
     upload(items, b);
   }));
 }

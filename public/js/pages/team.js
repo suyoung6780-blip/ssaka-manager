@@ -485,7 +485,7 @@ export async function records(el) {
     rows.forEach((m) => (opp[m.opponent] ||= []).push(m));
 
     el.innerHTML = `${p3 ? `${pageHead('MATCH', '경기', isCoach() ? '<button class="btn" data-new>+ 경기 기록</button>' : '')}${GL.matchTabs('records')}` : pageHead('RECORDS', '경기 기록실', isCoach() ? '<button class="btn" data-new>+ 경기 기록</button>' : '')}
-    ${p3 ? GL.gatherHtml(gathered, dismissed) : ''}
+    ${p3 ? GL.gatherHtml(gathered, dismissed, groups) : ''}
     ${GL.filterBar([['year', '년도', years.map((y) => [y, `${y}년`])], ['type', '경기', MATCH_TYPES.map((t) => [t, t])], ...(groups.length ? [['age', '학년', groups.map((g) => [g, g])]] : [])], flt, `${rows.length}경기`)}
     <section class="rec-hero">
       <div class="rec-ring">
@@ -539,23 +539,25 @@ export async function records(el) {
     const skipKey = (g) => g.key + g.logIds.join(',');
     const keepScroll = (fn) => { const y = window.scrollY; fn(); requestAnimationFrame(() => window.scrollTo(0, y)); };
     GL.bindGather(el, gathered, {
+      players: [...players].sort(byName),
       skip: (g) => { dismissed.add(skipKey(g)); try { localStorage.setItem(DKEY, JSON.stringify([...dismissed])); } catch { /* */ } keepScroll(draw); },
       // 자세히 고치기: 지금 고른 값 그대로 경기 기록 창에서 (홈/원정 · 메모 · 장면 위치까지)
       detail: (g, r) => {
         const t = g.target;
         const fromLogs = [...new Set([...(t?.fromLogs || []), ...g.logIds])];
-        if (t) return matchForm({ ...t, events: GL.mergeEvents(t.events, r.events), scorers: (t.scorers || []).length ? t.scorers : r.scorers, assists: (t.assists || []).length ? t.assists : r.assists, fromLogs }, '선수 일지에서 모은 장면을 이 경기에 넣어요. 확인하고 저장해 주세요.');
-        matchForm({ date: g.date, matchType: g.type.v || MATCH_TYPES[0], ageGroup: g.age.v, opponent: r.opponent, gf: r.gf, ga: r.ga, scorers: r.scorers, assists: r.assists, events: r.events, fromLogs }, `선수 일지 ${g.logs.length}개에서 모았어요.`);
+        if (t) return matchForm({ ...t, ...(r.venue ? { venue: r.venue } : {}), ...(r.memo ? { memo: r.memo } : {}), events: GL.mergeEvents(t.events, r.events), scorers: (t.scorers || []).length ? t.scorers : r.scorers, assists: (t.assists || []).length ? t.assists : r.assists, fromLogs }, '선수 일지에서 모은 장면을 이 경기에 넣어요. 확인하고 저장해 주세요.');
+        matchForm({ date: g.date, matchType: r.matchType, ageGroup: r.ageGroup, venue: r.venue, memo: r.memo, opponent: r.opponent, gf: r.gf, ga: r.ga, scorers: r.scorers, assists: r.assists, events: r.events, fromLogs }, `선수 일지 ${g.logs.length}개에서 모았어요.`);
       },
       // 이 날 경기 모두 올리기: 새 경기는 기록실에 만들고, 이미 있는 경기는 장면만 더함
       upload: async (items, btn) => {
         btn.disabled = true;
         try {
-          await Promise.all(items.map(({ g, opponent, gf, ga, scorers, assists, events }) => {
+          await Promise.all(items.map(({ g, opponent, gf, ga, scorers, assists, events, matchType, ageGroup, venue, memo }) => {
             const t = g.target;
             const fromLogs = [...new Set([...(t?.fromLogs || []), ...g.logIds])];
-            if (t) return updateDoc(tdoc('matches', t.id), { events: GL.mergeEvents(t.events, events), ...((t.scorers || []).length ? {} : { scorers }), ...((t.assists || []).length ? {} : { assists }), fromLogs });
-            return addDoc(tcol('matches'), { date: g.date, matchType: g.type.v || MATCH_TYPES[0], ...(g.age.v ? { ageGroup: g.age.v } : {}), opponent, gf, ga, scorers, assists, events, fromLogs, memo: '', createdAt: serverTimestamp() });
+            if (t) return updateDoc(tdoc('matches', t.id), { events: GL.mergeEvents(t.events, events), ...((t.scorers || []).length ? {} : { scorers }), ...((t.assists || []).length ? {} : { assists }), ...(venue ? { venue } : {}), ...(memo ? { memo } : {}), fromLogs });
+            // 지도자가 '경기 기록'으로 넣은 것과 같은 칸 (형태 · 학년 · 홈/원정 · 메모) — 다시 고칠 일 없게
+            return addDoc(tcol('matches'), { date: g.date, matchType, ageGroup: ageGroup || '', venue, opponent, gf, ga, scorers, assists, events, fromLogs, memo, createdAt: serverTimestamp() });
           }));
           toast(`${items.length}경기를 기록실에 올렸어요`);
           const y = window.scrollY; await records(el); window.scrollTo(0, y);

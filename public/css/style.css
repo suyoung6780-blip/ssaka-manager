@@ -5214,3 +5214,17 @@ html:has(.modal-wrap) body { overflow: hidden; }
 .gl-scene td:first-child, .gl-scene th:first-child { width: 52px; white-space: nowrap; }
 .gl-scene td:first-child { display: flex; align-items: center; gap: 4px; }
 .gl-scene td:first-child .gl-n { margin: 0; }
+/* 날짜 카드: 경기 형태 · 학년 · 홈/원정 · 메모 · 안 적힌 장면 — 경기 기록 창과 같은 칸 */
+.gl-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 4px 0 8px; }
+.gl-meta label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: var(--sub); }
+.gl-meta select { height: 40px; min-width: 104px; font-size: 15px; }
+.gl-venue { display: inline-flex; align-items: center; gap: 0; border: 1px solid var(--line2); border-radius: 999px; overflow: hidden; background: var(--surface); }
+.gl-venue > span { padding: 0 10px 0 12px; font-size: 13px; color: var(--sub); }
+.gl-venue button { height: 40px; min-width: 52px; padding: 0 12px; border: 0; border-left: 1px solid var(--line); background: none; color: var(--text); font-size: 14px; font-weight: 600; }
+.gl-venue button.on { background: #39e75f; color: #0b0d0c; }
+.gl-venue.err { border-color: #ff5a5f; box-shadow: 0 0 0 3px rgba(255,90,95,.25); }
+.gl-venue.err > span::after { content: ' · 골라 주세요'; color: #ff7a7f; }
+.gl-extra-open { display: inline-block; margin: 8px 0 4px; }
+.gl-extra .gl-ed { margin: 8px 0; }
+.gl-memo { width: 100%; height: 40px; margin: 8px 0 0; padding: 0 10px; font-size: 16px; }
+.gl-extra-open[hidden] { display: none; }
