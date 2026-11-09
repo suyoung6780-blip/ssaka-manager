@@ -38,6 +38,20 @@ CYCLES = {'month': ('1개월', 30, 1), 'year': ('12개월', 365, 10)}
 CAPS = {'wonderkid': (1, 1), 'gaffer': (0, 1), 'grassroots': (10, 1), 'rising': (30, 3), 'pro': (50, 6), 'champion': (80, 10)}
 
 
+def _oid(team_id, tag, ms, rnd=0):
+    # 주문 번호: KG이니시스는 40자까지만 받음 → 팀 번호(20자까지) + 종류 + 시간(36진수 8자) [+ 무작위]
+    n, b = int(ms), ''
+    while n:
+        n, r = divmod(n, 36)
+        b = '0123456789abcdefghijklmnopqrstuvwxyz'[r] + b
+    s = f'{team_id[:20]}-{tag}-{b or "0"}' + (f'-{os.urandom(rnd).hex()}' if rnd else '')
+    return s[:40]
+
+
+def _pc(plan):  # 요금제 한 글자 (주문 번호용)
+    return str(list(PLANS).index(plan)) if plan in PLANS else 'x'
+
+
 def _env(k):
     return os.environ.get(k, '').strip()
 
@@ -248,7 +262,7 @@ def _schedule(ses, team_id, at_ms):
     if not sb or not sk or _str(sb, 'status') == 'off':
         return False
     plan, price, uid, bk = _str(sb, 'plan'), _int(sb, 'price'), _str(sb, 'uid'), _str(sk, 'billingKey')
-    pid = f'{team_id}-{plan}-sub-{int(at_ms)}'
+    pid = _oid(team_id, f'{_pc(plan)}s', at_ms)  # 예약 결제: 같은 날 예약은 같은 번호 (한 번만)
     cr = ses.post(f'{FS}:commit', json={'writes': [{'update': {'name': f'{DOCS}/payOrders/{pid}', 'fields': {
         'uid': _f(uid), 'teamId': _f(team_id), 'plan': _f(plan), 'cycle': _f('month'), 'price': _f(price), 'sub': _f(True),
         'status': _f('scheduled'), 'createdAt': {'timestampValue': _ts(_now_ms())}}}, 'currentDocument': {'exists': False}}]}, timeout=15)
@@ -302,7 +316,7 @@ def _charge_now(ses, team_id, uid, prof):
     sb, sk = _get(ses, f'subs/{team_id}'), _get(ses, f'subKeys/{team_id}')
     plan, price, bk = _str(sb, 'plan'), _int(sb, 'price'), _str(sk or {}, 'billingKey')
     now = _now_ms()
-    pid = f'{team_id}-{plan}-sub-{now}-{os.urandom(2).hex()}'  # 지금 결제 (예약 결제는 '-sub-{결제일}')
+    pid = _oid(team_id, f'{_pc(plan)}n', now, 2)  # 지금 결제 (예약 결제는 '…s-{결제일}')
     cr = ses.post(f'{FS}:commit', json={'writes': [{'update': {'name': f'{DOCS}/payOrders/{pid}', 'fields': {
         'uid': _f(uid), 'teamId': _f(team_id), 'plan': _f(plan), 'cycle': _f('month'), 'price': _f(price), 'sub': _f(True),
         'status': _f('ready'), 'createdAt': {'timestampValue': _ts(now)}}}, 'currentDocument': {'exists': False}}]}, timeout=15)
@@ -385,7 +399,7 @@ def _sub_step(ses, step, uid, q):  # noqa: C901
         if why:
             return 400, {'ok': False, 'message': why}
         now = _now_ms()
-        iid = f'{team_id}-bk-{now}-{os.urandom(3).hex()}'
+        iid = _oid(team_id, 'bk', now, 3)
         cr = ses.post(f'{FS}:commit', json={'writes': [{'update': {'name': f'{DOCS}/subOrders/{iid}', 'fields': {
             'uid': _f(uid), 'teamId': _f(team_id), 'mode': _f(mode), 'plan': _f(plan if mode == 'new' else _str(sb, 'plan')),
             'price': _f(PLANS[plan][1] if mode == 'new' else _int(sb, 'price')), 'status': _f('ready'),
@@ -548,7 +562,7 @@ class handler(BaseHTTPRequestHandler):
         cyc_label, _days, mult = CYCLES[cycle]
         price = month * mult
         now = _now_ms()
-        pid = f'{team_id}-{plan}-{cycle}-{now}'  # 영문 · 숫자 · '-' 만 (포트원: ASCII 만)
+        pid = _oid(team_id, f'{_pc(plan)}{cycle[0]}', now)  # 영문 · 숫자 · '-' 만 (포트원: ASCII 만 · 이니시스 40자)
         # 주문 먼저 기록 (결제가 끝났을 때 누가 · 무엇을 · 얼마에 샀는지는 이 기록으로만 판단)
         cr = ses.post(f'{FS}:commit', json={'writes': [{'update': {'name': f'{DOCS}/payOrders/{pid}', 'fields': {
             'uid': {'stringValue': uid}, 'teamId': {'stringValue': team_id}, 'plan': {'stringValue': plan}, 'cycle': {'stringValue': cycle},
