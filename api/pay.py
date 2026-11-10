@@ -269,7 +269,7 @@ def _schedule(ses, team_id, at_ms):
     if cr.status_code != 200:
         return _str(sb, 'nextPid') == pid  # 이미 예약함
     code, res = _portone('POST', f'/payments/{_q(pid)}/schedule', {
-        'payment': {'billingKey': bk, 'orderName': f'싸카매니저 {PLANS[plan][0]} 1개월 이용권 (정기결제)', 'customer': _customer(uid),
+        'payment': {'billingKey': bk, 'orderName': f'싸카매니저 월간 이용권 ({PLANS[plan][0]})', 'customer': _customer(uid),
                     'amount': {'total': price}, 'currency': 'KRW'},
         'timeToPay': _ts(at_ms)[:19] + 'Z'})
     if code != 200:
@@ -323,7 +323,7 @@ def _charge_now(ses, team_id, uid, prof):
     if cr.status_code != 200:
         return 500, {'ok': False, 'message': '주문을 만들지 못했어요. 잠시 후 다시 해 주세요.'}
     code, res = _portone('POST', f'/payments/{_q(pid)}/billing-key', {
-        'billingKey': bk, 'orderName': f'싸카매니저 {PLANS[plan][0]} 1개월 이용권 (정기결제)', 'customer': _customer(uid, *prof),
+        'billingKey': bk, 'orderName': f'싸카매니저 월간 이용권 ({PLANS[plan][0]})', 'customer': _customer(uid, *prof),
         'amount': {'total': price}, 'currency': 'KRW'})
     if code != 200:
         _sub_failed(ses, team_id, pid, str(res.get('message') or '')[:120])
@@ -412,7 +412,7 @@ def _sub_step(ses, step, uid, q):  # noqa: C901
             return 500, {'ok': False, 'message': '잠시 후 다시 해 주세요.'}
         return 200, {'ok': True, 'storeId': _env('PORTONE_STORE_ID'), 'channelKey': _env('PORTONE_BILLING_CHANNEL_KEY'), 'issueId': iid,
                      'price': PLANS[plan][1] if mode == 'new' else _int(sb, 'price'),  # 카드 등록창에 보여 줄 상품 가격 (여기선 결제 안 됨)
-                     'issueName': f"싸카매니저 {PLANS.get(plan if mode == 'new' else _str(sb, 'plan'), ('',))[0]} 1개월 이용권 (정기결제)"}
+                     'issueName': '싸카매니저 월간 이용권'}  # 결제창 상품명 칸이 좁아서 짧게 (요금제는 주문 기록에 남음)
     if step == 'subConfirm':
         iid, bk = str(q.get('issueId') or ''), str(q.get('billingKey') or '')
         o = _get(ses, f'subOrders/{_q(iid)}')
@@ -576,4 +576,4 @@ class handler(BaseHTTPRequestHandler):
         if cr.status_code != 200:
             return self._fail(500, '주문을 만들지 못했어요. 잠시 후 다시 해 주세요.')
         return self._send(200, {'ok': True, 'storeId': _env('PORTONE_STORE_ID'), 'channelKey': _env('PORTONE_CHANNEL_KEY'),
-                                'paymentId': pid, 'orderName': f'싸카매니저 {plan_name} {cyc_label} 이용권', 'totalAmount': price})
+                                'paymentId': pid, 'orderName': '싸카매니저 연간 이용권' if cycle == 'year' else '싸카매니저 월간 이용권', 'totalAmount': price})
