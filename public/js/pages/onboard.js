@@ -406,17 +406,17 @@ async function subCall(step, body, btn, okMsg) {
 // 결제창 · 카드 등록창의 '제공기간' (KG이니시스 심사 · 휴대폰 카드 등록에 꼭 필요): 지금 이용기간 끝(또는 오늘)부터 days 일
 const kst = (ms) => `${new Date(ms + 9 * 36e5).toISOString().slice(0, 10)}T00:00:00+09:00`;
 const offerOf = (days) => { const pl = teamPlan(); const from = Math.max(Date.now(), pl.kind === 'paid' ? pl.until : 0); return { range: { from: kst(from), to: kst(from + days * 864e5) } }; };
-// 카드 등록 창에 보여 줄 것 — KG이니시스가 상품가격(displayAmount)을 받으면 500이 나서 기본은 예전처럼 없음 (2026-11-10)
-// 시험: 주소에 ?bk=a · b · c · d 를 붙여 어느 방식이 열리고 가격이 나오는지 확인 (확인되면 그 방식을 기본으로)
-//  a: 가격 + 월 정기결제(1m) · b: 가격만 · c: 제공기간(날짜)만 · d: 월 정기결제(1m)만
+// 카드 등록 창에 보여 줄 것: 상품가격(displayAmount · KRW) + 제공기간(날짜) — KG이니시스 정기결제 MID '사용'으로 바뀐 뒤 (2026-11-10)
+// 시험: 주소에 ?bk=off(예전처럼 없음) · a(가격 + 월 정기결제) · b(가격만) · c(기간만) · d(월 정기결제만)
 function bkShow(price) {
   const v = new URLSearchParams(location.search).get('bk') || '';
   const amt = price ? { displayAmount: price, currency: 'KRW' } : {};
+  if (v === 'off') return {};
   if (v === 'a') return { ...amt, offerPeriod: { interval: '1m' } };
   if (v === 'b') return amt;
   if (v === 'c') return { offerPeriod: offerOf(CYCLES.month.days) };
   if (v === 'd') return { offerPeriod: { interval: '1m' } };
-  return {};
+  return { ...amt, offerPeriod: offerOf(CYCLES.month.days) };
 }
 async function billingCheckout(t, mode, p, btn) {
   if (auth.demo && !/^(localhost|127\.)/.test(location.hostname)) return toast('체험 모드에서는 결제되지 않아요.');
