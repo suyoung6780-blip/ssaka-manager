@@ -1,7 +1,7 @@
 import {
   auth, db, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, serverTimestamp, writeBatch,
 } from '../fb.js';
-import { PAY_TEST, FREE_MODE, PLANS, ALL_PLANS, LEGEND, WONDERKID, CYCLES, planPrice, TRIAL_DAYS, DEMO_PLAN, LAUNCH } from '../config.js';
+import { PAY_TEST, FREE_MODE, PLANS, ALL_PLANS, LEGEND, WONDERKID, CYCLES, planPrice, TRIAL_DAYS, DEMO_PLAN, LAUNCH, plansFor } from '../config.js';
 import {
   esc, toast, fail, formData, options, pageHead, modal, confirmBox, fmtDate, CATEGORIES, normCat, ROLES,
 } from '../ui.js';
@@ -30,7 +30,7 @@ export function codeModal(code, title, kind = spaceKind()) {
   const m = modal(`<span class="eyebrow">CODE</span><h2>${title || `${sp.code}가 만들어졌어요`}</h2>
     <p>${CODE_TO[kind] || CODE_TO.team} <strong>대문자 · 소문자를 구분</strong>합니다.</p>
     <div class="code-big" data-copy>${esc(code)}</div>
-    <div class="row between"><small class="muted">${kind === 'personal' ? '홈 · 설정' : '팀 설정'}에서 언제든 다시 볼 수 있어요.</small><button class="btn" data-copy-btn>코드 복사</button></div>`);
+    <div class="row between"><small class="muted">${kind === 'personal' ? '홈 · 개인 계정 관리' : '팀 관리'}에서 언제든 다시 볼 수 있어요.</small><button class="btn" data-copy-btn>코드 복사</button></div>`);
   const copy = () => (navigator.clipboard?.writeText(code) || Promise.reject()).then(() => toast(`${sp.code}를 복사했습니다.`), () => toast(`복사가 안 돼요 — ${sp.code}: ${code}`));
   m.el.querySelector('[data-copy]').onclick = copy;
   m.el.querySelector('[data-copy-btn]').onclick = copy;
@@ -66,6 +66,7 @@ async function makeTeam(info) {
   hooks.updateShell();
   // 다음 화면으로 넘어간 뒤에 띄움 (화면이 바뀔 때 열린 창을 닫으므로) — 유료 모드면 바로 요금제 고르기로
   const next = FREE_MODE ? '/' : '/pay';
+  if (info.kind === 'gaffer') { toast('지도자 계정을 만들었어요.'); go(next); return; } // 혼자 쓰는 계정이라 코드 안내 없음
   if (location.hash === `#${next}`) { go(next); setTimeout(() => codeModal(code, undefined, info.kind || 'team'), 0); return; }
   const kind = info.kind || 'team';
   window.addEventListener('hashchange', () => setTimeout(() => codeModal(code, FREE_MODE ? undefined : usedTrial ? `${SPACES[kind].code}가 만들어졌어요 · 결제하면 바로 쓸 수 있어요` : `${SPACES[kind].code}가 만들어졌어요 · ${TRIAL_DAYS}일 무료 체험 시작`, kind), 0), { once: true });
@@ -75,7 +76,7 @@ async function makeTeam(info) {
 // 만들 공간 종류 — 고르면 아래 입력 칸과 설명이 바뀜
 const KIND_CARDS = [
   ['team', '팀 계정', '지도자 + 선수들이 함께 쓰는 팀', '만들면 <b>팀 코드</b>가 나와요. 팀 코드로 선수 · 지도자를 초대해요. 팀 검색에 나와요.'],
-  ['gaffer', '지도자 계정', '선수 없이 지도자끼리', '만들면 <b>지도자 코드</b>가 나와요. 지도자 코드로 함께할 지도자를 초대해요. 작전판 · 훈련 프로그램 · 영상룸 · 커뮤니티. 팀 검색에는 안 나와요.'],
+  ['gaffer', '지도자 계정', '지도자 혼자 쓰기', '선수 없이 지도자 1명이 쓰는 계정이에요. 작전판 · 훈련 프로그램 · 영상룸 · 커뮤니티. 팀 검색에는 안 나와요.'],
   ['personal', '개인 계정', '보호자 1명 + 선수 1명', '만들면 <b>보호자 코드</b>가 나와요. 보호자 코드로 개인 선수를 초대해요. 선수 영상 편집 · 기록 관리 · 목표. 팀 검색에는 안 나와요.'],
 ];
 export function createTeam(el) {
@@ -92,8 +93,8 @@ export function createTeam(el) {
       <p class="name-note">실제 팀 이름을 정확하게 적어 주세요. <b>'ㅇ', '축구교실'처럼 팀을 알아볼 수 없는 이름</b>은 운영자가 확인 후 <b>기능이 제한될 수 있어요.</b></p>
       <label>팀 구분<select name="category" required>${options(CATEGORIES)}</select></label>
       <p class="muted small">다른 팀에는 팀 이름 · 구분 · 대표 지도자 이름만 보여요. 선수단과 팀 안 내용은 우리 팀만 봐요.</p></div>
-    <div data-k="gaffer"><label>모임 이름<input name="name" required minlength="2" maxlength="30" placeholder="예) 수원 유소년 지도자 모임"></label>
-      <p class="muted small">함께할 지도자는 <b>지도자 코드</b>로 들어와요. 다른 팀에는 보이지 않아요.</p></div>
+    <div data-k="gaffer"><label>계정 이름<input name="name" required minlength="2" maxlength="30" placeholder="예) 김코치 전술 노트"></label>
+      <p class="muted small">나 혼자 쓰는 계정이에요 (다른 사람은 들어올 수 없어요). 다른 팀에는 보이지 않아요.</p></div>
     <div data-k="personal"><label>선수 이름 <small class="muted">(실명)</small><input name="name" required minlength="2" maxlength="20" placeholder="예) 홍길동"></label>
       <label>선수 학년 · 연령<select name="category" required>${options(CATEGORIES)}</select></label>
       <p class="muted small">만들면 <b>보호자 코드</b>가 나와요. 선수가 자기 <b>선수 계정</b>으로 이 코드를 넣고 보호자가 승인하면 연결돼요. 선수가 클럽 팀에 있어도 팀은 그대로예요. 다른 팀에는 보이지 않아요.</p></div>
@@ -135,9 +136,12 @@ export function createTeam(el) {
 // ───────── 요금제 · 결제 ─────────
 const won = (n) => `${n.toLocaleString()}원`;
 const left = (until) => { const d = Math.ceil((until - Date.now()) / 864e5); return d <= 0 ? '오늘까지' : `${d}일 남음`; };
+// 마지막 결제한 날 (결제한 팀만) — 팀 관리 · 결제 화면
+const paidLine = (t) => { const at = t?.lastPaidAt?.toMillis?.(); return at ? `<div class="kv"><span>결제한 날</span><strong>${fmtDate(new Date(at))}${t.planCycle === 'month' ? ' · 매달 정기결제' : t.planCycle === 'year' ? ' · 12개월' : ''}</strong></div>` : ''; };
+export const planName = (id) => (id === 'legend' ? LEGEND.name : ALL_PLANS.find((x) => x.id === id)?.name || '');
 export const planLine = (pl = teamPlan()) => {
   if (pl.kind === 'paid') { const p = ALL_PLANS.find((x) => x.id === pl.plan); return `${p ? `${p.name} 요금제` : '결제'} · ${fmtDate(new Date(pl.until))}까지 (${left(pl.until)})`; }
-  if (pl.kind === 'comp') return pl.until === Infinity ? '운영자 무료 제공 · 평생' : `운영자 무료 제공 · ${fmtDate(new Date(pl.until))}까지`;
+  if (pl.kind === 'comp') { const nm = planName(pl.plan); return `운영자 무료 제공${nm ? ` · ${nm} 요금제` : ''} · ${pl.until === Infinity ? '평생' : `${fmtDate(new Date(pl.until))}까지`}`; }
   if (pl.kind === 'trial') return `무료 체험 · ${fmtDate(new Date(pl.until))}까지 (${left(pl.until)})`;
   if (pl.kind === 'free') return pl.until === Infinity ? `${DEMO_PLAN.name} 요금제 · 무료 (선수 · 지도자 제한 없음)` : `무료 기간 · ${fmtDate(new Date(pl.until))}까지 (${left(pl.until)})`;
   if (pl.until) { const p = ALL_PLANS.find((x) => x.id === pl.plan); return `${p ? `${p.name} 요금제 · ` : ''}${fmtDate(new Date(pl.until))}에 끝났어요 · 결제가 필요해요`; }
@@ -178,8 +182,8 @@ const cycleSeg = (cycle) => `<div class="seg plan-cycle">${Object.entries(CYCLES
 
 // 우리 팀 요금제 고르기: 선수 수 구간과 지도자 수 구간 중 높은 쪽 (선수 없이 지도자 1명은 가퍼)
 const TIERS = PLANS.filter((p) => p.players > 0);
-export function recommend(players, coaches) {
-  if (players === 0 && coaches <= PLANS[0].coaches) return { plan: PLANS[0], why: `선수 없이 지도자 ${coaches}명 → 지도자 1인` };
+export function recommend(players, coaches, team = false) { // team: 팀 계정 (가퍼 빼고 그래스루츠부터)
+  if (!team && players === 0 && coaches <= PLANS[0].coaches) return { plan: PLANS[0], why: `선수 없이 지도자 ${coaches}명 → 지도자 1인` };
   const by = (key, n) => { const i = TIERS.findIndex((t) => n <= t[key]); return i < 0 ? TIERS.length : i; };
   const ip = players ? by('players', players) : 0; const ic = by('coaches', coaches);
   const i = Math.max(ip, ic);
@@ -189,8 +193,8 @@ export function recommend(players, coaches) {
 }
 const perHead = (p, players, cycle) => (players ? Math.round(planPrice(p, cycle) / (cycle === 'year' ? 12 : 1) / players) : 0);
 // '우리 팀은?' 결과 칸
-function teamResult(players, coaches, cycle) {
-  const r = recommend(players, coaches);
+function teamResult(players, coaches, cycle, team = false) {
+  const r = recommend(players, coaches, team);
   if (!r.plan) return `<div class="plan-result t-legend"><span class="eyebrow">우리 팀 요금제</span><b>${LEGEND.name}</b><strong>${LEGEND.price}</strong><small>${esc(r.why)} — 운영자에게 상담해 주세요</small></div>`;
   const price = planPrice(r.plan, cycle);
   return `<div class="plan-result t-${r.plan.id}"><span class="eyebrow">우리 팀 요금제</span><b>${r.plan.name}</b>
@@ -208,7 +212,7 @@ function perTable() {
 const countRules = `<ul class="plan-rules">
   <li><b>승인된 사람만</b> 세요 — 락커룸에서 승인 대기 중인 사람은 안 세요.</li>
   <li><b>둘 중 높은 쪽</b> — 선수 수 구간과 지도자 수 구간 중 높은 쪽으로 정해져요.</li>
-  <li><b>선수가 있으면 그래스루츠부터</b> — 선수 10명 · 지도자 1명까지는 그래스루츠(레슨 · 소그룹), 선수 없이 지도자 1명은 가퍼, 보호자 1명 + 선수 1명은 원더키드(개인 계정)예요.</li>
+  <li><b>선수가 있으면 그래스루츠부터</b> — 선수 10명 · 지도자 1명까지는 그래스루츠(레슨 · 소그룹)예요. 선수 없이 지도자 혼자면 <b>지도자 계정</b>(가퍼), 보호자 1명 + 선수 1명은 <b>개인 계정</b>(원더키드)으로 만들어요.</li>
   <li><b>넘어도 바로 막지 않아요</b> — 다음 결제 때 맞는 요금제로 바꾸면 돼요.</li></ul>`;
 
 // 공개 요금 안내 (로그인 없이도) — 선수 · 지도자 수를 움직여 우리 팀 요금 보기
@@ -267,11 +271,12 @@ export async function pay(el) {
   let sub = null;
   try { const sd = await getDoc(doc(db, 'subs', t.id)); sub = sd.exists() ? sd.data() : null; } catch { /* 못 읽으면 없음 */ }
   const subOn = ['on', 'failed', 'error', 'starting'].includes(sub?.status);
-  const personal = spaceKind(t) === 'personal'; // 개인 계정은 원더키드만
-  const rec = personal ? WONDERKID : recommend(need.players, need.coaches).plan;
+  // 공간마다 요금제가 정해져 있음: 개인 계정(보호자) = 원더키드 · 지도자 계정 = 가퍼 · 팀 계정 = 그래스루츠~프리미어
+  const kind = spaceKind(t); const personal = kind === 'personal'; const isTeam = kind === 'team';
+  const pool = plansFor(kind);
+  const rec = isTeam ? recommend(need.players, need.coaches, true).plan : pool[0];
   let cycle = 'month';
-  const pool = personal ? [WONDERKID] : PLANS;
-  let chosen = subOn ? sub.plan : personal ? WONDERKID.id : (pl.kind === 'paid' && PLANS.find((p) => p.id === pl.plan && need.players <= p.players && need.coaches <= p.coaches)?.id) || rec?.id || null;
+  let chosen = subOn ? sub.plan : !isTeam ? pool[0].id : (pl.kind === 'paid' && pool.find((p) => p.id === pl.plan && need.players <= p.players && need.coaches <= p.coaches)?.id) || rec?.id || null;
   const cur = () => { const p = pool.find((x) => x.id === chosen); return p ? { p, price: planPrice(p, cycle) } : null; };
   const fmtTel = (d) => (d.length > 7 ? `${d.slice(0, 3)}-${d.slice(3, d.length - 4)}-${d.slice(-4)}` : d);
   let payTel = fmtTel(String(state.profile?.payPhone || ''));
@@ -284,22 +289,24 @@ export async function pay(el) {
     el.innerHTML = `${pageHead('PAYMENT', subOn ? '정기결제 관리' : pl.kind === 'paid' ? '이용기간 연장' : '요금제 고르기 · 결제')}
     ${subOn || sub?.status === 'off' ? subBox(sub, pl) : ''}
     <section class="card plan-now ${pl.kind === 'none' ? 'need' : ''}">
-      <div class="kv"><span>팀</span><strong>${esc(t.name)} · ${esc(t.category)}</strong></div>
+      <div class="kv"><span>${SPACES[kind].name}</span><strong>${esc(t.name)}${isTeam ? ` · ${esc(t.category)}` : ''}</strong></div>
+      <div class="kv"><span>결제할 수 있는 요금제</span><strong>${pool.map((p) => p.name).join(' · ')}</strong></div>
       <div class="kv"><span>지금</span><strong>${esc(planLine(pl))}</strong></div>
+      ${paidLine(t)}
       ${pl.kind === 'none' ? '<p class="plan-alert">이용기간이 끝났어요. 결제하면 바로 다시 쓸 수 있어요 (기록은 그대로 남아 있어요).</p>' : ''}
-      ${pl.kind === 'comp' ? '<p class="muted small">운영자 무료 제공 팀이라 결제하지 않아도 돼요.</p>' : ''}
-      ${freeMode() && pl.kind !== 'paid' ? '<p class="plan-free-note">지금은 베타 기간이라 <b>결제하지 않아도 모든 기능을 무료로</b> 쓸 수 있어요. 유료로 바뀌기 30일 전에 알려 드려요.</p>' : ''}
+      ${pl.kind === 'comp' ? `<p class="muted small">운영자 무료 제공 ${personal ? '계정' : '팀'}이라 결제하지 않아도 돼요.</p>` : ''}
+      ${freeMode() && !['paid', 'comp'].includes(pl.kind) ? '<p class="plan-free-note">지금은 베타 기간이라 <b>결제하지 않아도 모든 기능을 무료로</b> 쓸 수 있어요. 유료로 바뀌기 30일 전에 알려 드려요.</p>' : ''}
     </section>
     ${subOn ? '<h3 class="sub-h">요금제 바꾸기 <small class="muted">다음 결제부터 바뀌어요</small></h3>' : cycleSeg(cycle)}
-    ${personal ? '' : `<section class="card plan-calc">
+    ${!isTeam ? '' : `<section class="card plan-calc">
       <h3>우리 팀 인원</h3>
       <div class="calc-grid">
         <div class="calc-in fixed"><div class="kv"><span>승인된 선수</span><strong>${need.players}명</strong></div><div class="kv"><span>승인된 지도자</span><strong>${need.coaches}명</strong></div>
           <p class="muted small">락커룸에서 승인된 사람만 세요. 인원이 늘면 다음 결제 때 맞는 요금제로 바꾸면 돼요.</p></div>
-        <div>${teamResult(need.players, need.coaches, cycle)}</div>
+        <div>${teamResult(need.players, need.coaches, cycle, true)}</div>
       </div>
     </section>`}
-    <form data-planform>${planCards(cycle, true, personal ? null : need, personal ? [WONDERKID] : null)}</form>
+    <form data-planform>${planCards(cycle, true, personal ? null : need, pool)}</form>
     ${!rec ? '<p class="plan-alert">인원이 프리미어 요금제보다 많아요 — 인빈시블 요금제는 운영자에게 상담해 주세요.</p>' : ''}
     ${subOn ? `<section class="card pay-sum"><button type="button" class="btn full" data-subplan ${c && c.p.id !== sub.plan ? '' : 'disabled'}>${c && c.p.id !== sub.plan ? `다음 결제(${fmtDate(new Date(sub.nextAt?.toMillis?.() || pl.until || Date.now()))})부터 ${esc(c.p.name)} · 월 ${won(c.price)}으로 바꾸기` : '바꿀 요금제를 위에서 골라 주세요'}</button>
       <p class="muted small">12개월로 바꾸려면 먼저 정기결제를 해지해 주세요 (낸 기간은 끝까지 써요).</p></section>` : `<section class="card pay-sum">
@@ -396,6 +403,9 @@ async function subCall(step, body, btn, okMsg) {
   } catch (err) { fail(err); } finally { if (btn?.isConnected) { btn.disabled = false; btn.textContent = label; } }
   return null;
 }
+// 결제창 · 카드 등록창의 '제공기간' (KG이니시스 심사 · 휴대폰 카드 등록에 꼭 필요): 지금 이용기간 끝(또는 오늘)부터 days 일
+const kst = (ms) => `${new Date(ms + 9 * 36e5).toISOString().slice(0, 10)}T00:00:00+09:00`;
+const offerOf = (days) => { const pl = teamPlan(); const from = Math.max(Date.now(), pl.kind === 'paid' ? pl.until : 0); return { range: { from: kst(from), to: kst(from + days * 864e5) } }; };
 async function billingCheckout(t, mode, p, btn) {
   if (auth.demo && !/^(localhost|127\.)/.test(location.hostname)) return toast('체험 모드에서는 결제되지 않아요.');
   const label = btn?.textContent;
@@ -413,6 +423,7 @@ async function billingCheckout(t, mode, p, btn) {
     const b = buyer();
     const res = await window.PortOne.requestIssueBillingKey({
       storeId: o.storeId, channelKey: o.channelKey, billingKeyMethod: 'CARD', issueId: o.issueId, issueName: o.issueName,
+      ...(o.price ? { displayAmount: o.price, currency: 'KRW' } : {}), offerPeriod: offerOf(CYCLES.month.days), // 창에 상품가격 · 제공기간 (카드 등록 땐 결제 안 됨)
       customer: { customerId: state.user?.uid, fullName: b.name || '지도자', phoneNumber: b.phone.replace(/\D/g, ''), email: b.email || undefined },
       redirectUrl: `${location.origin}${location.pathname}?pay=billing#/pay`, // 휴대폰: 카드 등록 화면에서 이 주소로 돌아옴
     });
@@ -469,7 +480,7 @@ async function portoneCheckout(t, { p }, cycle, btn) {
     if (typeof window.PortOne?.requestPayment !== 'function') throw new Error('결제 모듈을 불러오지 못했어요. 새로고침해 주세요.');
     const res = await window.PortOne.requestPayment({
       storeId: o.storeId, channelKey: o.channelKey, paymentId: o.paymentId,
-      orderName: o.orderName, totalAmount: o.totalAmount, currency: 'KRW', payMethod: 'CARD',
+      orderName: o.orderName, totalAmount: o.totalAmount, currency: 'KRW', payMethod: 'CARD', offerPeriod: offerOf(CYCLES[cycle].days), // 제공기간
       // KG이니시스: 이름 필수 · PC는 휴대폰 번호 · 이메일도 필수
       customer: { fullName: state.profile.name || '지도자', phoneNumber: (state.profile.payPhone || '').replace(/\D/g, ''), email: state.user.email || undefined },
       redirectUrl: `${location.origin}${location.pathname}?pay=portone#/pay`, // 휴대폰: 결제 화면에서 이 주소로 돌아옴
@@ -565,7 +576,7 @@ export function joinTeam(el) {
   if (state.team && state.member) return go('/');
   el.innerHTML = `${pageHead('JOIN TEAM', '팀 코드로 입장')}
   <form class="card narrow">
-    <p class="muted">팀 대표 지도자에게 받은 10자리 팀 코드를 입력하세요. (보호자에게 받은 <b>보호자 코드</b> · <b>지도자 코드</b>도 여기에) <strong>대문자 · 소문자를 구분</strong>합니다. ${ROLES[state.profile.role]} 계정으로 입장합니다.</p>
+    <p class="muted">팀 대표 지도자에게 받은 10자리 팀 코드를 입력하세요. (보호자에게 받은 <b>보호자 코드</b>도 여기에) <strong>대문자 · 소문자를 구분</strong>합니다. ${ROLES[state.profile.role]} 계정으로 입장합니다.</p>
     <input name="code" class="code-input" minlength="10" maxlength="10" required autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="10자리 코드">
     <button class="btn full">팀 찾기</button>
     <p class="muted small center">아직 코드가 없나요? 팀 대표 지도자에게 받으면 돼요. <a href="#/">나중에 입력할게요 →</a></p>
@@ -583,9 +594,9 @@ export function joinTeam(el) {
       const team = t.data();
       const kind = spaceKind(team);
       if (kind === 'personal' && state.profile.role !== 'player') return toast('보호자 코드는 선수 계정으로만 연결할 수 있어요.');
-      if (kind === 'gaffer' && state.profile.role !== 'coach') return toast('지도자 코드는 지도자 계정으로만 들어갈 수 있어요.');
+      if (kind === 'gaffer') return toast('지도자 계정은 만든 지도자 혼자 쓰는 계정이라 코드로 들어갈 수 없어요.');
       const m = modal(`<span class="eyebrow">${esc(kind === 'team' ? team.category : SPACES[kind].name)}</span><h2>${esc(team.name)}</h2>
-        <p>${kind === 'personal' ? '보호자와 <strong>연결</strong>할까요? 보호자가 승인하면 기록 · 영상을 함께 볼 수 있어요.' : `이 ${kind === 'gaffer' ? '모임' : '팀'}에 <strong>${ROLES[state.profile.role]}</strong>(으)로 입장할까요?`}</p>
+        <p>${kind === 'personal' ? '보호자와 <strong>연결</strong>할까요? 보호자가 승인하면 기록 · 영상을 함께 볼 수 있어요.' : `이 팀에 <strong>${ROLES[state.profile.role]}</strong>(으)로 입장할까요?`}</p>
         ${kind === 'personal' ? '<label class="chk pl-agree"><input type="checkbox" data-agree> <span>[필수] 내 컨디션 · 수면 · 자각도 · 부상 · 경기 기록(숫자)을 보호자가 보는 데 동의해요 <small class="muted">(건강 정보 포함 · 일지 글은 내가 보여주기를 켠 것만)</small></span></label>' : ''}
         <div class="row end"><button class="btn" data-ok>${kind === 'personal' ? '연결하기' : '입장하기'}</button></div>`);
       m.el.querySelector('[data-ok]').onclick = async () => {
@@ -619,19 +630,19 @@ export async function settings(el) {
   } catch { /* 결제 전 */ }
 
   const kind = spaceKind(); const SP = SPACES[kind];
-  const word = kind === 'team' ? '팀' : kind === 'gaffer' ? '모임' : '공간';
-  el.innerHTML = `${pageHead('SETTINGS', freeMode() ? `${kind === 'team' ? '팀 ' : ''}설정` : `${kind === 'team' ? '팀 ' : ''}설정 · 결제`)}
+  const word = kind === 'team' ? '팀' : kind === 'gaffer' ? '계정' : '개인 계정';
+  el.innerHTML = `${pageHead('SETTINGS', `${SPACES[kind].name} 관리`)}
   <div class="grid2 top">
     <section class="card">
-      <h3>${SP.code}</h3>
-      ${billing.code
+      ${kind === 'gaffer' ? '<h3>지도자 계정</h3><p class="muted small">나 혼자 쓰는 계정이에요 — 코드로 다른 사람이 들어올 수 없어요.</p>' : `<h3>${SP.code}</h3>`}
+      ${kind === 'gaffer' ? '' : billing.code
         ? `<div class="code-big" data-copy>${esc(billing.code)}</div><p class="muted small">클릭하면 복사됩니다. ${kind === 'personal' ? '선수가 선수 계정으로 이 코드를 넣어 연결해요' : kind === 'gaffer' ? '지도자가 이 코드로 들어와요' : '선수 · 코치가 이 코드로 입장합니다'}. 대문자 · 소문자를 구분해요.</p>`
         : '<p class="muted">결제 완료 후 발급됩니다.</p>'}
-      ${freeMode() ? `<h3>이용</h3><div class="kv"><span>상태</span><strong>${esc(planLine())}</strong></div>
-      <p class="muted small">지금은 베타 기간이라 모든 팀이 데모(무료)예요. 유료로 바뀌기 30일 전에 알려 드려요.</p>
+      ${freeMode() ? `<h3>이용</h3><div class="kv"><span>상태</span><strong>${esc(planLine())}</strong></div>${paidLine(t)}
+      ${['paid', 'comp'].includes(teamPlan().kind) ? '' : '<p class="muted small">지금은 베타 기간이라 모든 팀이 데모(무료)예요. 유료로 바뀌기 30일 전에 알려 드려요.</p>'}
       <a class="btn ghost full" href="#/pay">요금제 · 결제 화면</a>
       <p class="muted small"><a href="#/pricing">요금 안내</a> · <a href="#/refund">환불정책</a></p>` : `<h3>이용권</h3>
-      <div class="kv"><span>상태</span><strong>${esc(planLine())}</strong></div>
+      <div class="kv"><span>상태</span><strong>${esc(planLine())}</strong></div>${paidLine(t)}
       ${compActive(t) ? '' : `<a class="btn full" href="#/pay">${teamPlan().kind === 'paid' ? '연장 결제' : '요금제 고르기 · 결제'}</a>`}
       <p class="muted small"><a href="#/pricing">요금 안내</a> · <a href="#/refund">환불정책</a></p>`}
     </section>
@@ -649,9 +660,9 @@ export async function settings(el) {
       <div class="row"><select data-tokind>${Object.entries(SPACES).filter(([k]) => k !== kind).map(([k, v]) => `<option value="${k}">${v.name}(으)로</option>`).join('')}</select>
         <button type="button" class="btn ghost" data-kindreq>신청하기</button></div>
     </section>
-    ${kind === 'personal' ? '' : `<section class="card">
+    ${kind !== 'team' ? '' : `<section class="card">
       <h3>대표 넘기기</h3>
-      <p class="muted small">팀 대표(입장 승인 · 팀 설정 · 내보내기)를 우리 팀의 다른 지도자에게 넘겨요. 넘기면 나는 일반 지도자가 되고, 되돌리려면 새 대표가 다시 넘겨줘야 해요.</p>
+      <p class="muted small">팀 대표(입장 승인 · 팀 관리 · 결제 · 내보내기)를 우리 팀의 다른 지도자에게 넘겨요. 넘기면 나는 일반 지도자가 되고, 되돌리려면 새 대표가 다시 넘겨줘야 해요.</p>
       <div data-owner><p class="muted small">지도자 목록 불러오는 중…</p></div>
     </section>`}
   </div>`;
@@ -676,7 +687,7 @@ export async function settings(el) {
       <button type="button" class="btn ghost" data-transfer>대표 넘기기</button></div>`;
     box.querySelector('[data-transfer]').onclick = async () => {
       const c = coaches.find((x) => x.id === box.querySelector('[data-newowner]').value);
-      if (!c || !(await confirmBox(`${c.name} 지도자에게 팀 대표를 넘길까요? 넘긴 뒤에는 나는 팀 설정 · 입장 승인을 할 수 없어요.`))) return;
+      if (!c || !(await confirmBox(`${c.name} 지도자에게 팀 대표를 넘길까요? 넘긴 뒤에는 나는 팀 관리 · 결제 · 입장 승인을 할 수 없어요.`))) return;
       try {
         await updateDoc(doc(db, 'teams', t.id), { ownerUid: c.id, ownerName: c.name || '' });
         toast(`${c.name} 지도자가 이제 팀 대표예요.`);

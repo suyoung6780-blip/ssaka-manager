@@ -3,7 +3,8 @@ import {
   auth, db, doc, getDoc, setDoc, getDocs, addDoc, deleteDoc, updateDoc, collection, query, where, orderBy, limit, serverTimestamp, writeBatch, Timestamp, sendEmailVerification,
 } from '../fb.js';
 import { esc, toast, fail, pageHead, fmtDate, CATEGORIES, normCat, confirmBox, modal, emailKey } from '../ui.js';
-import { genTeamCode } from './onboard.js';
+import { genTeamCode, planName } from './onboard.js';
+import { ALL_PLANS, plansFor } from '../config.js';
 import { state, go, hooks, compActive, SPACES, spaceKind } from '../store.js';
 
 const tabs = (cur) => `<div class="tabs admin-tabs">${[['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원']].map(([h, l]) => `<a href="#${h}" class="${h === cur ? 'active' : ''}">${l}</a>`).join('')}</div>`;
@@ -83,8 +84,9 @@ const TEAM_FEATURES = [
 // ───────── 전체 팀 목록 (운영자) ─────────
 function usage(t) {
   if (t.comp) {
-    if (!t.compUntil) return ['무료 제공 · 평생', 'comp'];
-    return compActive(t) ? [`무료 제공 ~${fmtDate(t.compUntil)}`, 'comp'] : ['무료 제공 끝남', 'warn'];
+    const nm = t.compPlan ? ` · ${planName(t.compPlan)}` : '';
+    if (!t.compUntil) return [`무료 제공${nm} · 평생`, 'comp'];
+    return compActive(t) ? [`무료 제공${nm} ~${fmtDate(t.compUntil)}`, 'comp'] : ['무료 제공 끝남', 'warn'];
   }
   if (t.free) return ['무료(시범)', ''];
   if (t.status === 'pending') return ['결제 대기', 'warn'];
@@ -247,12 +249,19 @@ export async function teams(el) {
 
   // 홍보용 무료 제공: 1 · 3 · 5 · 12개월 / 평생 (오늘부터), 해제
   const PERIODS = [[1, '1개월'], [3, '3개월'], [5, '5개월'], [12, '12개월'], [0, '평생']];
+  // 무료 제공 요금제: 원더키드 · 가퍼 · 팀 요금제 · 인빈시블 (공간에 맞는 걸 먼저 골라 둠 · 다른 것도 고를 수 있음)
+  const COMP_PLANS = [...ALL_PLANS.map((p) => [p.id, p.name]), ['legend', '인빈시블']];
   function toggleComp(t) {
     const cur = t.comp ? (t.compMonths ?? 0) : 1;
+    const fitIds = [...plansFor(spaceKind(t)).map((p) => p.id), ...(spaceKind(t) === 'team' ? ['legend'] : [])];
+    const curPlan = (t.comp && t.compPlan) || fitIds[spaceKind(t) === 'team' ? 2 : 0] || fitIds[0]; // 팀은 챔피언십부터
     const m = modal(`<span class="eyebrow">FREE PASS</span><h2>${esc(t.name)} 무료 제공</h2>
       <p class="muted">${t.comp ? `지금: <strong>${usage(t)[0]}</strong>. 새로 고르면 <b>오늘부터</b> 다시 계산해요.` : '고른 기간 동안 결제 없이 이용합니다. 오늘부터 계산해요.'}</p>
+      <h4 class="comp-h">기간</h4>
       <div class="pick-chips comp-periods">${PERIODS.map(([n, l]) => `<label><input type="radio" name="months" value="${n}" ${n === cur ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
       <p class="muted small" data-until></p>
+      <h4 class="comp-h">요금제 <small class="muted">${esc(SPACES[spaceKind(t)].name)} — 고른 요금제 인원으로 무료</small></h4>
+      <div class="pick-chips comp-plans">${COMP_PLANS.map(([id, l]) => `<label><input type="radio" name="cplan" value="${id}" ${id === curPlan ? 'checked' : ''}><span>${l}${fitIds.includes(id) ? '' : ` <small>(${id === 'wonderkid' ? '개인 계정' : id === 'gaffer' ? '지도자 계정' : '팀 계정'}용)</small>`}</span></label>`).join('')}</div>
       <div class="row between">
         ${t.comp ? '<button class="btn ghost" data-off>무료 제공 해제</button>' : '<span></span>'}
         <button class="btn" data-ok>${t.comp ? '변경하기' : '무료 제공하기'}</button>
@@ -262,7 +271,7 @@ export async function teams(el) {
     const showUntil = () => { const u = untilOf(months()); m.el.querySelector('[data-until]').textContent = u ? `${fmtDate(u)} 까지 무료` : '기간 제한 없이 계속 무료'; };
     m.el.querySelectorAll('[name=months]').forEach((r) => (r.onchange = showUntil));
     showUntil();
-    m.el.querySelector('[data-ok]').onclick = () => { m.close(); saveComp(t, months(), untilOf(months())); };
+    m.el.querySelector('[data-ok]').onclick = () => { const pid = m.el.querySelector('[name=cplan]:checked')?.value || null; m.close(); saveComp(t, months(), untilOf(months()), true, pid); };
     m.el.querySelector('[data-off]')?.addEventListener('click', async () => {
       m.close();
       if (!(await confirmBox(`${t.name} 팀의 무료 제공을 해제할까요? ${t.free ? '무료(시범) 기간에는 그대로 이용합니다.' : '결제해야 이용할 수 있게 됩니다.'}`))) return;
@@ -270,10 +279,10 @@ export async function teams(el) {
     });
   }
 
-  async function saveComp(t, months, until, on = true) {
+  async function saveComp(t, months, until, on = true, plan = null) {
     try {
       const b = writeBatch(db);
-      const patch = { comp: on, compMonths: on ? months : null, compUntil: on && until ? Timestamp.fromMillis(until.getTime()) : null,
+      const patch = { comp: on, compMonths: on ? months : null, compUntil: on && until ? Timestamp.fromMillis(until.getTime()) : null, compPlan: on ? plan : null,
         compBy: state.profile.name, compAt: serverTimestamp() };
       if (on && t.status === 'pending') patch.status = 'active';
       b.update(doc(db, 'teams', t.id), patch);

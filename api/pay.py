@@ -269,7 +269,7 @@ def _schedule(ses, team_id, at_ms):
     if cr.status_code != 200:
         return _str(sb, 'nextPid') == pid  # 이미 예약함
     code, res = _portone('POST', f'/payments/{_q(pid)}/schedule', {
-        'payment': {'billingKey': bk, 'orderName': f'싸카매니저 {PLANS[plan][0]} 정기결제', 'customer': _customer(uid),
+        'payment': {'billingKey': bk, 'orderName': f'싸카매니저 {PLANS[plan][0]} 1개월 이용권 (정기결제)', 'customer': _customer(uid),
                     'amount': {'total': price}, 'currency': 'KRW'},
         'timeToPay': _ts(at_ms)[:19] + 'Z'})
     if code != 200:
@@ -323,7 +323,7 @@ def _charge_now(ses, team_id, uid, prof):
     if cr.status_code != 200:
         return 500, {'ok': False, 'message': '주문을 만들지 못했어요. 잠시 후 다시 해 주세요.'}
     code, res = _portone('POST', f'/payments/{_q(pid)}/billing-key', {
-        'billingKey': bk, 'orderName': f'싸카매니저 {PLANS[plan][0]} 정기결제', 'customer': _customer(uid, *prof),
+        'billingKey': bk, 'orderName': f'싸카매니저 {PLANS[plan][0]} 1개월 이용권 (정기결제)', 'customer': _customer(uid, *prof),
         'amount': {'total': price}, 'currency': 'KRW'})
     if code != 200:
         _sub_failed(ses, team_id, pid, str(res.get('message') or '')[:120])
@@ -355,9 +355,13 @@ def _count(ses, team_id):
 
 def _plan_problem(ses, team_id, team, plan):
     # 이 요금제로 결제할 수 없는 이유 (없으면 '') — 공간 종류 · 인원
-    personal = _str(team, 'kind') == 'personal'
-    if personal != (plan == 'wonderkid'):
-        return '개인 계정은 원더키드 요금제만, 팀 · 지도자 계정은 원더키드를 뺀 요금제만 고를 수 있어요.'
+    kind = _str(team, 'kind') or 'team'
+    if kind == 'personal' and plan != 'wonderkid':
+        return '개인 계정은 원더키드 요금제만 고를 수 있어요.'
+    if kind == 'gaffer' and plan != 'gaffer':
+        return '지도자 계정은 가퍼 요금제만 고를 수 있어요.'
+    if kind not in ('personal', 'gaffer') and plan in ('wonderkid', 'gaffer'):
+        return '팀 계정은 그래스루츠 · 넌리그 · 챔피언십 · 프리미어 요금제 중에서 골라 주세요.'
     n = _count(ses, team_id)
     if n is None:
         return '팀 인원을 확인하지 못했어요. 잠시 후 다시 해 주세요.'
@@ -407,7 +411,8 @@ def _sub_step(ses, step, uid, q):  # noqa: C901
         if cr.status_code != 200:
             return 500, {'ok': False, 'message': '잠시 후 다시 해 주세요.'}
         return 200, {'ok': True, 'storeId': _env('PORTONE_STORE_ID'), 'channelKey': _env('PORTONE_BILLING_CHANNEL_KEY'), 'issueId': iid,
-                     'issueName': f"싸카매니저 {PLANS.get(plan if mode == 'new' else _str(sb, 'plan'), ('',))[0]} 정기결제 카드 등록"}
+                     'price': PLANS[plan][1] if mode == 'new' else _int(sb, 'price'),  # 카드 등록창에 보여 줄 상품 가격 (여기선 결제 안 됨)
+                     'issueName': f"싸카매니저 {PLANS.get(plan if mode == 'new' else _str(sb, 'plan'), ('',))[0]} 1개월 이용권 (정기결제)"}
     if step == 'subConfirm':
         iid, bk = str(q.get('issueId') or ''), str(q.get('billingKey') or '')
         o = _get(ses, f'subOrders/{_q(iid)}')
@@ -571,4 +576,4 @@ class handler(BaseHTTPRequestHandler):
         if cr.status_code != 200:
             return self._fail(500, '주문을 만들지 못했어요. 잠시 후 다시 해 주세요.')
         return self._send(200, {'ok': True, 'storeId': _env('PORTONE_STORE_ID'), 'channelKey': _env('PORTONE_CHANNEL_KEY'),
-                                'paymentId': pid, 'orderName': f'싸카매니저 {plan_name} {cyc_label}', 'totalAmount': price})
+                                'paymentId': pid, 'orderName': f'싸카매니저 {plan_name} {cyc_label} 이용권', 'totalAmount': price})

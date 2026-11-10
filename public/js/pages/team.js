@@ -204,7 +204,7 @@ export async function locker(el) {
   const list = await members(true);
   let code = '';
   if (isCoach()) {
-    try { code = (await getDoc(tdoc('private', 'billing'))).data()?.code || ''; } catch { /* */ }
+    if (spaceKind() !== 'gaffer') try { code = (await getDoc(tdoc('private', 'billing'))).data()?.code || ''; } catch { /* */ } // 지도자 계정은 혼자 쓰는 계정 — 코드 안내 없음
   }
   const group = (r) => list.filter((m) => m.role === r && m.approved !== false).sort((a, b) => (+a.number || 99) - (+b.number || 99));
   const waiting = isOwner() ? list.filter((m) => m.approved === false) : []; // 팀 대표만 승인

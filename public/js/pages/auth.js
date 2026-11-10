@@ -31,6 +31,7 @@ export function accountGuide() {
       <p class="muted">회원가입 때 <strong>지도자</strong> · <strong>선수</strong> · <strong>보호자</strong> 중 하나를 고릅니다. 팀은 지도자가, 개인 계정은 보호자가 만들어요.</p>
       <ol class="guide-steps">
         <li><strong>지도자</strong>가 가입 → <b>팀 만들기</b>${FREE_MODE ? '' : ' → 결제'}<small>10자리 팀 코드가 바로 발급되고, 만든 지도자가 <b>팀 대표</b>가 됩니다.</small></li>
+        <li><strong>지도자 혼자</strong> 쓰려면 → <b>지도자 계정</b> 만들기<small>선수 없이 나 혼자 작전판 · 훈련 프로그램 · 영상룸을 써요. 다른 사람은 들어올 수 없어요.</small></li>
         <li><strong>다른 지도자 · 선수</strong>가 가입 → <b>팀 코드 입력</b><small>팀 대표에게 받은 코드로 팀에 들어옵니다.</small></li>
         <li><strong>보호자</strong>가 가입 → <b>개인 계정</b> 만들기<small>보호자 코드가 나와요. 선수는 선수 계정으로 가입해서 그 코드를 넣으면 연결돼요. (팀 검색에는 안 나와요)</small></li>
         <li><strong>다른 팀과 연락</strong>은 팀 대표에게 갑니다<small>다른 팀 페이지의 '팀에 연락하기'는 그 팀 대표 지도자와 대화로 연결돼요.</small></li>
@@ -119,7 +120,7 @@ export function signup(el) {
       <div class="row"><a class="btn sm" href="#/login">로그인하기</a><button type="button" class="btn ghost sm" data-reset>비밀번호 재설정 메일 받기</button></div></div>
     <label>비밀번호 (6자 이상)<input name="password" type="password" minlength="6" required autocomplete="new-password"></label>
     <label>비밀번호 확인<input name="password2" type="password" minlength="6" required autocomplete="new-password"></label>
-    <button class="btn full">다음 — 개인계정 만들기</button>
+    <button class="btn full">다음 — 내 정보 적기</button>
     <div class="row between small"><button type="button" class="link-btn" data-guide>계정 유형 · 권한 안내</button><a href="#/login">이미 계정이 있어요</a></div>
     <p class="center small"><a href="#/terms" class="muted">이용약관</a> <span class="muted">·</span> <a href="#/privacy" class="muted">개인정보 처리방침</a></p>
   </form>
@@ -197,7 +198,7 @@ export function profileFields(p = {}, { withRole = false } = {}) {
     <fieldset class="role-pick"><legend>계정 유형</legend>
       ${Object.entries(ROLES).map(([k, v]) => `
         <label class="radio-card"><input type="radio" name="role" value="${k}" ${k === r ? 'checked' : ''}>
-          <strong>${k === 'coach' ? '지도자 (코치)' : v}</strong><small>${{ coach: '팀 만들기 · 훈련 · 공지 작성 · 일지검사 · 스카웃 노트', player: '팀 코드로 입장 · 오늘 기록 · 개인 목표' }[k]}</small>
+          <strong>${k === 'coach' ? '지도자 (코치)' : v}</strong><small>${{ coach: '팀 만들기(또는 혼자 쓰는 지도자 계정) · 훈련 · 공지 작성 · 일지검사 · 스카웃 노트', player: '팀 코드로 입장 · 오늘 기록 · 개인 목표' }[k]}</small>
         </label>`).join('')}
         <label class="radio-card"><input type="radio" name="role" value="parent" ${r === 'parent' ? 'checked' : ''}>
           <strong>보호자</strong><small>개인 계정 만들기 · 선수 영상 편집 · 선수 기록 관리 (선수는 자기 선수 계정으로 보호자 코드를 넣어 연결 · 클럽 팀이 있어도 그대로)</small>
@@ -207,7 +208,7 @@ export function profileFields(p = {}, { withRole = false } = {}) {
     <label>이름 ${withRole ? '<small class="muted">(실명)</small>' : ''}<input name="name" required maxlength="20" value="${esc(p.name || '')}" ${withRole ? 'placeholder="예) 홍길동 — 별명 · 이니셜 말고 실명"' : ''}></label>
     ${withRole ? '<p class="name-note real">실명(성과 이름)을 정확하게 적어 주세요. <b>별명 · 이니셜 · 알아볼 수 없는 이름</b>은 팀 승인이 안 되거나 <b>이용이 제한될 수 있어요.</b></p>' : ''}
     ${withRole
-      ? `<div data-for="player" ${r === 'player' ? '' : 'hidden'}>${playerFields(p)}</div><div data-for="coach" ${r === 'coach' ? '' : 'hidden'}>${coachFields(p)}</div><div data-for="parent" ${r === 'parent' ? '' : 'hidden'}><p class="muted small">가입한 뒤 <b>개인 계정</b>를 만들면 보호자 코드가 나와요. 선수는 선수 계정으로 가입해서 그 코드를 넣으면 연결돼요.</p></div>`
+      ? `<div data-for="player" ${r === 'player' ? '' : 'hidden'}>${playerFields(p)}</div><div data-for="coach" ${r === 'coach' ? '' : 'hidden'}>${coachFields(p)}</div><div data-for="parent" ${r === 'parent' ? '' : 'hidden'}><p class="muted small">가입한 뒤 <b>개인 계정</b>을 만들면 보호자 코드가 나와요. 선수는 선수 계정으로 가입해서 그 코드를 넣으면 연결돼요.</p></div>`
       : r === 'parent' ? '' : r === 'coach' ? coachFields(p) : playerFields(p)}`;
 }
 

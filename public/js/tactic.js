@@ -925,17 +925,26 @@ export function createPad(container, initial, { editable = true, motion = false,
     if (btn) btn.disabled = true;
     try {
       plan.at(0);
-      const out = await p3d.frame(null, 1600);
+      const out = await p3d.frame(null, 1920); // 고화질: 풀HD 너비
+      const PRE = 800; const POST = 1500; const total = PRE + plan.total + POST;
+      const { framesToMp4 } = await import('./padExport.js');
+      const blob = await framesToMp4(out, total, async (t) => { plan.at(t - PRE); await p3d.frame(out, 1920); }, (f) => { if (lab) lab.textContent = `저장 ${Math.round(f * 100)}%`; });
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `${String(title || '작전판').replace(/[\\/:*?"<>|]/g, '_')} (중계 화면).mp4`;
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+        toastPad('중계 화면 그대로 영상으로 저장했어요'); return;
+      }
       const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
       const type = types.find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
-      const rec = new MediaRecorder(out.captureStream(30), { ...(type ? { mimeType: type } : {}), videoBitsPerSecond: 8e6 });
+      const rec = new MediaRecorder(out.captureStream(30), { ...(type ? { mimeType: type } : {}), videoBitsPerSecond: 12e6 });
       const chunks = []; rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
       const stopped = new Promise((r) => { rec.onstop = r; });
       rec.start(250);
-      const PRE = 800; const POST = 1500; const total = PRE + plan.total + POST; const t0 = performance.now();
+      const t0 = performance.now();
       for (;;) {
         const t = performance.now() - t0; if (t >= total) break;
-        plan.at(t - PRE); await p3d.frame(out, 1600);
+        plan.at(t - PRE); await p3d.frame(out, 1920);
         if (lab) lab.textContent = `녹화 ${Math.round(Math.min(1, t / total) * 100)}%`;
         await new Promise((r) => requestAnimationFrame(r));
       }

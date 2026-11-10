@@ -31,18 +31,18 @@ export function teamPlan(t = state.team) {
   const now = Date.now();
   const paid = ms(t.paidUntil);
   if (paid > now) return { kind: 'paid', until: paid, plan: t.plan || '', cycle: t.planCycle || '' };
-  if (compActive(t)) return { kind: 'comp', until: t.compUntil ? ms(t.compUntil) : Infinity };
+  if (compActive(t)) return { kind: 'comp', until: t.compUntil ? ms(t.compUntil) : Infinity, plan: t.compPlan || '' }; // compPlan: 운영자가 고른 요금제 (그 인원으로 무료)
   if (freeMode()) return { kind: 'free', until: Infinity }; // 베타: 모든 팀 무료
   if (t.free === true) { const u = +new Date(FREE_UNTIL); if (u > now) return { kind: 'free', until: u }; }
   if (t.trial === true) { const u = ms(t.createdAt) + TRIAL_DAYS * 864e5; if (u > now || !t.createdAt) return { kind: 'trial', until: t.createdAt ? u : now + TRIAL_DAYS * 864e5 }; }
   return { kind: 'none', until: paid || 0, plan: t.plan || '' };
 }
 // 요금제 인원 (승인된 팀원 기준) — 결제한 팀만 제한 · 베타 무료 · 체험 · 운영자 무료 제공은 제한 없음
-// 공간 종류: 팀(기본) · 지도자 계정(gaffer · 지도자끼리) · 개인 계정(personal · 보호자 1 + 선수 1)
+// 공간 종류: 팀(기본) · 지도자 계정(gaffer · 지도자 혼자, 가퍼 요금제) · 개인 계정(personal · 보호자 1 + 선수 1)
 // 지도자 계정 · 개인은 팀 검색 · 팀 대화 목록에 안 나옴 (만들 때 hidden). 속 구조는 팀과 같음 (규칙 · 결제 그대로)
 export const SPACES = {
   team: { name: '팀', code: '팀 코드', owner: '팀 대표' },
-  gaffer: { name: '지도자 계정', code: '지도자 코드', owner: '모임 대표' },
+  gaffer: { name: '지도자 계정', code: '지도자 코드', owner: '지도자' },
   personal: { name: '개인 계정', code: '보호자 코드', owner: '보호자' },
 };
 export const spaceKind = (t = state.team) => (t?.kind && SPACES[t.kind] ? t.kind : 'team');
@@ -52,7 +52,7 @@ export const roleName = (r, t = state.team) => (r === 'coach' ? (isPersonal(t) ?
 export function seatLimit(t = state.team) {
   if (isPersonal(t)) return { player: 1, coach: 1, name: SPACES.personal.name };
   const p = teamPlan(t);
-  const pl = p.kind === 'paid' && PLANS.find((x) => x.id === p.plan);
+  const pl = (p.kind === 'paid' || p.kind === 'comp') && PLANS.find((x) => x.id === p.plan);
   return pl ? { player: pl.players, coach: pl.coaches, name: pl.name } : null;
 }
 // 이용 가능: 결제 기간 안 · 운영자 무료 제공 · 새 팀 체험 14일 · 예전 팀 무료 기간

@@ -48,7 +48,7 @@ function watermark(c, data, mark) {
 }
 
 // 지금 그려진 svg 한 장 → 이미지
-function svgImage(svg, data, mark) {
+function svgImage(svg, data, mark, outW = 0) { // outW: 이 너비(px)로 그리게 (크게 저장해도 선 · 글자가 또렷)
   const vb = (svg.getAttribute('viewBox') || '0 0 100 60').split(/\s+/).map(Number);
   const c = svg.cloneNode(true);
   c.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
@@ -56,7 +56,7 @@ function svgImage(svg, data, mark) {
   const NS = 'http://www.w3.org/2000/svg';
   if (data) { const bottom = watermark(c, data, mark); if (bottom > vb[1] + vb[3]) vb[3] = bottom - vb[1]; } // 글자 자리만큼 아래를 늘림
   c.setAttribute('viewBox', vb.join(' '));
-  c.setAttribute('width', vb[2]); c.setAttribute('height', vb[3]);
+  c.setAttribute('width', outW || vb[2]); c.setAttribute('height', outW ? Math.round((outW * vb[3]) / vb[2]) : vb[3]);
   const bg = document.createElementNS(NS, 'rect');
   ['x', 'y', 'width', 'height'].forEach((k, i) => bg.setAttribute(k, vb[i]));
   bg.setAttribute('fill', svg.style.background || '#1b1d1f');
@@ -81,10 +81,11 @@ export async function savePadImage(data, title) {
     const mark = await markData();
     const n = pad.scenes();
     const shots = [];
-    for (let k = 0; k < n; k++) { pad.setScene(k); shots.push(await svgImage(pad.svgEl(), data, mark)); }
+    const cw = n > 1 ? 1600 : 3200; // 고화질: 한 장이면 3200px · 여러 장면이면 장면당 1600px
+    for (let k = 0; k < n; k++) { pad.setScene(k); shots.push(await svgImage(pad.svgEl(), data, mark, cw)); }
     const cols = n > 1 ? 2 : 1;
-    const cw = n > 1 ? 1000 : 1600; const chh = Math.round(cw * shots[0].ratio);
-    const lab = n > 1 ? 52 : 0; const gap = n > 1 ? 16 : 0;
+    const chh = Math.round(cw * shots[0].ratio);
+    const lab = n > 1 ? 84 : 0; const gap = n > 1 ? 26 : 0;
     const rows = Math.ceil(n / cols);
     const W = cols * cw + (cols + 1) * gap; const H = rows * (chh + lab) + (rows + 1) * gap;
     const c = document.createElement('canvas'); c.width = W; c.height = H;
@@ -92,7 +93,7 @@ export async function savePadImage(data, title) {
     ctx.fillStyle = '#0b0c0d'; ctx.fillRect(0, 0, W, H);
     shots.forEach((s, i) => {
       const x = gap + (i % cols) * (cw + gap); const y = gap + Math.floor(i / cols) * (chh + lab + gap);
-      if (lab) { ctx.fillStyle = '#39e75f'; ctx.font = `700 26px ${FONT}`; ctx.textBaseline = 'middle'; ctx.fillText(`장면 ${i + 1}`, x + 4, y + lab / 2); }
+      if (lab) { ctx.fillStyle = '#39e75f'; ctx.font = `700 42px ${FONT}`; ctx.textBaseline = 'middle'; ctx.fillText(`장면 ${i + 1}`, x + 6, y + lab / 2); }
       ctx.drawImage(s.img, x, y + lab, cw, chh);
     });
     const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
@@ -100,7 +101,49 @@ export async function savePadImage(data, title) {
   } finally { done(); }
 }
 
-export const canVideo = () => typeof MediaRecorder !== 'undefined' && !!HTMLCanvasElement.prototype.captureStream;
+export const canVideo = () => (typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined') || (typeof MediaRecorder !== 'undefined' && !!HTMLCanvasElement.prototype.captureStream);
+const MUXER = 'https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.min.js';
+const loadMuxer = () => (window.Mp4Muxer ? Promise.resolve() : new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = MUXER; sc.onload = res; sc.onerror = () => rej(new Error('mp4 만들기 도구를 불러오지 못했어요')); document.head.appendChild(sc); }));
+async function mp4Encoder(W, H, fps, bitrate) {
+  if (typeof VideoEncoder === 'undefined') return null;
+  for (const hw of ['prefer-hardware', null]) for (const codec of ['avc1.640033', 'avc1.640028', 'avc1.4d0033', 'avc1.42003e']) {
+    const cfg = { codec, width: W, height: H, bitrate, framerate: fps, latencyMode: 'quality', avc: { format: 'avc' }, ...(hw ? { hardwareAcceleration: hw } : {}) };
+    try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch { /* 다음 */ }
+  }
+  return null;
+}
+// 캔버스 c 에 draw(ms) 로 한 장씩 그려 mp4 로 (실시간이 아니라 컴퓨터가 되는 만큼 빠르게 · 30fps · 12Mbps)
+// 이 브라우저가 못 하면(또는 중간에 막히면) null → 부르는 쪽이 예전 실시간 녹화로
+export async function framesToMp4(c, total, draw, onProg = () => {}) {
+  const FPS = 30; const W = c.width; const H = c.height;
+  const cfg = await mp4Encoder(W, H, FPS, 12e6);
+  if (!cfg) return null;
+  let enc = null;
+  try {
+    await loadMuxer();
+    const muxer = new window.Mp4Muxer.Muxer({ target: new window.Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: W, height: H, frameRate: FPS }, fastStart: 'in-memory' });
+    let encErr = null;
+    enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { encErr = e; } });
+    enc.configure(cfg);
+    const nF = Math.ceil((total / 1000) * FPS); const us = 1e6 / FPS;
+    for (let i = 0; i < nF; i++) {
+      if (encErr) throw encErr;
+      await draw((i * 1000) / FPS);
+      const vf = new VideoFrame(c, { timestamp: Math.round(i * us), duration: Math.round(us) });
+      enc.encode(vf, { keyFrame: i % (FPS * 2) === 0 }); vf.close();
+      while (enc.encodeQueueSize > 6 && !encErr) await new Promise((r) => setTimeout(r, 4));
+      if (i % 3 === 2) await new Promise((r) => setTimeout(r, 0)); // 화면이 멈추지 않게 잠깐씩 숨 돌림
+      onProg(Math.min(1, (i + 1) / nF));
+    }
+    await enc.flush(); if (encErr) throw encErr; enc.close(); enc = null;
+    muxer.finalize();
+    return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+  } catch (e) {
+    console.warn('[작전판 영상] mp4 방식 실패 → 실시간 녹화', e);
+    try { enc?.close(); } catch { /* */ }
+    return null;
+  }
+}
 
 // 영상: 장면 1 → 끝까지 움직임을 실제 속도로 녹화 (앞 0.8초 · 끝 1.5초 멈춤)
 export async function savePadVideo(data, title, onProg = () => {}) {
@@ -110,26 +153,29 @@ export async function savePadVideo(data, title, onProg = () => {}) {
     if (!plan) throw new Error('움직임(장면 2 이상 · 화살표)이 있어야 영상으로 저장할 수 있어요.');
     plan.at(0);
     const mark = await markData();
-    const first = await svgImage(pad.svgEl(), data, mark);
-    const W = 1280; const H = Math.round((W * first.ratio) / 2) * 2;
+    const first = await svgImage(pad.svgEl(), data, mark, 1920);
+    const W = 1920; const H = Math.round((W * first.ratio) / 2) * 2; // 고화질: 풀HD 너비 (높이는 경기장 비율대로 · 짝수)
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const ctx = c.getContext('2d');
     const draw = (img) => { ctx.fillStyle = '#0b0c0d'; ctx.fillRect(0, 0, W, H); ctx.drawImage(img, 0, 0, W, H); };
     draw(first.img);
+    const PRE = 800; const POST = 1500; const total = PRE + plan.total + POST;
+    // 1순위: 한 프레임씩 그려서 mp4 (빠지는 프레임 없이 매끈) — 안 되는 브라우저만 아래 실시간 녹화
+    const blob = await framesToMp4(c, total, async (t) => { plan.at(t - PRE); draw((await svgImage(pad.svgEl(), data, mark, W)).img); }, onProg);
+    if (blob) { plan.end(); download(blob, `${fileName(title)}.mp4`); return; }
     const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
     const type = types.find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
-    const rec = new MediaRecorder(c.captureStream(30), { ...(type ? { mimeType: type } : {}), videoBitsPerSecond: 6e6 });
+    const rec = new MediaRecorder(c.captureStream(30), { ...(type ? { mimeType: type } : {}), videoBitsPerSecond: 12e6 });
     const chunks = [];
     rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
     const stopped = new Promise((r) => { rec.onstop = r; });
     rec.start(250);
-    const PRE = 800; const POST = 1500; const total = PRE + plan.total + POST;
     const t0 = performance.now();
     for (;;) {
       const t = performance.now() - t0;
       if (t >= total) break;
       plan.at(t - PRE);
-      draw((await svgImage(pad.svgEl(), data, mark)).img);
+      draw((await svgImage(pad.svgEl(), data, mark, W)).img);
       onProg(Math.min(1, t / total));
       await new Promise((r) => requestAnimationFrame(r));
     }

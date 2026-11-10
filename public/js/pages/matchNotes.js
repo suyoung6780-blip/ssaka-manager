@@ -110,7 +110,8 @@ async function live(el, id) {
       ${players.length ? `<div class="mn-pl" data-pl>${players.map((x) => `<button type="button" class="chip" data-u="${esc(x.id)}">${x.number ? `<b>${esc(x.number)}</b> ` : ''}${esc(x.name)}</button>`).join('')}</div>
       <label class="mini-switch mn-share" data-sharebox hidden><input type="checkbox" data-share> 고른 선수에게 보여주기 <small class="muted">(그 선수만 기록실에서 봐요)</small></label>` : ''}
       <textarea name="t" rows="2" maxlength="300" placeholder="한 줄로 적어요 — 예) 왼쪽 뒷공간 계속 뚫림 · 7번 첫 터치 좋음" enterkeyhint="send"></textarea>
-      <button class="btn" data-send>적기</button>
+      <div class="mn-btns"><button type="button" class="btn ghost mn-penbtn" data-pen aria-pressed="false" title="태블릿 펜으로 손글씨 → 글자">펜</button><button class="btn" data-send>적기</button></div>
+      <p class="mn-penhelp muted small" data-penhelp hidden><b>펜으로 쓰면 글자로 바뀌어요.</b> 아이패드: 설정 › Apple Pencil › <b>손글씨 입력</b> 켜기 · 갤럭시: S펜을 칸에 대면 나오는 <b>펜으로 입력</b> (또는 삼성 키보드의 필기 입력) — 다 쓰면 [적기]</p>
     </form>`;
   const $ = (q) => el.querySelector(q);
   const form = $('[data-form]'); const ta = form.t;
@@ -226,7 +227,22 @@ async function live(el, id) {
     if (!ta.value.trim()) { at0 = null; drawClock(); return; }
     if (!at0) { at0 = { ...stamp(n), at: Date.now() }; $('[data-at]').textContent = `${at0.label}에 적는 중`; }
   });
-  ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
+  // 펜 모드: 넓은 공책 칸 (아이패드 손글씨 입력 · 갤럭시 S펜 필기가 글자로 바꿔 넣음) — Enter 로 바로 보내지 않음(여러 줄)
+  const PENK = 'ssaka.mn.pen';
+  const setPen = (on) => {
+    form.classList.toggle('pen', on); $('[data-pen]').setAttribute('aria-pressed', String(on)); $('[data-penhelp]').hidden = !on;
+    ta.rows = on ? 6 : 2; ta.placeholder = on ? '여기에 펜으로 쓰세요 — 글자로 바뀌어요' : '한 줄로 적어요 — 예) 왼쪽 뒷공간 계속 뚫림 · 7번 첫 터치 좋음';
+    try { localStorage.setItem(PENK, on ? '1' : ''); } catch { /* */ }
+  };
+  $('[data-pen]').onclick = () => { setPen(!form.classList.contains('pen')); ta.focus(); };
+  try { if (localStorage.getItem(PENK)) setPen(true); } catch { /* */ }
+  // 펜이 칸에 닿으면: 펜 모드로 · 그 순간 시각을 붙임 (손글씨가 글자로 바뀌기 전에)
+  ta.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'pen') return;
+    if (!form.classList.contains('pen')) setPen(true);
+    if (!at0) { at0 = { ...stamp(n), at: Date.now() }; $('[data-at]').textContent = `${at0.label}에 적는 중`; }
+  });
+  ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !form.classList.contains('pen')) { e.preventDefault(); form.requestSubmit(); } });
   form.onsubmit = (e) => {
     e.preventDefault();
     const t = ta.value.trim(); if (!t) return;

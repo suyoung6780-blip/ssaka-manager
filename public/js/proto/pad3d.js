@@ -422,7 +422,7 @@ export function createPad3D(container) {
     get scene() { return scene; },
     get cam() { return camera; },
     // 저장 이미지: 중계 화면 그림 + 싸카매니저 표시 (경기장 가운데 흐린 로고 · 아래 TACTICAL PAD / SSAKA MANAGER) — 평면 저장과 같은 표시
-    async png() { const out = await this.frame(); try { return out ? out.toDataURL('image/png') : null; } catch { return null; } },
+    async png() { const out = await this.frame(null, 2400); /* 고화질 사진 */ try { return out ? out.toDataURL('image/png') : null; } catch { return null; } },
     // 한 장면 그림 → out 캔버스 (영상 녹화 때 같은 캔버스에 계속 그림) · maxW: 가로 최대 픽셀
     // 저장 전용 카메라로 다시 찍음: 경기장을 한가운데 · 네 면 관중석이 같은 폭 (작전판 화면 크기와 상관없이)
     async frame(out, maxW = 1600) {

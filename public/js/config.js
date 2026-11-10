@@ -27,7 +27,9 @@ export const PLANS = [
 ];
 // 요금제 이름 — 영국 축구 단계: 원더키드(개인) · 가퍼(지도자 1인) → 그래스루츠(레슨) → 넌리그 → 챔피언십 → 프리미어 → 인빈시블 (id 는 그대로라 결제 기록과 상관없음)
 export const WONDERKID = { id: 'wonderkid', name: '원더키드', sub: '개인 계정 · 보호자 1명 + 선수 1명', players: 1, coaches: 1, month: 9900, list: 14900, note: '영상룸(선수 영상) · 전술보드 · 기록실 · 데이터실 · 성장 평가 · 목표 · 내 일지' };
-export const ALL_PLANS = [WONDERKID, ...PLANS]; // 이름 찾기용 (팀 요금제 고르기 · 추천에는 PLANS 만)
+export const ALL_PLANS = [WONDERKID, ...PLANS];
+// 공간마다 결제할 수 있는 요금제 — api/pay.py _plan_problem 과 같게 (개인 계정 = 원더키드 · 지도자 계정 = 가퍼 · 팀 계정 = 그래스루츠~프리미어)
+export const plansFor = (kind) => (kind === 'personal' ? [WONDERKID] : kind === 'gaffer' ? PLANS.filter((p) => p.id === 'gaffer') : PLANS.filter((p) => p.id !== 'gaffer')); // 이름 찾기용 (팀 요금제 고르기 · 추천에는 PLANS 만)
 export const LEGEND = { name: '인빈시블', sub: '클럽 · 아카데미', players: '81명 이상', price: '99,900원부터 · 상담', list: '142,900원부터' };
 // 출시 기념가 — month 가 지금 받는 기념가, list 는 정식 가격 (실제 할인이 모두 off% 이상이 되게 맞춤)
 // 기념가로 가입한 팀은 연장해도 기념가 그대로. until 에 'YYYY-MM-DD' 를 넣으면 화면에 마감일이 나옴

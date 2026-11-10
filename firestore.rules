@@ -127,7 +127,7 @@ service cloud.firestore {
       // 새 팀: 베타 기간엔 무료(free) · 유료 전환 뒤엔 14일 체험(trial — 한 아이디당 한 번, 이미 썼으면 결제 대기 pending). 만든 시각 = 서버 시각, 결제 · 무료 제공 표시는 스스로 못 넣음
       allow create: if signedIn()
         && request.resource.data.ownerUid == uid()
-        && !request.resource.data.keys().hasAny(['paidUntil', 'comp', 'compUntil', 'plan', 'planCycle', 'lastPaidAt', 'firstPaidAt'])
+        && !request.resource.data.keys().hasAny(['paidUntil', 'comp', 'compUntil', 'compPlan', 'plan', 'planCycle', 'lastPaidAt', 'firstPaidAt'])
         && request.resource.data.createdAt == request.time
         && (request.resource.data.status == 'pending'
           || (request.resource.data.status == 'active' && (request.resource.data.get('trial', false) == true || request.resource.data.get('free', false) == true)))
@@ -142,7 +142,7 @@ service cloud.firestore {
       // 운영자: 홍보용 무료 제공(comp) 지정 · 해제 — 결제와 상관없이 계속 이용
       // 운영자: 팀 구분 정리 · 팀 이름 주의 · 기능 제한
       allow update: if isAdmin() && changed().hasOnly(['category', 'nameWarn', 'restricted', 'restrictedAt', 'hidden', 'kind']); // hidden: 목록에서 숨기기 (심사 · 시험용 팀) · kind: 종류 바꾸기 (팀 · 지도자 모임 · 선수 개인 관리)
-      allow update: if isAdmin() && changed().hasOnly(['comp', 'compMonths', 'compUntil', 'compBy', 'compAt', 'status']);
+      allow update: if isAdmin() && changed().hasOnly(['comp', 'compMonths', 'compUntil', 'compPlan', 'compBy', 'compAt', 'status']);
 
       match /members/{m} {
         allow read: if isMember(t) || isAdmin(); // 다른 팀 선수단은 못 봄 (공개 · 비공개 없음)
@@ -156,6 +156,7 @@ service cloud.firestore {
             (creatingTeam(t) && request.resource.data.role == 'coach')
             || (teamUsable(t) && (isOwner(t)
               || (get(/databases/$(database)/documents/teamCodes/$(request.resource.data.code)).data.teamId == t
+                && teamDoc(t).get('kind', 'team') != 'gaffer' // 지도자 계정은 혼자 쓰는 계정 — 코드로 못 들어옴
                 && request.resource.data.approved == false))) // 코드로 들어오면 승인 대기
           );
         // 본인은 역할 · 승인 · 나이 정보를 못 바꿈. 팀 대표는 승인 · 내보내기 가능
@@ -163,6 +164,7 @@ service cloud.firestore {
         allow delete: if (signedIn() && m == uid()) || isOwner(t) || isAdmin();
         // 이적: 보내는 팀 대표가 받는 팀에 '승인 대기'로 넣음 (받는 팀 대표가 승인해야 들어감)
         allow create: if signedIn() && m != uid()
+          && teamDoc(t).get('kind', 'team') != 'gaffer'
           && request.resource.data.approved == false
           && request.resource.data.role == get(/databases/$(database)/documents/users/$(m)).data.role
           && getAfter(/databases/$(database)/documents/transfers/$(m)).data.toTeam == t

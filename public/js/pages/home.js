@@ -175,10 +175,11 @@ const timeOfDay = (d) => { const h = d.getHours(); return h >= 5 && h < 10 ? 'mo
 function planBanner() {
   if (freeMode() || !isOwner()) return '';
   const pl = teamPlan();
-  if (!['trial', 'free', 'paid'].includes(pl.kind) || pl.until === Infinity) return '';
+  if (!['trial', 'free', 'paid', 'comp'].includes(pl.kind) || pl.until === Infinity) return '';
+  if (pl.kind === 'paid' && pl.cycle === 'month') return ''; // 1개월은 정기결제 — 자동 결제 알림(3일 전)이 따로 나옴
   const d = Math.ceil((pl.until - Date.now()) / 864e5);
   if (d > 7) return '';
-  const what = pl.kind === 'trial' ? '무료 체험' : pl.kind === 'free' ? '무료 기간' : '이용기간';
+  const what = pl.kind === 'trial' ? '무료 체험' : pl.kind === 'free' ? '무료 기간' : pl.kind === 'comp' ? '무료 제공 기간' : '이용기간';
   return `<a class="banner plan-banner" href="#/pay">${what}이 <b>${d <= 0 ? '오늘' : `${d}일 뒤`}</b> 끝나요 — 요금제를 골라 ${pl.kind === 'paid' ? '연장' : '결제'}하면 계속 쓸 수 있어요 →</a>`;
 }
 
@@ -320,7 +321,7 @@ export async function render(el) {
         ${role() === 'coach' ? (state.profile?.parent
     ? `<a class="tile" href="#/team/new"><span class="eyebrow">CREATE</span><h3>개인 계정 만들기</h3><p>선수 이름 입력 → 바로 보호자 코드 발급${FREE_MODE ? ' (무료)' : ' · 14일 무료 체험 (한 아이디당 한 번)'}</p></a>`
     : `<a class="tile" href="#/team/new"><span class="eyebrow">CREATE</span><h3>새로 만들기</h3><p>팀 계정 · 지도자 계정 중에서 골라요${FREE_MODE ? ' (무료)' : ' · 14일 무료 체험 (한 아이디당 한 번)'}</p></a>`) : ''}
-        ${state.profile?.parent ? '' : `<a class="tile" href="#/team/join"><span class="eyebrow">JOIN</span><h3>코드로 입장</h3><p>팀 코드 · 지도자 코드 · 보호자 코드를 넣고 들어가요.</p></a>`}`}
+        ${state.profile?.parent ? '' : `<a class="tile" href="#/team/join"><span class="eyebrow">JOIN</span><h3>코드로 입장</h3><p>팀 코드 · 보호자 코드를 넣고 들어가요.</p></a>`}`}
         <a class="tile" href="#/me"><span class="eyebrow">PROFILE</span><h3>내 프로필</h3><p>사진 · 키 · 몸무게 · 포지션</p></a>
       </div>
       <div data-todo></div>`;

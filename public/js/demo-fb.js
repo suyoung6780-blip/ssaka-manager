@@ -381,6 +381,9 @@ const QS = typeof location !== 'undefined' ? new URLSearchParams(location.search
 // ?warn 팀명 주의 받은 상태 · ?limit 기능 제한된 상태로 미리보기 (FC 블랙)
 if (QS.has('warn')) Object.assign(store.get('teams/T1'), { nameWarn: { name: 'FC 블랙', at: Timestamp.now ? Timestamp.fromMillis(Date.now()) : null } });
 if (QS.has('limit')) Object.assign(store.get('teams/T1'), { restricted: true });
+// 체험 미리 보기: ?paid=1 결제한 팀(챔피언십 · 23일 남음) · ?comp=1 운영자 무료 제공(5일 남음)
+if (QS.has('paid')) Object.assign(store.get('teams/T1'), { plan: 'pro', planCycle: QS.get('paid') === 'year' ? 'year' : 'month', paidUntil: Timestamp.fromMillis(Date.now() + 23 * 864e5), lastPaidAt: Timestamp.fromMillis(Date.now() - 7 * 864e5) });
+if (QS.has('comp')) Object.assign(store.get('teams/T1'), { comp: true, compPlan: 'pro', compMonths: 1, compUntil: Timestamp.fromMillis(Date.now() + 5 * 864e5) });
 // ?space=personal · ?space=gaffer → 개인 계정 · 지도자 계정으로 미리 보기
 if (QS.get('space') === 'personal') {
   Object.assign(store.get('teams/T1'), { kind: 'personal', hidden: true, name: '박선수 선수', childName: '박선수', category: 'U15' });
@@ -423,7 +426,7 @@ if (QS.get('sub')) {
   Object.assign(store.get('teams/T1'), { free: false, plan: 'pro', planCycle: 'month', paidUntil: Timestamp.fromMillis(nx) });
   seed('subs/T1', { uid: U, plan: 'pro', price: 44900, status: QS.get('sub'), card: '신한카드 · 1234', nextAt: QS.get('sub') === 'on' ? Timestamp.fromMillis(nx) : null, note: QS.get('sub') === 'failed' ? '잔액 부족' : '', startedAt: Timestamp.fromMillis(Date.now() - 28 * 864e5) });
 }
-if (QS.get('space') === 'gaffer') Object.assign(store.get('teams/T1'), { kind: 'gaffer', hidden: true, name: '수원 유소년 지도자 계정', category: '지도자 계정' });
+if (QS.get('space') === 'gaffer') Object.assign(store.get('teams/T1'), { kind: 'gaffer', hidden: true, name: '김코치 지도자 계정', category: '지도자 계정' });
 const FRESH = QS.has('new');
 // 데모 계정: 이메일 · 비밀번호 · 인증 여부를 이 브라우저에 기억 (새로고침해도 유지)
 // 김코치 c@x.com / coach123 · 박선수(선수) p@x.com / player123
@@ -474,7 +477,7 @@ const saveProfiles = () => { try { localStorage.setItem(PROF_KEY, JSON.stringify
 // 시제품 3.0: 이 컴퓨터에서 고친 IDP · 경기분석 작업 기록 · 목표는 새로고침해도 남게 (처음 상태로: 주소 끝에 ?p3reset=1)
 const P3_KEY = 'ssaka-demo-p3'; const P3_RE = /^teams\/T1\/(idp\/|idpConfig\/|matchWork\/|matchNotes\/|goals\/|matches\/|logs\/|posts\/(p3match|match1)$)/;
 if (LOCAL && !QS.get('space')) { try { if (QS.has('p3reset')) localStorage.removeItem(P3_KEY); else Object.entries(JSON.parse(localStorage.getItem(P3_KEY) || '{}')).forEach(([k, v]) => store.set(k, v)); } catch { /* */ } }
-const saveP3 = () => { if (!LOCAL || QS.get('space')) return; // 개인 · 모임 미리 보기에서 바꾼 건 팀 데모에 안 남김
+const saveP3 = () => { if (!LOCAL || QS.get('space')) return; // 개인 · 지도자 계정 미리 보기에서 바꾼 건 팀 데모에 안 남김
   try { localStorage.setItem(P3_KEY, JSON.stringify(Object.fromEntries([...store].filter(([k]) => P3_RE.test(k))))); } catch { /* */ } };
 const authErr = (code) => Object.assign(new Error(code), { code });
 auth.demo = true;

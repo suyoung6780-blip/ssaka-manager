@@ -1,4 +1,4 @@
-import { PRIVACY, isConfigured, FREE_MODE } from './config.js';
+import { PRIVACY, isConfigured, FREE_MODE, ALL_PLANS } from './config.js';
 import { installButton, bindInstall } from './install.js';
 import { attachHelp } from './help.js';
 import { versionLabel, CHANGELOG, VERSION } from './version.js';
@@ -8,7 +8,7 @@ import { startNews, stopNews, markSeen, paint } from './news.js';
 import { auth, onAuthStateChanged, signOut } from './fb.js';
 import { $, $$, esc, avatar, ROLES, pageHead, toast, modal, isQuota, quotaNotice, quotaHooks, empty } from './ui.js';
 import {
-  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, freeMode, waitApproval, teamRestricted, hasFeature, SPACES, spaceKind, isPersonal,
+  state, hooks, go, loadContext, role, inTeam, isCoach, isSquad, isOwner, isAdmin, isAdminEmail, teamActive, teamPlan, freeMode, waitApproval, teamRestricted, hasFeature, SPACES, spaceKind, isPersonal,
 } from './store.js';
 import * as authPages from './pages/auth.js';
 import { loadBanner } from './pages/banner.js';
@@ -238,7 +238,7 @@ async function route() {
   // 결제 전 · 이용기간이 끝난 팀: 결제 · 설정 · 문의 · 내 프로필만 (기록은 그대로 남아 있음)
   if (!freeMode() && state.team && state.member && state.member.approved !== false && !teamActive() && !isAdmin() && !PAY_OK.includes(path)) {
     view.innerHTML = `${pageHead('PAYMENT', '이용기간이 끝났어요')}<section class="card pay-gate">
-      <p><b>${esc(state.team.name)}</b>의 ${state.team.trial ? '무료 체험' : state.team.free ? '무료 기간' : '이용기간'}이 끝났어요. ${isOwner() ? '요금제를 골라 결제하면 바로 다시 쓸 수 있어요.' : '팀 대표 지도자가 결제하면 다시 쓸 수 있어요.'}</p>
+      <p><b>${esc(state.team.name)}</b>의 ${state.team.comp ? '무료 제공 기간' : state.team.trial ? '무료 체험' : state.team.free ? '무료 기간' : '이용기간'}이 끝났어요. ${isOwner() ? '요금제를 골라 결제하면 바로 다시 쓸 수 있어요.' : `${isPersonal() ? '보호자가' : '팀 대표 지도자가'} 결제하면 다시 쓸 수 있어요.`}</p>
       <p class="muted small">팀 기록(일지 · 분석 · 작전판 등)은 지워지지 않고 그대로 남아 있어요.</p>
       <div class="row">${isOwner() ? '<a class="btn" href="#/pay">요금제 고르기 · 결제</a>' : ''}<a class="btn ghost" href="#/pricing">요금 안내</a><a class="btn ghost" href="#/support">운영자 문의</a></div></section>`;
     window.scrollTo(0, 0);
@@ -257,6 +257,8 @@ async function route() {
   window.scrollTo(0, 0);
 }
 
+// 관리 · 결제: 대표 계정만 (팀 대표 · 지도자 계정 대표 · 개인 계정은 보호자) — 공간마다 결제할 수 있는 요금제가 정해져 있음
+const manage = () => (inTeam() && isOwner() ? [['/settings', `${({ team: '팀', gaffer: '지도자 계정', personal: '개인 계정' })[spaceKind()]} 관리`], ['/pay', '결제']] : []);
 function navItems() {
   const items = [];
   const sec = (title, list) => list.length && items.push({ title, list });
@@ -269,7 +271,8 @@ function navItems() {
     sec('RECORD', squad ? [['/records', '기록실'], ['/data', '데이터실']] : []);
     sec('GROWTH', squad ? [...(v ? [['/idp', '성장 평가']] : []), ['/goals', '목표']] : []);
     sec('MY', [['/me', '프로필']]);
-    sec('SUPPORT', [...(isOwner() ? [['/settings', freeMode() ? '설정' : '설정 · 결제']] : []), ['/support/guide', '사용 설명서'], ['/support', '운영자 문의']]);
+    sec('MANAGE', manage());
+    sec('SUPPORT', [['/support/guide', '사용 설명서'], ['/support', '운영자 문의']]);
     if (isAdmin()) sec('ADMIN', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '소통']]);
     return items;
   }
@@ -281,7 +284,8 @@ function navItems() {
   sec('GROWTH', squad ? [...(hasFeature('proto3') ? [['/idp', '성장 평가']] : []), ['/goals', '목표'], ['/data', '데이터실'], ...(coach ? [['/journal-check', '일지검사']] : [])] : []);
   sec('MY', [['/me', '프로필'], ...(coach ? [['/notes', '코치 노트'], ['/scout', '스카웃 노트']] : [])]);
   sec('COMMUNITY', coach ? [['/community/training', '훈련 공유'], ['/community/talk', '지도자 게시판']] : []);
-  sec('SUPPORT', [...(isOwner() ? [['/settings', freeMode() ? '팀 설정' : '팀 설정 · 결제']] : []), ['/support/guide', '사용 설명서'], ['/support', '운영자 문의']]);
+  sec('MANAGE', manage());
+  sec('SUPPORT', [['/support/guide', '사용 설명서'], ['/support', '운영자 문의']]);
   if (isAdmin()) sec('ADMIN', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '소통']]);
   else if (isAdminEmail()) sec('ADMIN', [['/admin/verify', '운영자 인증']]);
   return items;
@@ -311,11 +315,21 @@ function renderShell() {
   loadBanner($('#sys-notice')); // 운영자 전체 공지
 }
 
+// 팀 칸 아래 한 줄 (대표만): 결제 · 무료 제공 · 체험이면 요금제와 남은 날
+function planChip() {
+  if (!isOwner()) return '';
+  const pl = teamPlan();
+  if (!['paid', 'comp', 'trial'].includes(pl.kind)) return '';
+  const nm = (ALL_PLANS.find((p) => p.id === pl.plan) || {}).name || (pl.plan === 'legend' ? '인빈시블' : '');
+  const what = pl.kind === 'paid' ? nm || '결제' : pl.kind === 'comp' ? `무료 제공${nm ? ` · ${nm}` : ''}` : '무료 체험';
+  const d = Math.ceil((pl.until - Date.now()) / 864e5);
+  return `<a class="plan-chip${pl.until !== Infinity && d <= 7 ? ' soon' : ''}" href="#/pay">${esc(what)} · ${pl.until === Infinity ? '평생' : d <= 0 ? '오늘까지' : `${d}일 남음`}</a>`;
+}
 function updateShell(path = location.hash.slice(1) || '/') {
   if (!$('.shell')) return;
   const t = state.team;
   $('.team-chip').innerHTML = inTeam()
-    ? `<span class="cat">${esc(spaceKind() === 'team' ? t.category : SPACES[spaceKind()].name)}</span><strong>${esc(t.name)}</strong>${teamActive() ? '' : '<em>이용기간 만료</em>'}${state.parentLink ? `<small class="pl-chip ${state.parentLink.approved ? 'on' : 'wait'}">${state.parentLink.approved ? '개인 계정 연결됨' : '개인 계정 연결 대기'} · ${esc(state.parentLink.owner)}</small>` : ''}`
+    ? `<span class="cat">${esc(spaceKind() === 'team' ? t.category : SPACES[spaceKind()].name)}</span><strong>${esc(t.name)}</strong>${teamActive() ? planChip() : '<em>이용기간 만료</em>'}${state.parentLink ? `<small class="pl-chip ${state.parentLink.approved ? 'on' : 'wait'}">${state.parentLink.approved ? '개인 계정 연결됨' : '개인 계정 연결 대기'} · ${esc(state.parentLink.owner)}</small>` : ''}`
     : '<span class="cat">NO TEAM</span><strong>소속 팀 없음</strong>';
   const items = navItems();
   // 지금 주소에 가장 길게 맞는 메뉴 하나만 선택 (예: /admin/teams 면 '전체 팀'만, '전체 공지'는 아님)
