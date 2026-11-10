@@ -406,6 +406,18 @@ async function subCall(step, body, btn, okMsg) {
 // 결제창 · 카드 등록창의 '제공기간' (KG이니시스 심사 · 휴대폰 카드 등록에 꼭 필요): 지금 이용기간 끝(또는 오늘)부터 days 일
 const kst = (ms) => `${new Date(ms + 9 * 36e5).toISOString().slice(0, 10)}T00:00:00+09:00`;
 const offerOf = (days) => { const pl = teamPlan(); const from = Math.max(Date.now(), pl.kind === 'paid' ? pl.until : 0); return { range: { from: kst(from), to: kst(from + days * 864e5) } }; };
+// 카드 등록 창에 보여 줄 것 — KG이니시스가 상품가격(displayAmount)을 받으면 500이 나서 기본은 예전처럼 없음 (2026-11-10)
+// 시험: 주소에 ?bk=a · b · c · d 를 붙여 어느 방식이 열리고 가격이 나오는지 확인 (확인되면 그 방식을 기본으로)
+//  a: 가격 + 월 정기결제(1m) · b: 가격만 · c: 제공기간(날짜)만 · d: 월 정기결제(1m)만
+function bkShow(price) {
+  const v = new URLSearchParams(location.search).get('bk') || '';
+  const amt = price ? { displayAmount: price, currency: 'KRW' } : {};
+  if (v === 'a') return { ...amt, offerPeriod: { interval: '1m' } };
+  if (v === 'b') return amt;
+  if (v === 'c') return { offerPeriod: offerOf(CYCLES.month.days) };
+  if (v === 'd') return { offerPeriod: { interval: '1m' } };
+  return {};
+}
 async function billingCheckout(t, mode, p, btn) {
   if (auth.demo && !/^(localhost|127\.)/.test(location.hostname)) return toast('체험 모드에서는 결제되지 않아요.');
   const label = btn?.textContent;
@@ -423,7 +435,7 @@ async function billingCheckout(t, mode, p, btn) {
     const b = buyer();
     const res = await window.PortOne.requestIssueBillingKey({
       storeId: o.storeId, channelKey: o.channelKey, billingKeyMethod: 'CARD', issueId: o.issueId, issueName: o.issueName,
-      ...(o.price ? { displayAmount: o.price, currency: 'KRW' } : {}), offerPeriod: offerOf(CYCLES.month.days), // 창에 상품가격 · 제공기간 (카드 등록 땐 결제 안 됨)
+      ...bkShow(o.price), // 창에 상품가격 · 제공기간 (카드 등록 땐 결제 안 됨)
       customer: { customerId: state.user?.uid, fullName: b.name || '지도자', phoneNumber: b.phone.replace(/\D/g, ''), email: b.email || undefined },
       redirectUrl: `${location.origin}${location.pathname}?pay=billing#/pay`, // 휴대폰: 카드 등록 화면에서 이 주소로 돌아옴
     });
@@ -480,7 +492,7 @@ async function portoneCheckout(t, { p }, cycle, btn) {
     if (typeof window.PortOne?.requestPayment !== 'function') throw new Error('결제 모듈을 불러오지 못했어요. 새로고침해 주세요.');
     const res = await window.PortOne.requestPayment({
       storeId: o.storeId, channelKey: o.channelKey, paymentId: o.paymentId,
-      orderName: o.orderName, totalAmount: o.totalAmount, currency: 'KRW', payMethod: 'CARD', offerPeriod: offerOf(CYCLES[cycle].days), // 제공기간
+      orderName: o.orderName, totalAmount: o.totalAmount, currency: 'KRW', payMethod: 'CARD', offerPeriod: offerOf(CYCLES[cycle].days), // 제공기간 (12개월 창에서 잘 열림 확인 2026-11-10)
       // KG이니시스: 이름 필수 · PC는 휴대폰 번호 · 이메일도 필수
       customer: { fullName: state.profile.name || '지도자', phoneNumber: (state.profile.payPhone || '').replace(/\D/g, ''), email: state.user.email || undefined },
       redirectUrl: `${location.origin}${location.pathname}?pay=portone#/pay`, // 휴대폰: 결제 화면에서 이 주소로 돌아옴
