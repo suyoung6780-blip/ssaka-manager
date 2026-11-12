@@ -23,6 +23,20 @@ export function genTeamCode() {
   return c.join('');
 }
 
+// 초대 메시지 보내기: 휴대폰이면 공유창(카톡 · 문자), 컴퓨터면 메시지를 복사 — 가입 순서 + 코드가 한 번에
+// code 를 모르면(홈 체크 카드) 팀 관리 정보에서 읽어 옴
+export async function sendInvite(t = state.team, code = '') {
+  const kind = spaceKind(t);
+  if (!code) { try { code = (await getDoc(doc(db, 'teams', t.id, 'private', 'billing'))).data()?.code || ''; } catch { /* */ } }
+  if (!code) return toast('코드를 아직 못 불러왔어요. 팀 관리에서 코드를 확인해 주세요.');
+  const site = 'https://www.ssakamanager.co.kr';
+  const text = kind === 'personal'
+    ? `[싸카매니저] ${t.childName || t.name} 선수 개인 계정 연결 안내\n1) ${site} 에서 '선수'로 가입해요\n2) 프로필 › 개인 계정 연결하기에 보호자 코드를 넣어요\n보호자 코드: ${code} (대문자 · 소문자 구분)`
+    : `[싸카매니저] ${t.name} 팀에 초대합니다\n1) ${site} 에서 가입해요 (선수는 '선수', 코치는 '지도자')\n2) 홈 › 코드로 입장에 팀 코드를 넣어요\n팀 코드: ${code} (대문자 · 소문자 구분)\n팀 대표가 승인하면 바로 시작이에요.`;
+  if (navigator.share && matchMedia('(pointer: coarse)').matches) { try { await navigator.share({ title: '싸카매니저 초대', text }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
+  (navigator.clipboard?.writeText(text) || Promise.reject()).then(() => toast('초대 메시지를 복사했어요. 카톡방에 붙여 넣어 보내 주세요.'), () => toast(`복사가 안 돼요 — 코드: ${code}`));
+}
+
 // 코드 안내 문구 — 공간 종류마다 누구에게 알려 줄지
 const CODE_TO = { team: '선수 · 코치에게 이 코드를 알려주세요.', gaffer: '함께할 지도자에게 이 코드를 알려주세요.', personal: '선수에게 이 코드를 알려주세요. 선수는 <b>선수 계정</b>으로 가입한 뒤 이 코드를 넣어요.' };
 export function codeModal(code, title, kind = spaceKind()) {
@@ -30,7 +44,9 @@ export function codeModal(code, title, kind = spaceKind()) {
   const m = modal(`<span class="eyebrow">CODE</span><h2>${title || `${sp.code}가 만들어졌어요`}</h2>
     <p>${CODE_TO[kind] || CODE_TO.team} <strong>대문자 · 소문자를 구분</strong>합니다.</p>
     <div class="code-big" data-copy>${esc(code)}</div>
-    <div class="row between"><small class="muted">${kind === 'personal' ? '홈 · 개인 계정 관리' : '팀 관리'}에서 언제든 다시 볼 수 있어요.</small><button class="btn" data-copy-btn>코드 복사</button></div>`);
+    <button type="button" class="btn full invite-btn" data-invite>초대 메시지 보내기 <small>카톡 · 문자</small></button>
+    <div class="row between"><small class="muted">${kind === 'personal' ? '홈 · 개인 계정 관리' : '팀 관리'}에서 언제든 다시 볼 수 있어요.</small><button class="btn ghost" data-copy-btn>코드만 복사</button></div>`);
+  m.el.querySelector('[data-invite]').onclick = () => sendInvite(state.team, code);
   const copy = () => (navigator.clipboard?.writeText(code) || Promise.reject()).then(() => toast(`${sp.code}를 복사했습니다.`), () => toast(`복사가 안 돼요 — ${sp.code}: ${code}`));
   m.el.querySelector('[data-copy]').onclick = copy;
   m.el.querySelector('[data-copy-btn]').onclick = copy;
@@ -76,7 +92,7 @@ async function makeTeam(info) {
 // 만들 공간 종류 — 고르면 아래 입력 칸과 설명이 바뀜
 const KIND_CARDS = [
   ['team', '팀 계정', '지도자 + 선수들이 함께 쓰는 팀', '만들면 <b>팀 코드</b>가 나와요. 팀 코드로 선수 · 지도자를 초대해요. 팀 검색에 나와요.'],
-  ['gaffer', '지도자 계정', '지도자 혼자 쓰기', '선수 없이 지도자 1명이 쓰는 계정이에요. 작전판 · 훈련 프로그램 · 영상룸 · 커뮤니티. 팀 검색에는 안 나와요.'],
+  ['gaffer', '지도자 계정', '지도자 혼자 쓰기', '선수 없이 지도자 1명이 쓰는 계정이에요. 작전판 · 훈련 프로그램 · 영상룸. 팀 검색에는 안 나와요.'],
   ['personal', '개인 계정', '보호자 1명 + 선수 1명', '만들면 <b>보호자 코드</b>가 나와요. 보호자 코드로 개인 선수를 초대해요. 선수 영상 편집 · 기록 관리 · 목표. 팀 검색에는 안 나와요.'],
 ];
 export function createTeam(el) {
@@ -663,7 +679,7 @@ export async function settings(el) {
       <label>${kind === 'personal' ? '이름' : `${word} 이름`}<input name="name" required minlength="2" maxlength="30" value="${esc(t.name)}" placeholder="${kind === 'personal' ? '예) 홍길동 선수' : '예) 블랙 FC U15, 한빛초 축구부'}"></label>
       ${kind === 'team' ? `<p class="name-note${t.nameWarn ? ' on' : ''}">팀을 알아볼 수 있게 실제 팀 이름을 정확하게 적어 주세요. 알아볼 수 없는 이름은 기능이 제한될 수 있어요.</p>` : ''}
       ${kind === 'gaffer' ? `<input type="hidden" name="category" value="${esc(t.category || '지도자 계정')}">` : `<label>${kind === 'personal' ? '선수 학년 · 연령' : '팀 구분 <small class="muted">(연령 · 리그 — 바꾸면 팀 검색에서 이 구분으로 보여요)</small>'}<select name="category">${options(CATEGORIES, normCat(t.category))}</select></label>`}
-      <p class="muted small">${kind === 'team' ? '다른 팀에는 팀 이름 · 구분 · 대표 지도자 이름만 보여요. 선수단과 팀 안 내용은 우리 팀만 봐요.' : '팀 검색 · 팀 대화 목록에 나오지 않아요.'}</p>
+      <p class="muted small">${kind === 'team' ? '다른 팀에는 팀 이름 · 구분 · 대표 지도자 이름만 보여요. 선수단과 팀 안 내용은 우리 팀만 봐요.' : '팀 검색에 나오지 않아요.'}</p>
       <button class="btn">저장</button>
     </form>
     <section class="card">

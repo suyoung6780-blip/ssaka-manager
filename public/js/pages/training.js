@@ -146,7 +146,7 @@ export async function library(el) {
     const box = el.querySelector('[data-list]');
     if (!rows.length) {
       box.innerHTML = all.length ? empty('조건에 맞는 훈련이 없습니다.')
-        : `<div class="tb-empty"><b>아직 훈련 프로그램이 없어요</b><p class="muted">[택티컬]에서 훈련을 그리고 <b>훈련 프로그램으로 저장</b>을 누르면 여기에 모여요. 만든 훈련은 일일 훈련에 넣거나 커뮤니티에 공유할 수 있어요.</p><a class="btn sm" href="#/tactics">택티컬에서 그리기</a></div>`;
+        : `<div class="tb-empty"><b>아직 훈련 프로그램이 없어요</b><p class="muted">[택티컬]에서 훈련을 그리고 <b>훈련 프로그램으로 저장</b>을 누르면 여기에 모여요. 만든 훈련은 일일 훈련에 넣어 선수들과 나눌 수 있어요.</p><a class="btn sm" href="#/tactics">택티컬에서 그리기</a></div>`;
       return;
     }
     box.innerHTML = f.view === 'grid'
@@ -213,7 +213,7 @@ export function detail(p, refresh) {
       <div class="row"><button class="btn" data-present>▶ 선수들에게 보여주기</button>${p.pad ? `<button class="btn ghost" data-ximg>이미지로 저장</button>${padMoves(p.pad) ? '<button class="btn ghost" data-xvid>영상으로 저장</button>' : ''}` : ''}</div>
       ${p.body ? `<h4>훈련 방법</h4><div class="prose">${text(p.body)}</div>` : ''}
       ${pts.length ? `<h4>코칭 포인트</h4><ol class="points">${pts.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
-      ${isCoach() ? '<div class="row end"><button class="btn ghost" data-share-cm>커뮤니티에 공유</button><button class="btn ghost" data-del>삭제</button><button class="btn ghost" data-edit>수정</button></div>' : ''}
+      ${isCoach() ? '<div class="row end"><button class="btn ghost" data-del>삭제</button><button class="btn ghost" data-edit>수정</button></div>' : ''}
     </div>`, { wide: true });
   const padBox = m.el.querySelector('[data-pad]');
   if (padBox) createPad(padBox, p.pad, { editable: false });
@@ -221,7 +221,6 @@ export function detail(p, refresh) {
   m.el.querySelector('[data-ximg]')?.addEventListener('click', (e) => exportPad('image', p.pad, p.title, e.currentTarget));
   m.el.querySelector('[data-xvid]')?.addEventListener('click', (e) => exportPad('video', p.pad, p.title, e.currentTarget));
   m.el.querySelector('[data-edit]')?.addEventListener('click', () => { m.close(); editor(p, refresh); });
-  m.el.querySelector('[data-share-cm]')?.addEventListener('click', async () => { m.close(); (await import('./community.js')).shareProgram(p); });
   m.el.querySelector('[data-del]')?.addEventListener('click', async () => {
     if (!(await confirmBox('이 훈련을 삭제할까요?'))) return;
     try { await deleteDoc(doc(db, 'teams', state.team.id, 'posts', p.id)); m.close(); refresh(); } catch (e) { fail(e); }

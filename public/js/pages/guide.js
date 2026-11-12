@@ -8,7 +8,7 @@ import { HELP } from '../help.js';
 const START = {
   coach: ['회원가입 → 계정 유형 <b>지도자</b> → 이메일 인증',
     '<b>팀 만들기</b>: 팀 이름 · 구분(U12 · U15 …)을 적으면 팀 대표가 돼요',
-    '<b>팀 코드</b>(락커룸 · 팀 관리)를 복사해 선수 · 코치에게 보내요 → 들어오면 <b>락커룸 › 입장 승인 대기</b>에서 승인',
+    '<b>락커룸 › 초대 메시지 보내기</b>로 카톡방에 초대 글(가입 순서 + 팀 코드)을 보내요 → 들어오면 <b>락커룸 › 입장 승인 대기</b>에서 승인 · 홈 맨 위 <b>시작하기 3단계</b>를 따라가도 돼요',
     '<b>스케줄</b>에 훈련 · 경기 일정 → <b>훈련장</b>에 그날 훈련(전술보드 그림 넣기) → 선수들이 <b>오늘 기록</b>을 써요',
     '다음 날 <b>일지검사</b>에서 일지를 읽고 코치 한마디 → 선수 홈 <b>코치님 피드백</b>에 바로 보여요',
     '경기가 끝나면 <b>기록실</b>에 점수 · 득점 · 도움 → 선수 <b>시즌 기록</b>에 쌓여요 · 득점 · 실점 장면은 <b>분석실</b> · 영상은 <b>영상룸</b>에서',
@@ -32,19 +32,18 @@ const START = {
 // 챕터 순서 (메뉴 묶음과 같게)
 const CHAPTERS = [
   ['HOME', ['/', '/daily', '/journal']],
-  ['TEAM', ['/notice', '/schedule', '/locker', '/chat']],
+  ['TEAM', ['/notice', '/schedule', '/locker']],
   ['TRAINING', ['/gamemodel', '/training', '/training/notes', '/tactics', '/tactics/programs', '/analysis', '/meeting']],
-  ['MATCH', ['/records', '/analysis/goals', '/match-notes']],
+  ['MATCH', ['/records', '/analysis/goals']],
   ['GROWTH', ['/idp', '/goals', '/data', '/journal-check']],
-  ['MY', ['/me', '/notes', '/scout']],
-  ['COMMUNITY', ['/community']],
+  ['MY', ['/me']],
   ['MANAGE', ['/settings', '/pay']],
   ['SUPPORT', ['/support']],
 ];
 // 선수 메뉴에 없는 화면 (선수용 설명서에서는 뺌)
 // 코치 메뉴에 없는 화면 (코치용 설명서에서는 뺌) · 오늘 기록은 선수만 써요
 const PLAYER_ONLY = new Set(['/daily', '/journal']);
-const COACH_ONLY = new Set(['/chat', '/training/notes', '/tactics', '/tactics/programs', '/journal-check', '/notes', '/scout', '/community', '/settings', '/pay']);
+const COACH_ONLY = new Set(['/training/notes', '/tactics', '/tactics/programs', '/journal-check', '/settings', '/pay']);
 
 let who = null; // 'coach' | 'player'
 let q = '';

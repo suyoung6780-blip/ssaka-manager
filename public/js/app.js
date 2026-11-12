@@ -55,6 +55,8 @@ const L = {
   community: () => import('./pages/community.js'), analysis: () => import('./pages/analysis.js'), goalAna: () => import('./proto/goalAna.js'),
   notes: () => import('./pages/notes.js'), refund: () => import('./pages/refund.js'), matchNotes: () => import('./pages/matchNotes.js'),
 };
+// 정리한 기능 (2026-11-13): 예전 주소 · 즐겨찾기로 오면 안내만 (저장된 기록은 그대로 남아 있음)
+const gone = (name) => (el) => { el.innerHTML = `${pageHead('NOTICE', name)}<section class="card"><p><b>${esc(name)}</b> 기능은 정리했어요. 더 많이 쓰는 기능에 집중하려고 메뉴에서 뺐어요.</p><p class="muted small">적어 둔 내용은 지워지지 않고 남아 있어요. 다시 필요하시면 운영자 문의로 알려 주세요.</p><div class="row"><a class="btn" href="#/">홈으로</a><a class="btn ghost" href="#/support">운영자 문의</a></div></section>`; };
 const routes = [
   ['/login', authPages.login, 'public'],
   ['/signup', authPages.signup, 'public'],
@@ -69,15 +71,15 @@ const routes = [
   ['/idp', idp.page, 'squad'],
   ['/idp/:uid', idp.page, 'squad'],
   ['/records', team.records, 'squad'],
-  ['/match-notes', lazy(L.matchNotes, 'page'), 'squad'], // 경기 노트 (지도자 · 경기 중 메모 / 선수 · 나에게 온 피드백)
-  ['/match-notes/:id', lazy(L.matchNotes, 'page'), 'coach'],
+  ['/match-notes', gone('경기 노트'), 'squad'], // 경기 노트는 정리함 (2026-11-13 · 메모는 남아 있음)
+  ['/match-notes/:id', gone('경기 노트'), 'coach'],
   ['/data', data.page, 'squad'],
   ['/training', trainingDaily.daily, 'squad'],
   ['/training/notes', trainingDaily.notes, 'coach'],
   ['/training/library', () => go('/tactics/programs'), 'coach'], // 예전 주소 → 전술보드
   ['/tactics', training.board, 'coach'],
   ['/tactics/programs', training.library, 'coach'],
-  ['/notes', lazy(L.notes, 'page'), 'coach'],
+  ['/notes', gone('코치 노트'), 'coach'],
   ['/meeting', board.page('meeting'), 'squad'],
   ['/analysis', lazy(L.analysis, 'list'), 'squad'],
   ['/analysis/goals', lazy(L.goalAna, 'page'), 'squad'], // 시제품 3.0: 득점 · 실점 분석
@@ -91,10 +93,10 @@ const routes = [
   ['/journal-check', personal.journalCheck, 'coach'],
   ['/journal-roll', personal.journalRoll, 'coach'], // 일지 몰아보기 (날짜별 · 선수별)
   ['/journal-check/:uid', personal.journalPage, 'coach'], // 선수 한 명의 역대 일지
-  ['/scout', social.scout, 'coach'],
+  ['/scout', gone('스카웃 노트'), 'coach'],
   ['/teams/:id', social.teamView],
-  ['/chat', social.chatList, 'coach'],
-  ['/chat/:id', social.chatRoom, 'coach'],
+  ['/chat', gone('팀 대화'), 'coach'],
+  ['/chat/:id', gone('팀 대화'), 'coach'],
   ['/admin', lazy(L.admin, 'page'), 'admin'],
   ['/admin/teams', lazy(L.admin, 'teams'), 'admin'],
   ['/admin/users', lazy(L.admin, 'users'), 'admin'],
@@ -107,8 +109,8 @@ const routes = [
   ['/refund', lazy(L.refund, 'page'), 'any'],
   ['/pricing', onboard.pricing, 'any'],
   ['/consent/:token', privacy.consentPage, 'any'],
-  ['/community', (el) => lazy(L.community, 'page')(el, { cat: 'training' }), 'coach'],
-  ['/community/:cat', lazy(L.community, 'page'), 'coach'],
+  ['/community', gone('커뮤니티'), 'coach'],
+  ['/community/:cat', gone('커뮤니티'), 'coach'],
   ['/support', lazy(L.support, 'page')],
   ['/support/qna', lazy(L.support, 'qna')],
   ['/support/guide', lazy(L.guide, 'guide')],
@@ -246,6 +248,10 @@ async function route() {
   }
   view.innerHTML = '<div class="loading">LOADING</div>';
   $('.shell').classList.remove('nav-open', 'search-open');
+  const sub = $('#sub-tabs'); // 성장 묶음 탭
+  // 위쪽 탭: 성장 묶음 · (시제품 3.0 이 아닌 팀의) 경기 묶음 — 3.0 경기 화면은 안에 기록 · 분석 탭이 따로 있음
+  const tabs = isSquad() ? [growthTabs(), ...(hasFeature('proto3') ? [] : [matchTabs()])].find((x) => x.some(([h]) => h === path)) : null;
+  if (sub) sub.innerHTML = tabs ? `<nav class="tabs sub-tabs">${tabs.map(([h, l]) => `<a href="#${h}" class="${h === path ? 'on' : ''}">${l}</a>`).join('')}</nav>` : '';
   try {
     await r.fn(view, r.params);
     if (view.isConnected) attachHelp(view, path);
@@ -259,17 +265,23 @@ async function route() {
 
 // 관리 · 결제: 대표 계정만 (팀 대표 · 지도자 계정 대표 · 개인 계정은 보호자) — 공간마다 결제할 수 있는 요금제가 정해져 있음
 const manage = () => (inTeam() && isOwner() ? [['/settings', `${({ team: '팀', gaffer: '지도자 계정', personal: '개인 계정' })[spaceKind()]} 관리`], ['/pay', '결제']] : []);
+// 성장 묶음: 성장 평가 · 목표 · 데이터실을 메뉴 하나로 (위쪽 탭으로 오감)
+const growthTabs = () => [...(hasFeature('proto3') ? [['/idp', '성장 평가']] : []), ['/goals', '목표'], ['/data', '데이터실']];
+const GROWTH_PATHS = ['/idp', '/goals', '/data'];
+// 경기 묶음: 기록실 · 분석실을 메뉴 하나로 ('기록 · 분석', 위쪽 탭)
+const matchTabs = () => [['/records', '기록'], hasFeature('proto3') ? ['/analysis/goals', '분석'] : ['/analysis', '분석']];
+const SUB_TABS = () => [growthTabs(), matchTabs()];
 function navItems() {
   const items = [];
-  const sec = (title, list) => list.length && items.push({ title, list });
+  const sec = (title, list, more = false) => list.length && items.push({ title, list, more }); // more: '더 보기' 안에
   const coach = isCoach(); const squad = isSquad(); const player = squad && !coach;
   // 개인 계정: 보호자 · 아이 둘만 쓰는 공간 — 팀 운영 메뉴(공지 · 스케줄 · 팀 대화 · 훈련 · 커뮤니티)는 빼고 영상 · 기록 · 성장만
   if (inTeam() && isPersonal()) {
     const v = hasFeature('proto3');
     sec('HOME', [['/', '홈'], ...(player ? [['/daily', '오늘 기록'], ['/journal', '내 일지']] : []), ...(isOwner() ? [['/locker', '선수 연결']] : [])]);
     sec('ANALYSIS', squad ? [...(v ? [['/analysis', '영상룸']] : []), ...(coach ? [['/tactics', '전술보드']] : [])] : []);
-    sec('RECORD', squad ? [['/records', '기록실'], ['/data', '데이터실']] : []);
-    sec('GROWTH', squad ? [...(v ? [['/idp', '성장 평가']] : []), ['/goals', '목표']] : []);
+    sec('RECORD', squad ? [['/records', '기록실']] : []);
+    sec('GROWTH', squad ? [[growthTabs()[0][0], '성장']] : []);
     sec('MY', [['/me', '프로필']]);
     sec('MANAGE', manage());
     sec('SUPPORT', [['/support/guide', '사용 설명서'], ['/support', '운영자 문의']]);
@@ -278,12 +290,12 @@ function navItems() {
   }
   // 메뉴 묶음 (영어 이름으로 통일) — 일하는 순서: 팀 운영 → 훈련 → 경기 → 성장 · 선수는 오늘 기록을 맨 위에
   sec('HOME', [['/', '홈'], ...(player ? [['/daily', '오늘 기록'], ['/journal', '내 일지']] : [])]);
-  sec('TEAM', inTeam() ? [['/notice', '공지사항'], ['/schedule', '스케줄'], ...(squad ? [['/locker', '락커룸']] : []), ...(coach ? [['/chat', '팀 대화']] : [])] : []);
+  const solo = inTeam() && spaceKind() === 'gaffer'; // 지도자 계정: 혼자 쓰니까 선수 · 팀 메뉴는 빼고
+  sec('TEAM', inTeam() ? (solo ? [['/schedule', '스케줄']] : [['/notice', '공지사항'], ['/schedule', '스케줄'], ...(squad ? [['/locker', '락커룸']] : [])]) : []);
   sec('TRAINING', squad ? [['/gamemodel', '게임모델'], ['/training', '훈련장'], ...(coach ? [['/tactics', '전술보드']] : []), ...(hasFeature('proto3') ? [['/analysis', '영상룸']] : []), ['/meeting', '미팅룸']] : []);
-  sec('MATCH', squad ? [...(hasFeature('proto3') ? [['/records', '기록실'], ['/analysis/goals', '분석실']] : [['/records', '경기 기록실'], ['/analysis', '분석실']]), ['/match-notes', '경기 노트']] : []);
-  sec('GROWTH', squad ? [...(hasFeature('proto3') ? [['/idp', '성장 평가']] : []), ['/goals', '목표'], ['/data', '데이터실'], ...(coach ? [['/journal-check', '일지검사']] : [])] : []);
-  sec('MY', [['/me', '프로필'], ...(coach ? [['/notes', '코치 노트'], ['/scout', '스카웃 노트']] : [])]);
-  sec('COMMUNITY', coach ? [['/community/training', '훈련 공유'], ['/community/talk', '지도자 게시판']] : []);
+  sec('MATCH', squad ? [['/records', '기록 · 분석']] : []);
+  sec('GROWTH', squad && !solo ? [[growthTabs()[0][0], '성장'], ...(coach ? [['/journal-check', '일지검사']] : [])] : []);
+  sec('MY', [['/me', '프로필']]);
   sec('MANAGE', manage());
   sec('SUPPORT', [['/support/guide', '사용 설명서'], ['/support', '운영자 문의']]);
   if (isAdmin()) sec('ADMIN', [['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원'], ['/admin/inbox', '소통']]);
@@ -305,7 +317,7 @@ function renderShell() {
       <nav class="nav-list"></nav>
       <div class="me-box"></div>
     </aside>
-    <main class="main-col">${auth.demo ? `<div class="demo-bar"><b>체험 모드</b><span>${PERSONAL_DEMO ? '예시 개인 계정 · 가짜 데이터예요' : '예시 팀 · 가짜 데이터예요'}. 바꾼 내용은 이 창을 닫으면 사라져요.</span>${demoLinks()}<a class="btn sm" href="./#/signup">실제로 시작하기</a></div>` : ''}<div id="sys-notice"></div><div id="team-notice"></div><div id="view"></div>${FOOTER}</main>
+    <main class="main-col">${auth.demo ? `<div class="demo-bar"><b>체험 모드</b><span>${PERSONAL_DEMO ? '예시 개인 계정 · 가짜 데이터예요' : '예시 팀 · 가짜 데이터예요'}. 바꾼 내용은 이 창을 닫으면 사라져요.</span>${demoLinks()}<a class="btn sm" href="./#/signup">실제로 시작하기</a></div>` : ''}<div id="sys-notice"></div><div id="team-notice"></div><div id="sub-tabs"></div><div id="view"></div>${FOOTER}</main>
     <aside class="search-panel" id="search-panel"></aside>
     <div class="scrim"></div>
   </div>`;
@@ -332,16 +344,28 @@ function updateShell(path = location.hash.slice(1) || '/') {
     ? `<span class="cat">${esc(spaceKind() === 'team' ? t.category : SPACES[spaceKind()].name)}</span><strong>${esc(t.name)}</strong>${teamActive() ? planChip() : '<em>이용기간 만료</em>'}${state.parentLink ? `<small class="pl-chip ${state.parentLink.approved ? 'on' : 'wait'}">${state.parentLink.approved ? '개인 계정 연결됨' : '개인 계정 연결 대기'} · ${esc(state.parentLink.owner)}</small>` : ''}`
     : '<span class="cat">NO TEAM</span><strong>소속 팀 없음</strong>';
   const items = navItems();
+  for (const tabs of SUB_TABS()) if (tabs.some(([h]) => h === path)) path = tabs[0][0]; // 묶은 메뉴(성장 · 기록 · 분석)는 그 메뉴 하나로
   // 지금 주소에 가장 길게 맞는 메뉴 하나만 선택 (예: /admin/teams 면 '전체 팀'만, '전체 공지'는 아님)
   const cur = items.flatMap((s) => s.list.map(([h]) => h))
     .filter((h) => path === h || (h !== '/' && path.startsWith(h + '/')))
     .sort((a, b) => b.length - a.length)[0]
     // 메뉴가 하위 주소만 가리킬 때 (분석실 → /analysis/goals): 그 위 주소에서도 선택
     || items.flatMap((s) => s.list.map(([h]) => h)).find((h) => path !== '/' && h.startsWith(path + '/'));
-  $('.nav-list').innerHTML = items.map((s) => `
+  const secHtml = (s) => `
     <div class="nav-sec"><span>${s.title}</span>
       ${s.list.map(([href, label]) => `<a href="#${href}" class="${href === cur ? 'active' : ''}">${label}</a>`).join('')}
-    </div>`).join('');
+    </div>`;
+  const more = items.filter((s) => s.more);
+  let open = more.some((s) => s.list.some(([h]) => h === cur));
+  try { open ||= localStorage.getItem('ssaka.nav.more') === '1'; } catch { /* */ }
+  $('.nav-list').innerHTML = items.filter((s) => !s.more && !['MANAGE', 'SUPPORT', 'ADMIN'].includes(s.title)).map(secHtml).join('')
+    + (more.length ? `<div class="nav-more${open ? ' open' : ''}"><button type="button" class="nav-more-btn" data-navmore>${open ? '접기' : '더 보기'}</button><div class="nav-more-in">${more.map((s) => s.list.map(([href, label]) => `<a href="#${href}" class="${href === cur ? 'active' : ''}">${label}</a>`).join('')).join('')}</div></div>` : '')
+    + items.filter((s) => !s.more && ['MANAGE', 'SUPPORT', 'ADMIN'].includes(s.title)).map(secHtml).join('');
+  $('[data-navmore]')?.addEventListener('click', () => {
+    const box = $('.nav-more'); const on = !box.classList.contains('open');
+    box.classList.toggle('open', on); $('[data-navmore]').textContent = on ? '접기' : '더 보기';
+    try { localStorage.setItem('ssaka.nav.more', on ? '1' : '0'); } catch { /* */ }
+  });
   const p = state.profile;
   $('.me-box').innerHTML = `
     <a href="#/me" class="me">${avatar(p.photo, p.name)}<span><strong>${esc(p.name)}</strong><small>${p.parent ? '보호자' : ROLES[p.role]}</small></span></a>

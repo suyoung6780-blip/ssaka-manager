@@ -48,7 +48,7 @@ export async function teamView(el, { id }) {
   const mine = state.team?.id === id;
   const me = state.user.uid;
   // 다른 팀과는 '팀 계정'(팀 대표)으로만 연락 — 코치만
-  const canContact = !mine && isCoach() && team.ownerUid && team.ownerUid !== me;
+  const canContact = false; // 팀 대화는 정리함 (2026-11-13)
   el.innerHTML = `<header class="hero team-hero">
     <span class="eyebrow">${esc(normCat(team.category))}</span>
     <h1>${esc(team.name)}</h1>
@@ -56,7 +56,7 @@ export async function teamView(el, { id }) {
     ${canContact ? '<div class="row"><button class="btn" data-contact>팀에 연락하기</button></div>' : ''}
     ${mine ? '<div class="row"><a class="btn ghost" href="#/locker">우리 팀 락커룸 보기 →</a></div>' : ''}
   </header>
-  ${!mine ? '<p class="muted small">다른 팀의 선수단과 팀 안 내용은 볼 수 없어요. 연락하기를 누르면 그 팀 대표 지도자와 1:1 대화가 열려요.</p>' : ''}`;
+  ${!mine ? '<p class="muted small">다른 팀의 선수단과 팀 안 내용은 볼 수 없어요.</p>' : ''}`;
   el.querySelector('[data-contact]')?.addEventListener('click', () => startTeamChat(team));
 }
 

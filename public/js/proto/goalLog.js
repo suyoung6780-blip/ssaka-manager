@@ -5,7 +5,7 @@
 import { esc, options, MATCH_TYPES } from '../ui.js';
 
 // 경기 › 기록실 · 분석실 머리 (두 화면 공통) — 영상 분석은 따로 '영상룸'
-export const matchTabs = (cur) => `<nav class="gl-mtabs"><a href="#/records" class="${cur === 'records' ? 'on' : ''}">기록실</a><a href="#/analysis/goals" class="${cur === 'analysis' ? 'on' : ''}">분석실</a></nav>`;
+export const matchTabs = (cur) => `<nav class="gl-mtabs"><a href="#/records" class="${cur === 'records' ? 'on' : ''}">기록</a><a href="#/analysis/goals" class="${cur === 'analysis' ? 'on' : ''}">분석</a></nav>`;
 // 고르기 한 줄 (년도 · 경기 · 학년 · 상대) — defs: [[키, 이름, [[값, 보이는 글]...]]] · '전체'면 안 거름
 export function filterBar(defs, flt, extra = '') {
   const any = defs.some(([k]) => flt[k] !== '전체');

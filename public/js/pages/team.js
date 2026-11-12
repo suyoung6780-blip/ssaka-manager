@@ -218,7 +218,7 @@ export async function locker(el) {
   };
 
   const SP = SPACES[spaceKind()];
-  el.innerHTML = `${pageHead(isPersonal() ? 'CONNECT' : 'LOCKER ROOM', isPersonal() ? '선수 연결' : '락커룸', code ? `<button class="btn ghost" data-code>${SP.code} ${esc(code)} 복사</button>` : '')}
+  el.innerHTML = `${pageHead(isPersonal() ? 'CONNECT' : 'LOCKER ROOM', isPersonal() ? '선수 연결' : '락커룸', code ? `<button class="btn" data-invite>초대 메시지 보내기</button><button class="btn ghost" data-code>${SP.code} ${esc(code)} 복사</button>` : '')}
     <p class="lead">${isPersonal() ? '선수가 자기 선수 계정으로 보호자 코드를 넣어 연결을 신청하면, 보호자가 승인해서 연결해요. 보호자 1명 · 선수 1명까지예요.' : '선수 · 지도자는 팀 코드로 입장을 신청하고, 팀 대표가 승인하면 락커룸에 들어옵니다.'}</p>
     ${(() => {
       const ps = group('player'); const cs = group('coach');
@@ -252,6 +252,7 @@ export async function locker(el) {
     }).join('')}`;
   bindSortBar(el, 'locker', () => locker(el));
 
+  el.querySelector('[data-invite]')?.addEventListener('click', async () => (await import('./onboard.js')).sendInvite(state.team, code));
   el.querySelector('[data-code]')?.addEventListener('click', () => (navigator.clipboard?.writeText(code) || Promise.reject()).then(() => toast('팀 코드를 복사했습니다.'), () => toast(`복사가 안 돼요 — 팀 코드: ${code}`)));
   // 만 14세 미만: 보호자 정보(이름 · 관계 · 연락처)
   el.querySelectorAll('[data-g]').forEach(async (sm) => {
@@ -529,7 +530,7 @@ export async function records(el) {
         ${rows.map((m) => `<tr data-mid="${m.id}"><td>${esc(m.date)}</td><td>${esc(m.matchType)}</td>${groups.length ? `<td>${esc(m.ageGroup || '-')}</td>` : ''}<td>${esc(m.opponent)}${m.venue ? ` <small>(${m.venue === 'home' ? '홈' : '원정'})</small>` : ''}</td>
           <td><span class="res ${result(m)}">${result(m)}</span> <strong>${+m.gf} : ${+m.ga}</strong></td>
           <td><small>${(m.scorers || []).map((s) => `${esc(s.name)}${+s.goals > 1 ? `(${s.goals})` : ''}`).join(', ')}</small></td>
-          <td>${m.noteId ? '<button class="link-btn small" data-memo>경기 노트</button> ' : ''}${isCoach() ? '<button class="link-btn small" data-edit>수정</button>' : ''}</td></tr>`).join('')}</table>` : empty('경기 기록이 없습니다.')}
+          <td>${isCoach() ? '<button class="link-btn small" data-edit>수정</button>' : ''}</td></tr>`).join('')}</table>` : empty('경기 기록이 없습니다.')}
     </section>`;
 
     GL.bindFilterBar(el, flt, draw);

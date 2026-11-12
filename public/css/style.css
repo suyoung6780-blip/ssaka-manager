@@ -152,6 +152,17 @@ code { background: var(--surface3); padding: 1px 6px; border-radius: 3px; }
 .team-chip .plan-chip.soon { color: var(--pri); font-weight: 700; }
 .team-chip em { font-style: normal; font-size: 11px; background: var(--pri); color: var(--on-pri); align-self: flex-start; padding: 0 6px; font-weight: 700; border-radius: 3px; }
 .nav-list { flex: 1; }
+.nav-more { margin: -6px 0 16px; padding: 0 10px; }
+.nav-more-btn { width: 100%; text-align: left; background: none; border: 0; padding: 8px 12px; font: inherit; font-size: 13px; font-weight: 700; color: #6a736e; cursor: pointer; border-radius: 8px; }
+.nav-more-btn::after { content: ' ▾'; }
+.nav-more.open .nav-more-btn::after { content: ' ▴'; }
+.nav-more-btn:hover { color: var(--text); background: #0f1311; }
+.nav-more-in { display: none; flex-direction: column; }
+.nav-more.open .nav-more-in { display: flex; }
+.nav-more-in a { padding: 8px 12px; text-decoration: none; font-size: 14px; font-weight: 600; color: #c3cbc6; border-radius: 8px; }
+.nav-more-in a:hover { color: var(--text); background: #0f1311; }
+.nav-more-in a.active { color: var(--on-pri); background: var(--pri); font-weight: 700; }
+#sub-tabs:empty { display: none; }
 .nav-sec { display: flex; flex-direction: column; margin-bottom: 16px; padding: 0 10px; }
 .nav-sec > span { font-size: 10px; font-weight: 700; letter-spacing: .2em; color: #555; padding: 0 12px 6px; }
 .nav-sec a { padding: 8px 12px; text-decoration: none; font-weight: 500; font-size: 14px; color: var(--sub); border-radius: var(--r-sm); }
@@ -5497,3 +5508,20 @@ html:has(.studio.st-full) .modal-wrap, html:has(.studio.st-phone) .modal-wrap, h
 .fl-edit-s > button:hover, .fl-edit-s > label:hover { border-color: var(--sub, #6b7a73); }
 .fl-edit-s kbd { font-size: 10px; padding: 0 4px; border-radius: 4px; background: rgba(255,255,255,.08); color: var(--muted); font-family: var(--sv-mono, monospace); }
 .fl-edit-s > label { margin: 0 !important; align-self: center; flex-direction: row !important; }
+
+/* 시작하기 3단계 (팀 대표 홈) */
+.start-card { border-color: rgba(57,231,95,.35); }
+.start-card .sc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.start-card .sc-head h3 { margin: 0; }
+.start-card .sc-head h3 b { color: var(--pri); margin-left: 6px; }
+.start-card ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.start-card li { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,.03); }
+.start-card li i { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-weight: 800; font-size: 14px; background: rgba(255,255,255,.08); }
+.start-card li.ok i { background: var(--pri); color: var(--on-pri); }
+.start-card li div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.start-card li small { color: var(--muted); }
+.start-card li.ok b { color: var(--muted); text-decoration: line-through; }
+.start-card li .btn { flex: none; }
+@media (max-width: 640px) { .start-card li { flex-wrap: wrap; } .start-card li .btn { width: 100%; } }
+.invite-btn { margin: 14px 0 10px; }
+.invite-btn small { opacity: .7; margin-left: 6px; font-weight: 600; }

@@ -383,6 +383,11 @@ if (QS.has('warn')) Object.assign(store.get('teams/T1'), { nameWarn: { name: 'FC
 if (QS.has('limit')) Object.assign(store.get('teams/T1'), { restricted: true });
 // 체험 미리 보기: ?paid=1 결제한 팀(챔피언십 · 23일 남음) · ?comp=1 운영자 무료 제공(5일 남음)
 if (QS.has('paid')) Object.assign(store.get('teams/T1'), { plan: 'pro', planCycle: QS.get('paid') === 'year' ? 'year' : 'month', paidUntil: Timestamp.fromMillis(Date.now() + 23 * 864e5), lastPaidAt: Timestamp.fromMillis(Date.now() - 7 * 864e5) });
+// ?newteam : 막 만든 빈 팀 미리 보기 (대표 혼자 · 일정 · 훈련 · 일지 없음) — '시작하기 3단계' 카드 확인용
+if (QS.has('newteam')) {
+  [...store.keys()].forEach((k) => { if (/^teams\/T1\/(members\/(?!U$)|logs\/|posts\/|matches\/)/.test(k) && !k.endsWith(`members/${U}`)) store.delete(k); });
+  try { localStorage.removeItem('ssaka.start.T1'); } catch { /* */ }
+}
 if (QS.has('comp')) Object.assign(store.get('teams/T1'), { comp: true, compPlan: 'pro', compMonths: 1, compUntil: Timestamp.fromMillis(Date.now() + 5 * 864e5) });
 // ?space=personal · ?space=gaffer → 개인 계정 · 지도자 계정으로 미리 보기
 if (QS.get('space') === 'personal') {

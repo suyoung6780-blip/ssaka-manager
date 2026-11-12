@@ -19,8 +19,6 @@ const GUIDE_ROWS = [
   ['훈련 노트 (코치 전용)', Y, Y, N],
   ['오늘 기록 · 개인 목표 · 일지 질문', Y, Y, '본인 것'],
   ['팀 목표 · 일지검사 · 질문 답변', Y, Y, N],
-  ['스카웃 노트 (선수 메모 · 확정 · 보류)', Y, Y, N],
-  ['커뮤니티 · 다른 팀과 대화', Y, Y, N],
 ];
 
 export function accountGuide() {
@@ -34,14 +32,13 @@ export function accountGuide() {
         <li><strong>지도자 혼자</strong> 쓰려면 → <b>지도자 계정</b> 만들기<small>선수 없이 나 혼자 작전판 · 훈련 프로그램 · 영상룸을 써요. 다른 사람은 들어올 수 없어요.</small></li>
         <li><strong>다른 지도자 · 선수</strong>가 가입 → <b>팀 코드 입력</b><small>팀 대표에게 받은 코드로 팀에 들어옵니다.</small></li>
         <li><strong>보호자</strong>가 가입 → <b>개인 계정</b> 만들기<small>보호자 코드가 나와요. 선수는 선수 계정으로 가입해서 그 코드를 넣으면 연결돼요. (팀 검색에는 안 나와요)</small></li>
-        <li><strong>다른 팀과 연락</strong>은 팀 대표에게 갑니다<small>다른 팀 페이지의 '팀에 연락하기'는 그 팀 대표 지도자와 대화로 연결돼요.</small></li>
       </ol>
       <h3>역할별 권한</h3>
       <div class="guide-table"><table class="tbl">
         <thead><tr><th></th><th>팀 대표</th><th>지도자</th><th>선수</th></tr></thead>
         <tbody>${GUIDE_ROWS.map(([k, ...v]) => `<tr><td>${k}</td>${v.map((x) => `<td>${x}</td>`).join('')}</tr>`).join('')}</tbody>
       </table></div>
-      <p class="muted small">다른 팀에는 팀 이름 · 대표 지도자 이름만 보이고, 선수단과 팀 안의 내용은 볼 수 없습니다. 스카웃 노트는 우리 팀 지도자끼리만 봐요.</p>
+      <p class="muted small">다른 팀에는 팀 이름 · 대표 지도자 이름만 보이고, 선수단과 팀 안의 내용은 볼 수 없습니다.</p>
       <div class="row end"><button class="btn" data-ok>확인했어요</button></div>
     </div>`, { wide: true });
   m.el.querySelector('[data-ok]').onclick = m.close;
@@ -198,7 +195,7 @@ export function profileFields(p = {}, { withRole = false } = {}) {
     <fieldset class="role-pick"><legend>계정 유형</legend>
       ${Object.entries(ROLES).map(([k, v]) => `
         <label class="radio-card"><input type="radio" name="role" value="${k}" ${k === r ? 'checked' : ''}>
-          <strong>${k === 'coach' ? '지도자 (코치)' : v}</strong><small>${{ coach: '팀 만들기(또는 혼자 쓰는 지도자 계정) · 훈련 · 공지 작성 · 일지검사 · 스카웃 노트', player: '팀 코드로 입장 · 오늘 기록 · 개인 목표' }[k]}</small>
+          <strong>${k === 'coach' ? '지도자 (코치)' : v}</strong><small>${{ coach: '팀 만들기(또는 혼자 쓰는 지도자 계정) · 훈련 · 공지 작성 · 일지검사 · 영상룸', player: '팀 코드로 입장 · 오늘 기록 · 개인 목표' }[k]}</small>
         </label>`).join('')}
         <label class="radio-card"><input type="radio" name="role" value="parent" ${r === 'parent' ? 'checked' : ''}>
           <strong>보호자</strong><small>개인 계정 만들기 · 선수 영상 편집 · 선수 기록 관리 (선수는 자기 선수 계정으로 보호자 코드를 넣어 연결 · 클럽 팀이 있어도 그대로)</small>

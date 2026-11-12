@@ -6,7 +6,7 @@ import {
 } from '../fb.js';
 import { esc, fmtDate, todayStr, fail, toast, modal } from '../ui.js';
 import { createPad } from '../tactic.js';
-import { state, inTeam, isSquad, isCoach, isOwner, teamActive, teamPlan, role, freeMode, hasFeature, isPersonal } from '../store.js';
+import { state, inTeam, isSquad, isCoach, isOwner, teamActive, teamPlan, role, freeMode, hasFeature, isPersonal, spaceKind } from '../store.js';
 import { feed, onFeed, markAllSeen } from '../news.js';
 
 // 듀얼: 클럽 팀 선수 홈 맨 위 — 개인 계정 연결 상태 (연결됐으면 늘 보이게)
@@ -270,6 +270,34 @@ async function todoPad(box) {
   draw();
 }
 
+// 처음 시작하기 3단계 (팀 계정 대표만): 선수 초대 → 일정 · 훈련 → 첫 일지. 한 번 된 단계는 기억 · 다 되거나 닫으면 다시 안 나옴
+function startCard(t, { players, sched, plans, logs }) {
+  if (!t || !isOwner() || spaceKind(t) !== 'team') return '';
+  const K = `ssaka.start.${t.id}`;
+  let mem = {}; try { mem = JSON.parse(localStorage.getItem(K) || '{}'); } catch { /* */ }
+  if (mem.off) return '';
+  const now = { 1: players > 0, 2: sched + plans > 0, 3: logs > 0 };
+  Object.keys(now).forEach((k) => { if (now[k]) mem[k] = 1; });
+  const done = [1, 2, 3].filter((k) => mem[k]).length;
+  if (done === 3) mem.off = 1;
+  try { localStorage.setItem(K, JSON.stringify(mem)); } catch { /* */ }
+  if (mem.off) return '';
+  const steps = [
+    [1, '선수 · 코치 초대하기', '초대 메시지를 카톡방에 보내면, 코드로 들어와요 → 락커룸에서 승인', '<button type="button" class="btn sm" data-startinv>초대 메시지 보내기</button>'],
+    [2, '이번 주 일정 · 훈련 올리기', '스케줄에 훈련 · 경기 날짜를, 훈련장에 그날 훈련을 적어요', '<a class="btn sm ghost" href="#/schedule">스케줄 열기</a>'],
+    [3, '선수 일지 받아 보기', '선수들이 휴대폰으로 <b>오늘 기록</b>을 쓰면 일지검사에 모여요', '<a class="btn sm ghost" href="#/journal-check">일지검사 열기</a>'],
+  ];
+  return `<section class="card start-card"><div class="sc-head"><h3>시작하기 <b>${done} / 3</b></h3><button type="button" class="link-btn small" data-startx>닫기</button></div>
+    <ol>${steps.map(([k, a, b, act]) => `<li class="${mem[k] ? 'ok' : ''}"><i>${mem[k] ? '✓' : k}</i><div><b>${a}</b><small>${b}</small></div>${mem[k] ? '' : act}</li>`).join('')}</ol></section>`;
+}
+function bindStart(el) {
+  el.querySelector('[data-startinv]')?.addEventListener('click', async () => (await import('./onboard.js')).sendInvite());
+  el.querySelector('[data-startx]')?.addEventListener('click', () => {
+    try { const K = `ssaka.start.${state.team.id}`; const m = JSON.parse(localStorage.getItem(K) || '{}'); m.off = 1; localStorage.setItem(K, JSON.stringify(m)); } catch { /* */ }
+    el.querySelector('.start-card')?.remove();
+  });
+}
+
 // 새 소식 (선수: 나에 대한 것 · 공지 · 일정 … / 지도자: 선수들이 올린 것 · 다른 지도자 글 …) — 안 본 것만, 보면 사라짐
 function mountFeed(el) {
   const box = el.querySelector('[data-feed]');
@@ -422,6 +450,7 @@ export async function render(el) {
   const head = `${morningHead(stats)}
   ${!teamActive() ? `<div class="banner">팀 이용기간이 만료되었습니다. ${isOwner() ? '<a href="#/pay">연장 결제 →</a>' : '팀 관리자에게 문의하세요.'}</div>` : ''}
   ${planBanner()}
+  ${coach ? startCard(t, { players: players.length, sched: schedAll.length, plans: wPlans.length, logs: (logs7 || []).length }) : ''}
   ${isOwner() ? '<div data-subnote></div>' : ''}
   ${inTeam() ? '<div data-feed></div>' : ''}
   ${waitingN ? `<a class="banner wait-banner" href="#/locker">입장 승인 대기 <b>${waitingN}명</b> — 락커룸에서 승인해 주세요 →</a>` : ''}`;
@@ -435,7 +464,7 @@ export async function render(el) {
     ${weekCard}
     <div class="home-grid two"><div data-todo></div>${noticeCard}</div>`;
     startClock(el);
-    subNotice(el); mountFeed(el);
+    subNotice(el); mountFeed(el); bindStart(el);
     todoPad(el.querySelector('[data-todo]'));
     homeIdpCard(el.querySelector('[data-idp]'));
     await coachDesk(el.querySelector('[data-desk]'), { sched: schedAll, matches: allMatches, plans, players, logs: logs7 || [], todaySubmitted: submitted.length });
@@ -466,7 +495,7 @@ async function parentHome(el) {
   const t = state.team;
   el.innerHTML = `${morningHead()}${isOwner() ? '<div data-subnote></div>' : ''}<div data-feed></div><div data-pbody class="muted small">불러오는 중…</div>`;
   startClock(el);
-  subNotice(el); mountFeed(el);
+  subNotice(el); mountFeed(el); bindStart(el);
   let kids = []; let code = ''; let shared = [];
   try {
     const [ms, bill, sh] = await Promise.all([getDocs(collection(db, 'teams', t.id, 'members')), getDoc(doc(db, 'teams', t.id, 'private', 'billing')),

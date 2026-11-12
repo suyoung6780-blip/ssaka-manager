@@ -17,7 +17,7 @@ const writeSeen = (s) => { try { localStorage.setItem(seenKey(), JSON.stringify(
 let seen = {};
 
 // 지금 보고 있는 칸 (메뉴 주소 기준)
-const SECTIONS = ['/notice', '/schedule', '/meeting', '/analysis', '/training', '/journal-check', '/goals', '/gamemodel', '/daily', '/chat', '/match-notes', '/journal'];
+const SECTIONS = ['/notice', '/schedule', '/meeting', '/analysis', '/training', '/journal-check', '/goals', '/gamemodel', '/daily', '/journal'];
 // 분석실(득점 · 실점 분석)은 영상룸(/analysis) 새 글 표시와 따로
 const sectionOf = (path) => (path === '/analysis/goals' ? '' : SECTIONS.filter((s) => path === s || path.startsWith(`${s}/`)).sort((a, b) => b.length - a.length)[0] || '');
 const current = () => sectionOf(location.hash.slice(1) || '/');
@@ -37,7 +37,7 @@ export function markSeen(path) {
 }
 // 홈 새 소식: 안 본 것 (최근 순)
 // 맨 위로: 선수는 나에 대한 것(일지 검사 · 경기 피드백 · 대화), 지도자는 선수들이 올린 것(일지 · 개인 목표 · 대화)
-const MINE = { player: ['/daily', '/match-notes', '/chat'], coach: ['/journal-check', '/goals', '/chat'] };
+const MINE = { player: ['/daily'], coach: ['/journal-check', '/goals'] };
 export function feed() {
   const top = MINE[isCoach() ? 'coach' : 'player'];
   return Object.entries(items).flatMap(([sec, list]) => list.filter((x) => x.t > (seen[sec] || 0)).map((x) => ({ ...x, sec, me: top.includes(sec) })))
@@ -107,13 +107,7 @@ export function startNews() {
       (d) => `코치님이 ${md(d.date)} 일지를 검사했어요${d.coachComment ? ` · "${String(d.coachComment).slice(0, 40)}"` : ''}`, () => '#/journal');
     // 게임모델: 코치가 고침
     watch('/gamemodel', doc(db, 'teams', tid, 'private', 'gameModel'), (d) => ms(d.updatedAt), () => '게임모델이 바뀌었어요');
-    // 경기 노트: 코치님이 나에게 보여 준 피드백 (노트의 seenAtBy[나] = 나에게 마지막으로 보여 준 시각)
-    watch('/match-notes', query(collection(db, 'teams', tid, 'matchNotes'), where('seenUids', 'array-contains', me), limit(20)),
-      (d) => +(d.seenAtBy?.[me]) || 0, (d) => `코치님 경기 피드백 · vs ${d.opponent || '상대'} ${md(d.date)}`);
   }
-  // 대화: 상대가 보낸 새 메시지 (lastFrom · lastAt — 대화방을 열기만 해서는 안 바뀜)
-  watch('/chat', query(collection(db, 'chats'), where('participants', 'array-contains', me), orderBy('updatedAt', 'desc'), limit(3)),
-    (d) => (d.lastFrom === me ? 0 : ms(d.lastAt)), (d) => `팀 대화 · ${d.names?.[d.lastFrom] || ''} "${String(d.lastMessage || '').slice(0, 30)}"`, (d) => `#/chat/${d.id}`);
 }
 
 export function stopNews() {
