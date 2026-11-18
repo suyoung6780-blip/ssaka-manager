@@ -14,7 +14,7 @@ export const FUNCTIONS_REGION = 'asia-northeast3';
 // ② 결제: 포트원(PortOne V2) · KG이니시스 채널 — 서버 api/pay.py 가 Vercel 환경 변수
 //    PORTONE_STORE_ID · PORTONE_CHANNEL_KEY · PORTONE_API_SECRET 을 읽음 (테스트 채널 → 심사 후 실연동 채널 키로 바꿈)
 //    실연동 채널로 바꾸면 아래도 false 로 (결제 화면의 '테스트 모드' 안내가 사라짐)
-export const PAY_TEST = true;
+export const PAY_TEST = false; // 2026-11-19 KG이니시스 카드사 심사 완료 · 실결제
 
 // ③ 요금제 — api/pay.py 의 PLANS 와 반드시 같은 값이어야 합니다 (서버가 금액을 다시 확인)
 //    인원은 '승인된' 팀원 기준. 연 이용권 = 10개월 값으로 12개월 (365일)
