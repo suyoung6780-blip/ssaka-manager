@@ -1,10 +1,16 @@
 // 홈페이지 버전 — 무료 시범 운영 중은 0.9 베타, 유료 정식 출시 때 1.0
 // 하루에 한 번만 올림: 같은 날 여러 번 올려도 그 날 버전 하나에 묶음 (0.9 → 0.9.1 → 0.9.2 …, 유료 정식 출시 때 1.0)
 // 올릴 때마다 그 날 묶음에 [파트, 한 줄 요약]으로 — 파트당 한 줄, 짧고 쉬운 말로 (같은 파트면 그 줄에 합침)
-export const VERSION = { no: '0.9.16', tag: '베타' };
+export const VERSION = { no: '0.9.17', tag: '베타' };
 export const versionLabel = () => `v${VERSION.no}${VERSION.tag ? ` ${VERSION.tag}` : ''}`;
 
 export const CHANGELOG = [
+  {
+    date: '2026-11-22', ver: '0.9.17',
+    items: [
+      ['성장', '선수 기록 받기 — 1개월 · 6개월 · 1년 기록을 PDF 리포트 · 엑셀로 (학부모님께 보여 드리기 좋게)'],
+    ],
+  },
   {
     date: '2026-11-21', ver: '0.9.16',
     items: [

@@ -13,6 +13,7 @@ import { computePeer, savePeer, loadPeer, MIN_N } from '../proto/peer.js'; // �
 import * as GL from '../proto/goalLog.js';
 import { page as dataPage, lineChart } from './data.js';
 import { pct as gPct, pace as gPace } from './goals.js';
+import { reportModal } from '../report.js'; // 선수 성장 기록 PDF · 엑셀
 import { loadTeamLogs, overviewRows, overviewHtml } from '../proto/idpOverview.js'; // 한눈에 보기 // 자동 정리 (무료 · 규칙)
 
 const col = () => collection(db, 'teams', state.team.id, 'idp');
@@ -269,7 +270,7 @@ async function playerView(el, uid, ym = NOW()) {
   // 성장 카드는 3칸으로 나눔: 요약(카드 · 자동 정리 · 이번 달) · 능력치(세부 · 포지션 · 성장 · 월별) · 연결 기록(일지 · 경기 · 목표 · 피드백 · 바꾼 기록)
   const PT = [['sum', '요약'], ['body', '몸 상태'], ['ab', '능력치 · 비교'], ['goal', '목표'], ['season', '경기'], ['link', '일지 · 피드백']];
   if (!PT.some(([k]) => k === ptab)) ptab = 'sum';
-  el.innerHTML = `${coach ? pageHead('PLAYER', [`${me.number ? `${me.number} ` : ''}${me.name || ''}`, posNow, me.grade].filter(Boolean).join(' · '), `<button type="button" class="btn ghost sm" data-prof>프로필 · 관리</button><a class="btn ghost sm" href="#/idp">성장 평가 전체</a>`) : pageHead('MY PAGE', '내 성장 카드')}${banner()}
+  el.innerHTML = `${coach ? pageHead('PLAYER', [`${me.number ? `${me.number} ` : ''}${me.name || ''}`, posNow, me.grade].filter(Boolean).join(' · '), `<button type="button" class="btn sm" data-report>기록 받기 · PDF · 엑셀</button><button type="button" class="btn ghost sm" data-prof>프로필 · 관리</button><a class="btn ghost sm" href="#/idp">성장 평가 전체</a>`) : pageHead('MY PAGE', '내 성장 카드', '<button type="button" class="btn sm" data-report>기록 받기 · PDF · 엑셀</button>')}${banner()}
     <nav class="tabs p3-ptabs">${PT.map(([k, l]) => `<a href="javascript:void 0" data-ptab="${k}" class="${ptab === k ? 'on' : ''}">${l}${k === 'sum' && reviewFirst ? ' <span class="p3-badge">검토</span>' : ''}</a>`).join('')}</nav>
     <div data-pt="sum" ${ptab === 'sum' ? '' : 'hidden'}>
     ${hubHtml(links, goals, evid, uid, { tabs: true })}
@@ -451,6 +452,7 @@ async function playerView(el, uid, ym = NOW()) {
   const openBody = () => { if (ptab === 'body' && !bodyBox.dataset.done) { bodyBox.dataset.done = '1'; bodyBox.innerHTML = '<p class="muted small">불러오는 중…</p>'; dataPage(bodyBox, { uid }).catch(fail); } };
   el.querySelectorAll('[data-ptab]').forEach((t) => (t.onclick = () => { ptab = t.dataset.ptab; el.querySelectorAll('[data-ptab]').forEach((x) => x.classList.toggle('on', x === t)); el.querySelectorAll('[data-pt]').forEach((d) => { d.hidden = d.dataset.pt !== ptab; }); openBody(); }));
   openBody();
+  el.querySelector('[data-report]')?.addEventListener('click', () => reportModal(uid, me.name));
   el.querySelector('[data-prof]')?.addEventListener('click', () => { try { sessionStorage.setItem('ssaka.locker.open', uid); } catch { /* */ } go('/locker'); });
   // 비교 육각형: 같은 포지션 · 같은 학년 · 팀
   el.querySelectorAll('[data-pcmp]').forEach((b) => (b.onclick = () => { el.querySelectorAll('[data-pcmp]').forEach((x) => x.classList.toggle('on', x === b)); el.querySelectorAll('[data-phex]').forEach((h) => { h.hidden = h.dataset.phex !== b.dataset.pcmp; }); }));

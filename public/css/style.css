@@ -5543,3 +5543,50 @@ html:has(.studio.st-full) .modal-wrap, html:has(.studio.st-phone) .modal-wrap, h
 .mt-cform textarea { width: 100%; min-height: 54px; resize: vertical; }
 .mt-cform-b { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
 .mt-empty { padding: 8px 0; }
+
+/* 선수 성장 기록 받기 (report.js) — 창 · PDF 종이 */
+.rp-per { margin: 12px 0 8px; }
+.rp-dates { margin-bottom: 8px; }
+.rp-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.rp-btns .btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; height: auto; padding: 12px 14px; text-align: left; white-space: normal; }
+.rp-btns .btn small { font-weight: 400; font-size: 12px; opacity: 0.75; }
+@media (max-width: 520px) { .rp-btns { grid-template-columns: 1fr; } }
+.rp-page { padding: 30px 34px; font-size: 13px; }
+.rp-page h3 { font-size: 15px; margin: 0 0 10px; color: #111; }
+.rp-page h3 small { font-size: 11px; font-weight: 400; color: #888; margin-left: 4px; }
+.rp-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #111; padding-bottom: 10px; font-size: 12px; color: #444; }
+.rp-brand { font-weight: 900; letter-spacing: -0.02em; color: #111; }
+.rp-blk { padding: 14px 0 12px; border-bottom: 1px solid #eee; }
+.rp-title { padding-top: 22px; }
+.rp-eye { color: #17a34a; font-weight: 800; letter-spacing: 0.08em; font-size: 11px; }
+.rp-title h1 { font-size: 26px; margin: 4px 0 2px; color: #111; }
+.rp-sub { margin: 0 0 14px; color: #555; font-size: 13px; }
+.rp-prof { display: flex; flex-wrap: wrap; gap: 8px; }
+.rp-prof div { border: 1px solid #ddd; border-radius: 6px; padding: 6px 12px; display: flex; flex-direction: column; min-width: 80px; }
+.rp-prof small, .rp-k small { font-size: 11px; color: #777; }
+.rp-kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.rp-k { border: 1px solid #e3e3e3; border-radius: 8px; padding: 9px 10px; display: flex; flex-direction: column; background: #fafafa; }
+.rp-k strong { font-size: 20px; line-height: 1.25; color: #111; }
+.rp-k strong i { font-style: normal; font-size: 11px; color: #777; margin-left: 2px; font-weight: 600; }
+.rp-k span { font-size: 10.5px; color: #17a34a; line-height: 1.35; margin-top: 2px; }
+.rp-note { font-size: 11.5px; color: #777; margin: 8px 0 0; }
+.rp-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.rp-tbl th { background: #f2f2f2; color: #333; font-weight: 700; padding: 6px 6px; text-align: center; border-bottom: 1px solid #ddd; }
+.rp-tbl td { padding: 5px 6px; text-align: center; border-bottom: 1px solid #eee; color: #222; }
+.rp-tbl td:first-child { text-align: left; font-weight: 600; }
+.rp-tbl .rp-ovr td { background: #f1faf3; font-weight: 800; }
+.rp-tbl .up { color: #17a34a; } .rp-tbl .down { color: #d23c3c; }
+.rp-quote { border-left: 3px solid #17a34a; padding: 4px 0 4px 12px; margin: 0 0 10px; }
+.rp-quote small { color: #888; font-size: 11px; }
+.rp-quote p { margin: 2px 0 0; color: #222; }
+.rp-goal { display: flex; justify-content: space-between; gap: 14px; padding: 8px 0; border-bottom: 1px dashed #e5e5e5; }
+.rp-goal:last-child { border-bottom: 0; }
+.rp-goal > div:first-child { display: flex; flex-direction: column; }
+.rp-goal small { color: #888; font-size: 11px; }
+.rp-goal p { margin: 3px 0 0; font-size: 12px; color: #444; }
+.rp-gp { display: flex; align-items: center; gap: 8px; flex: 0 0 210px; }
+.rp-gp em { font-style: normal; font-size: 11px; color: #777; width: 54px; }
+.rp-bar { flex: 1; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+.rp-bar i { display: block; height: 100%; background: #17a34a; }
+.rp-foot { padding-top: 12px; font-size: 10.5px; color: #999; text-align: center; }
+.rp-dates[hidden] { display: none; }

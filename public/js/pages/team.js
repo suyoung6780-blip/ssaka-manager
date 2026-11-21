@@ -290,6 +290,11 @@ export async function locker(el) {
       <details class="role-edit"><summary>팀에서 내보내기</summary>
         <p class="muted small">내보내면 우리 팀에서 빠져요. 다시 들어오려면 팀 코드로 신청해야 해요.</p>
         <button type="button" class="btn ghost sm" data-kick>내보내기</button></details></div>` : '');
+    // 선수 성장 기록 받기 (코치는 아무 선수 · 선수는 자기 것만)
+    if (m.role === 'player' && (isCoach() || m.id === state.user.uid)) {
+      md.el.querySelector('.profile-view')?.insertAdjacentHTML('afterend', '<div class="row end"><button type="button" class="btn sm" data-report>성장 기록 받기 · PDF · 엑셀</button></div>');
+      md.el.querySelector('[data-report]').onclick = async () => { md.close(); (await import('../report.js')).reportModal(m.id, m.name); };
+    }
     md.el.querySelector('[data-role]')?.addEventListener('click', () => { md.close(); changeRole(m); });
     md.el.querySelector('[data-kick]')?.addEventListener('click', () => { md.close(); kick(m); });
     let teams = null;
