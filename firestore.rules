@@ -187,6 +187,20 @@ service cloud.firestore {
         allow create, update: if isCoach(t) && canUse(t)
           && request.resource.data.type in ['training', 'daily', 'meeting', 'analysis', 'notice', 'schedule'];
         allow delete: if isCoach(t);
+        // 미팅룸 댓글 수 (선수도 댓글을 달면 맞춰 둠)
+        allow update: if isSquad(t) && resource.data.type == 'meeting' && changed().hasOnly(['commentN'])
+          && request.resource.data.commentN is int;
+        // 미팅룸 댓글 · 답글 (parent = 답글을 단 댓글) — 우리 팀 선수 · 코치
+        match /comments/{c} {
+          allow read: if isSquad(t);
+          allow create: if isSquad(t) && canUse(t) && request.resource.data.uid == uid()
+            && get(/databases/$(database)/documents/teams/$(t)/posts/$(p)).data.type == 'meeting'
+            && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 1000
+            && request.resource.data.role in ['coach', 'player'] && (request.resource.data.role == 'coach') == isCoach(t);
+          allow update: if isSquad(t) && resource.data.uid == uid() && changed().hasOnly(['body', 'editedAt'])
+            && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 1000;
+          allow delete: if (isSquad(t) && resource.data.uid == uid()) || isCoach(t);
+        }
       }
 
       // 훈련장 > 코치 훈련 정리 (코치만)

@@ -63,6 +63,128 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 let padSeq = 0;
 const round = (n) => Math.round(n * 10) / 10;
 
+// 자유 그리기 정리: 손으로 그린 선을 직선 · 곡선 · 꺾인 선 · 동그라미로 깔끔하게 (u = 경기장 단위)
+//  돌려줌 { P: 기준점들, cn: 꺾인 점 번호, cl: 닫힌 곡선(동그라미) } — 그릴 때 기준점 사이를 부드럽게 이음 (drawPath)
+function tidyStroke(raw, u) {
+  const D = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const len = (P) => P.reduce((s, q, k) => (k ? s + D(P[k - 1], q) : 0), 0);
+  // 같은 간격으로 다시 찍기
+  const resample = (P, step) => {
+    const R = [P[0]];
+    let carry = 0;
+    for (let k = 1; k < P.length; k++) {
+      let a = P[k - 1]; const b = P[k]; let d = D(a, b);
+      while (carry + d >= step) { const t = (step - carry) / d; a = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; R.push(a); d = D(a, b); carry = 0; }
+      carry += d;
+    }
+    if (D(R[R.length - 1], P[P.length - 1]) > step * 0.3) R.push(P[P.length - 1]); else R[R.length - 1] = P[P.length - 1];
+    return R;
+  };
+  const step = 0.3 * u;
+  const R = resample(raw, step);
+  if (R.length < 3) return { P: raw, cn: [] };
+  // 손떨림 없애기 (양 끝은 그대로)
+  const smooth = (P, r) => P.map((q, k) => {
+    if (k < 1 || k > P.length - 2) return q;
+    let sx = 0; let sy = 0; let n = 0;
+    for (let j = Math.max(0, k - r); j <= Math.min(P.length - 1, k + r); j++) { sx += P[j][0]; sy += P[j][1]; n++; }
+    return [sx / n, sy / n];
+  });
+  // 곧은 선인지: 처음 · 끝을 이은 줄에서 평균으로도 · 가장 멀리도 조금만 벗어나면 (손떨림 몇 점은 봐줌)
+  const isLine = (P) => {
+    const a = P[0]; const b = P[P.length - 1]; const c = D(a, b);
+    if (!(c > 0) || c / len(smooth(P, 2)) < 0.9) return false;
+    const dv = P.map((q) => Math.abs((b[0] - a[0]) * (a[1] - q[1]) - (a[0] - q[0]) * (b[1] - a[1])) / c);
+    const rms = Math.sqrt(dv.reduce((x, v) => x + v * v, 0) / dv.length);
+    return rms < Math.max(0.35 * u, 0.05 * c) && Math.max(...dv) < Math.max(1 * u, 0.1 * c);
+  };
+  const L = len(R);
+  if (isLine(R)) return { P: [R[0], R[R.length - 1]], cn: [] };
+  const S = smooth(smooth(R, 2), 2);
+  // 닫힌 모양: 처음과 끝이 가까우면
+  const closed = D(R[0], R[R.length - 1]) < Math.max(1.5 * u, 0.15 * L);
+  // 꺾인 곳 찾기 (살짝만 다듬은 선에서): 앞뒤 2.5m 사이 방향이 50도 넘게 바뀌고, 1.2m 안에서도 거의 그만큼 바뀌는 곳
+  //  — 둥근 곡선은 가까이서 보면 조금씩만 돌아서 안 걸림 (1.2m)
+  const S1 = smooth(R, 2);
+  const S2 = smooth(R, 4);
+  const turn = (k, arm, Q = S1) => {
+    const w = Math.max(2, Math.round((arm * u) / step));
+    const a = Q[Math.max(0, k - w)]; const b = Q[k]; const c = Q[Math.min(Q.length - 1, k + w)];
+    const a1 = Math.atan2(b[1] - a[1], b[0] - a[0]); const a2 = Math.atan2(c[1] - b[1], c[0] - b[0]);
+    let d = Math.abs(a2 - a1); if (d > Math.PI) d = 2 * Math.PI - d; return d;
+  };
+  const w = Math.round((2.5 * u) / step);
+  const tl = S1.map((_, k) => (k < w || k > S1.length - 1 - w ? 0 : turn(k, 2.5, S2)));
+  const corners = [];
+  for (let k = w; k < S1.length - w; k++) {
+    if (!(tl[k] > 0.87 && tl[k] >= tl[k - 1] && tl[k] >= tl[k + 1])) continue;
+    const ts = Math.max(...[-2, -1, 0, 1, 2].map((o) => turn(k + o, 1.2)));
+    if (ts < 0.6 * tl[k]) continue;
+    if (corners.length && k - corners[corners.length - 1] < w) { if (tl[k] > tl[corners[corners.length - 1]]) corners[corners.length - 1] = k; } else corners.push(k);
+  }
+  // 동그라미: 꺾인 곳 없이 닫히고 중심에서 거리가 고르면 깔끔한 타원
+  if (closed) {
+    const xs = S.map((q) => q[0]); const ys = S.map((q) => q[1]);
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2; const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+    const rx = (Math.max(...xs) - Math.min(...xs)) / 2; const ry = (Math.max(...ys) - Math.min(...ys)) / 2;
+    const rr = S.map((q) => Math.hypot((q[0] - cx) / (rx || 1), (q[1] - cy) / (ry || 1)));
+    const m = rr.reduce((a, b) => a + b, 0) / rr.length;
+    const sd = Math.sqrt(rr.reduce((a, b) => a + (b - m) ** 2, 0) / rr.length);
+    if (rx > 0.5 * u && ry > 0.5 * u && (corners.length < 2 ? sd < 0.13 : corners.length < 4 && sd < 0.07)) { // 손떨림으로 꺾인 곳이 몇 개 잡혀도 아주 둥글면 동그라미
+      const a0 = Math.atan2((R[0][1] - cy) / ry, (R[0][0] - cx) / rx);
+      return { P: Array.from({ length: 24 }, (_, k) => { const a = a0 + (k / 24) * 2 * Math.PI; return [cx + rx * Math.cos(a), cy + ry * Math.sin(a)]; }), cn: [], cl: 1 };
+    }
+  }
+  // 꺾인 곳마다 나눠서: 곧은 조각은 직선, 굽은 조각은 부드러운 곡선의 기준점 몇 개
+  const cut = [0, ...corners, S.length - 1];
+  const out = [];
+  const cn = [];
+  for (let j = 0; j + 1 < cut.length; j++) {
+    const seg = S.slice(cut[j], cut[j + 1] + 1);
+    seg[0] = j === 0 ? R[0] : S1[cut[j]]; // 꺾인 점은 덜 다듬은 자리 (모서리가 안 깎이게)
+    seg[seg.length - 1] = j + 2 === cut.length ? R[R.length - 1] : S1[cut[j + 1]];
+    let piece;
+    if (seg.length < 3 || isLine(seg)) piece = [seg[0], seg[seg.length - 1]];
+    else {
+      const sm = smooth(smooth(seg, 3), 3); sm[0] = seg[0]; sm[sm.length - 1] = seg[seg.length - 1];
+      // 선 끝(꺾인 곳 아님)의 손떨림 갈고리 없애기: 끝 두 점은 안쪽 방향을 그대로 이어 감
+      const ext = (a, b) => [2 * a[0] - b[0], 2 * a[1] - b[1]];
+      if (j === 0 && sm.length > 4) { sm[1] = ext(sm[2], sm[3]); sm[0] = ext(sm[1], sm[2]); }
+      if (j + 2 === cut.length && sm.length > 4) { const n = sm.length; sm[n - 2] = ext(sm[n - 3], sm[n - 4]); sm[n - 1] = ext(sm[n - 2], sm[n - 3]); }
+      const pl = len(sm);
+      piece = resample(sm, Math.max(2 * u, pl / 20));
+      if (piece.length < 4) piece = resample(sm, pl / 3);
+    }
+    if (out.length) cn.push(out.length - 1);
+    out.push(...(out.length ? piece.slice(1) : piece));
+  }
+  // 닫힌 도형(네모 · 세모)은 끝을 처음 점에 붙임
+  if (closed && corners.length >= 2) { out[out.length - 1] = out[0]; cn.push(0, out.length - 1); }
+  return { P: out, cn };
+}
+
+// 기준점 사이를 부드럽게 (Catmull-Rom → 베지어) · cn 번호에서는 꺾음 · cl 이면 닫힌 곡선
+function drawPath(xs, cn = [], cl = false) {
+  const f = (v) => v.toFixed(2);
+  const n = xs.length;
+  if (cl) {
+    const at = (k) => xs[(k + n) % n];
+    let d = `M${f(xs[0][0])} ${f(xs[0][1])}`;
+    for (let k = 0; k < n; k++) { const p0 = at(k - 1); const p1 = at(k); const p2 = at(k + 1); const p3 = at(k + 2); d += ` C${f(p1[0] + (p2[0] - p0[0]) / 6)} ${f(p1[1] + (p2[1] - p0[1]) / 6)} ${f(p2[0] - (p3[0] - p1[0]) / 6)} ${f(p2[1] - (p3[1] - p1[1]) / 6)} ${f(p2[0])} ${f(p2[1])}`; }
+    return `${d} Z`;
+  }
+  const brk = new Set(cn);
+  let d = `M${f(xs[0][0])} ${f(xs[0][1])}`;
+  for (let k = 0; k + 1 < n; k++) {
+    const p1 = xs[k]; const p2 = xs[k + 1];
+    const p0 = k > 0 && !brk.has(k) ? xs[k - 1] : p1; // 꺾인 점에서는 앞 조각과 이어 굽히지 않음
+    const p3 = k + 2 < n && !brk.has(k + 1) ? xs[k + 2] : p2;
+    if (p0 === p1 && p3 === p2) { d += ` L${f(p2[0])} ${f(p2[1])}`; continue; }
+    d += ` C${f(p1[0] + (p2[0] - p0[0]) / 6)} ${f(p1[1] + (p2[1] - p0[1]) / 6)} ${f(p2[0] - (p3[0] - p1[0]) / 6)} ${f(p2[1] - (p3[1] - p1[1]) / 6)} ${f(p2[0])} ${f(p2[1])}`;
+  }
+  return d;
+}
+
 export function blank(type = 'full') {
   const f = FIELDS[type];
   return { v: 2, field: { type, w: f.w, h: f.h, color: 'dark' }, grid: { preset: 'none', cols: 0, rows: 0 }, items: [] };
@@ -293,8 +415,9 @@ function drawItem(layer, it, i, T, u0, selected, mkFor, o = {}) {
       const xs = []; for (let k = 0; k + 1 < P0.length; k += 2) xs.push([it.x + P0[k], it.y + P0[k + 1]]);
       if (!xs.length) break;
       let d = `M${xs[0][0].toFixed(2)} ${xs[0][1].toFixed(2)}`;
-      for (let k = 1; k < xs.length - 1; k++) { const mx = (xs[k][0] + xs[k + 1][0]) / 2; const my = (xs[k][1] + xs[k + 1][1]) / 2; d += ` Q${xs[k][0].toFixed(2)} ${xs[k][1].toFixed(2)} ${mx.toFixed(2)} ${my.toFixed(2)}`; }
-      if (xs.length > 1) d += ` L${xs[xs.length - 1][0].toFixed(2)} ${xs[xs.length - 1][1].toFixed(2)}`;
+      if (it.fit) d = drawPath(xs, it.cn, it.cl); // 정리된 선: 기준점 사이를 부드럽게 · 꺾인 곳은 꺾어서
+      else for (let k = 1; k < xs.length - 1; k++) { const mx = (xs[k][0] + xs[k + 1][0]) / 2; const my = (xs[k][1] + xs[k + 1][1]) / 2; d += ` Q${xs[k][0].toFixed(2)} ${xs[k][1].toFixed(2)} ${mx.toFixed(2)} ${my.toFixed(2)}`; }
+      if (!it.fit && xs.length > 1) d += ` L${xs[xs.length - 1][0].toFixed(2)} ${xs[xs.length - 1][1].toFixed(2)}`;
       const wd = (it.wd || 0.5) * u0 * z;
       el('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': Math.max(2.4 * u0, wd * 4), 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g); // 누르기 쉬운 넓은 영역
       el('path', { d, fill: 'none', stroke: it.c || '#ffffff', 'stroke-width': wd, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', ...(it.dash ? { 'stroke-dasharray': `${wd * 2.2} ${wd * 1.8}` } : {}) }, g);
@@ -758,6 +881,7 @@ export function createPad(container, initial, { editable = true, motion = false,
       <span class="pad-grp" data-linkopt><button type="button" class="chip" data-lshape="open" title="이은 순서대로 선">선</button><button type="button" class="chip" data-lshape="closed" title="마지막 선수와 첫 선수를 이어 도형으로 (3명부터)">도형</button><button type="button" class="chip" data-lstyle="solid">실선</button><button type="button" class="chip" data-lstyle="dash">점선</button><button type="button" class="chip" data-larea title="이은 선수들 사이를 색으로 채우기">면 채우기</button></span>
       <span class="pad-opt" data-spread title="시야 넓이">${[[30, '좁게'], [50, '보통'], [80, '넓게']].map(([v, l]) => `<button type="button" class="chip" data-sp="${v}">${l}</button>`).join('')}</span>
       <button type="button" class="chip" data-straight title="직선으로">⟋ 직선</button>
+      <button type="button" class="chip" data-drawraw title="손으로 그린 그대로 / 깔끔하게 정리">손그림 그대로</button>
       ${P3() ? '<span class="pad-grp" data-hlgrp><button type="button" class="chip" data-hl title="고른 선수 발밑에 빛나는 링 — 장면이 여러 개면 지금 장면에서만 (다시 누르면 끔)">◎ 강조</button><button type="button" class="chip" data-hlall title="모든 장면에서 강조 (다시 누르면 모든 장면에서 끔)" hidden>모든 장면</button></span>' : ''}
       <span class="pad-grp"><button type="button" class="chip" data-act="dup" title="복제 (Ctrl+D · 복사 Ctrl+C · 붙여넣기 Ctrl+V)">⧉ 복제</button><button type="button" class="chip" data-act="front" title="맨 앞으로 (Ctrl+])">순서 앞으로</button><button type="button" class="chip" data-act="back" title="맨 뒤로 (Ctrl+[)">순서 뒤로</button><button type="button" class="chip" data-act="rotate" title="회전">⟳ 회전</button></span>
       <span class="pad-grp"><button type="button" class="chip" data-act="delete">선택 삭제</button><button type="button" class="chip" data-act="delonly">이 장면에서만 삭제</button><button type="button" class="chip" data-act="delall" title="모든 장면에서 삭제">✕ 전체</button><button type="button" class="chip" data-act="unmove" title="이 장면 움직임 취소">↺ 움직임</button></span>
@@ -1003,6 +1127,15 @@ export function createPad(container, initial, { editable = true, motion = false,
   let endTypingSoon = () => {}; // 입력 줄 내리기 (아래에서 채움)
   // 작은 그리드 훈련장에서도 선수·콘이 너무 작아지지 않게 하한을 둔다
   const unit = () => Math.max(0.55, Math.max(data.field.w, data.field.h) / 105);
+  const tidyDraw = (it) => {
+    const raw = []; for (let k = 0; k + 1 < it.pts.length; k += 2) raw.push([it.pts[k], it.pts[k + 1]]);
+    const { P, cn, cl } = tidyStroke(raw, unit());
+    it.raw = it.pts;
+    it.pts = P.flatMap(([x, y]) => [round(x), round(y)]);
+    it.fit = 1;
+    if (cn.length) it.cn = cn; else delete it.cn;
+    if (cl) it.cl = 1; else delete it.cl;
+  };
   const items = () => data.items;
   // 바깥 여백: 골대(2m)가 보일 만큼만 · 직접 설정은 거의 없이
   const margin = () => (data.field.type === 'custom' ? 0.6 * unit() : Math.max(2 * unit(), 2.4));
@@ -1391,6 +1524,9 @@ export function createPad(container, initial, { editable = true, motion = false,
     const ordin = container.querySelector('[data-ordin]');
     if (document.activeElement !== ordin) ordin.value = curOrd || 1;
     container.querySelector('[data-straight]').hidden = !(s?.k === 'arrow' && (s.cx != null || s.via?.length));
+    const dr = container.querySelector('[data-drawraw]');
+    dr.hidden = !(s?.k === 'draw' && s.raw);
+    dr.textContent = s?.fit ? '손그림 그대로' : '깔끔하게 정리';
     container.querySelector('[data-spread]').hidden = !(s && s.k === 'vision');
     container.querySelectorAll('[data-sp]').forEach((b) => b.classList.toggle('on', s?.k === 'vision' && +b.dataset.sp === (s.spread || 50)));
     const selbar = container.querySelector('[data-selbar]');
@@ -1405,7 +1541,7 @@ export function createPad(container, initial, { editable = true, motion = false,
       num: '필드를 누르면 순서 1 · 2 · 3 이 차례로 놓여요 · 두 번 누르면 아래 칸에서 숫자 고치기',
       vision: '선수를 누른 채 바라보는 쪽으로 끌어요 → V 모양 시야 (선수를 따라다녀요)',
       text: '필드를 누르고 글자 입력',
-      pen: '누른 채 끌면 자유롭게 그려져요 · 색 · 크기는 아래에서 · 다 그리면 Enter 로 선택',
+      pen: '누른 채 끌면 그려져요 · 손을 떼면 직선 · 곡선 · 꺾인 선 · 동그라미로 깔끔하게 정리돼요 (고른 뒤 [손그림 그대로]로 되돌리기) · 다 그리면 Enter 로 선택',
       erase: '지울 그림을 누르거나, 누른 채 문지르면 닿는 것이 지워져요 · 잘못 지우면 Ctrl+Z',
       spot: '선수를 누르면 발밑에 빛나는 링이 생겨요 · 다시 누르면 꺼져요',
     }[tool] || '필드를 누르면 놓입니다 · Enter 키로 선택·이동';
@@ -1896,6 +2032,11 @@ export function createPad(container, initial, { editable = true, motion = false,
     tilt = !tilt; try { localStorage.setItem('ssaka.pad.3d', tilt ? '1' : '0'); } catch { /* */ }
     ev.currentTarget.blur(); applyTilt(); render();
   });
+  container.querySelector('[data-drawraw]').onclick = () => {
+    const x = items()[sel]; if (x?.k !== 'draw' || !x.raw) return; snapshot();
+    if (x.fit) { x.pts = x.raw; delete x.fit; delete x.cn; delete x.cl; } else tidyDraw(x);
+    render();
+  };
   container.querySelector('[data-straight]').onclick = () => { const x = items()[sel]; if (x?.k !== 'arrow') return; snapshot(); delete x.cx; delete x.cy; delete x.via; render(); };
   container.querySelectorAll('[data-sp]').forEach((b) => (b.onclick = () => {
     const list = selected().filter((x) => x.k === 'vision');
@@ -2462,6 +2603,8 @@ export function createPad(container, initial, { editable = true, motion = false,
       data.items.splice(data.items.indexOf(it), 1);
       history.pop();
       sel = -1;
+    } else if (creating && it.k === 'draw') {
+      tidyDraw(it); // 손그림 → 직선 · 곡선 · 꺾인 선 · 동그라미로 정리 (원래 선은 it.raw)
     } else if (drag.stepMove) {
       const q = data.steps[scene - 1][it.id];
       if (!q || (q[0] === drag.orig.x && q[1] === drag.orig.y)) history.pop();

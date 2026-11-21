@@ -5525,3 +5525,21 @@ html:has(.studio.st-full) .modal-wrap, html:has(.studio.st-phone) .modal-wrap, h
 @media (max-width: 640px) { .start-card li { flex-wrap: wrap; } .start-card li .btn { width: 100%; } }
 .invite-btn { margin: 14px 0 10px; }
 .invite-btn small { opacity: .7; margin-left: 6px; font-weight: 600; }
+
+/* 미팅룸 댓글 · 답글 */
+.mt-talk { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.mt-talk-h { margin: 0 0 6px; font-size: 15px; }
+.mt-comments, .mt-reps ul { list-style: none; padding: 0; margin: 0; }
+.mt-comments { margin-bottom: 10px; }
+.mt-c { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.mt-c p { margin: 4px 0 0; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.mt-c-h { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mt-c-h .tag { font-size: 11px; padding: 1px 6px; }
+.mt-c-a { display: flex; gap: 12px; margin-top: 4px; }
+.mt-reps { padding: 0 0 0 22px; border-bottom: 1px solid var(--line); }
+.mt-reps .mt-c { border-bottom: 0; border-left: 2px solid var(--line); padding-left: 12px; margin: 2px 0; }
+.mt-reps .mt-c + .mt-c { border-top: 1px dashed var(--line); }
+.mt-cform { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.mt-cform textarea { width: 100%; min-height: 54px; resize: vertical; }
+.mt-cform-b { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
+.mt-empty { padding: 8px 0; }

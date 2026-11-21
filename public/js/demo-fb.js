@@ -96,7 +96,11 @@ seed('teams/T1/posts/a2', { type: 'notice', title: '이번 주 훈련 집중 포
 { const ago = (d) => Timestamp.fromMillis(Date.now() - d * 864e5); const dd = (d) => ymd(new Date(Date.now() - d * 864e5));
   seed('teams/T1/posts/mt1', { type: 'meeting', title: '주말 리그 상대 분석 — 화이트 유나이티드', date: dd(0), opponent: '화이트 유나이티드', authorName: '김코치', createdAt: ago(0),
     body: '상대 기본 4-4-2 · 골킥은 거의 롱볼.\n9번이 등지고 받아 측면으로 펼치는 패턴이 많음 → 센터백 한 명은 무조건 붙고, 6번이 세컨볼.\n세트피스: 코너킥 니어 포스트로 두 명이 달려옴.\n\n우리 약속: 전반 20분까지는 라인 높게, 뺏기면 5초 역압박.',
-    links: [{ name: '상대 경기 영상 (전반 하이라이트)', url: 'https://www.youtube.com/' }, { name: '전술 PPT', url: 'https://drive.google.com/' }, { name: '세트피스 정리 PDF', url: 'https://drive.google.com/' }] });
+    links: [{ name: '상대 경기 영상 (전반 하이라이트)', url: 'https://www.youtube.com/' }, { name: '전술 PPT', url: 'https://drive.google.com/' }, { name: '세트피스 정리 PDF', url: 'https://drive.google.com/' }], commentN: 3 });
+  const hr = (h) => Timestamp.fromMillis(Date.now() - h * 3600e3);
+  seed('teams/T1/posts/mt1/comments/k1', { body: '9번이 등지고 받을 때 제가 붙으면 6번이 뒤에서 커버해 주는 거 맞죠?', uid: 'p1', name: '박선수', role: 'player', createdAt: hr(5) });
+  seed('teams/T1/posts/mt1/comments/k2', { body: '맞아. 6번은 9번 뒤쪽 세컨볼 자리 먼저 잡고, 네가 앞으로 못 돌게만 막아 줘.', uid: 'c2', name: '최코치', role: 'coach', parent: 'k1', createdAt: hr(4) });
+  seed('teams/T1/posts/mt1/comments/k3', { body: '골킥 롱볼 때 제가 바로 나가서 잡을까요, 아니면 수비 헤딩 먼저인가요?', uid: 'p2', name: '이선수', role: 'player', createdAt: hr(2) });
   seed('teams/T1/posts/mt2', { type: 'meeting', title: '세트피스 미팅 — 코너킥 수비 위치', date: dd(2), authorName: '최코치', createdAt: ago(2),
     body: '지역 4명 + 대인 3명.\n니어 포스트 앞 공간은 7번 · 11번이 책임.\n골키퍼 앞을 가리는 상대는 4번이 밀어내기.',
     links: [{ name: '코너킥 수비 그림', url: 'https://drive.google.com/' }] });

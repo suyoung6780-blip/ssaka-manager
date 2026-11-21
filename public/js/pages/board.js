@@ -58,7 +58,7 @@ export const page = (type) => async (el) => {
       <div class="post-meta">${p.pinned ? '<span class="tag">고정</span>' : ''}${p.opponent ? `<span class="tag">vs ${esc(p.opponent)}</span>` : ''}<small>${esc(p.date || fmtDate(p.createdAt))}</small></div>
       <h3>${esc(p.title)}</h3>
       <p>${esc((p.body || '').slice(0, 90))}</p>
-      ${(p.files?.length || 0) + (p.links?.length || 0) ? `<small class="post-att">자료 ${(p.files?.length || 0) + (p.links?.length || 0)}개</small>` : ''}
+      ${(p.files?.length || 0) + (p.links?.length || 0) || p.commentN ? `<small class="post-att">${[(p.files?.length || 0) + (p.links?.length || 0) ? `자료 ${(p.files?.length || 0) + (p.links?.length || 0)}개` : '', p.commentN ? `댓글 ${p.commentN}` : ''].filter(Boolean).join(' · ')}</small>` : ''}
     </article>`).join('')}</div>` : empty('아직 등록된 글이 없습니다.');
 
   body.querySelectorAll('.post-card').forEach((card) => {
@@ -189,14 +189,87 @@ function detail(type, p, refresh) {
     ${p.files?.length ? `<ul class="files">${p.files.map((f) => `<li><a href="${esc(f.url)}" target="_blank" rel="noopener">↓ ${esc(f.name)}</a></li>`).join('')}</ul>` : ''}
     ${p.link ? `<p><a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.link)} ↗</a></p>` : ''}
     ${p.links?.length ? `<ul class="files">${p.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">↗ ${esc(l.name || l.url)}</a></li>`).join('')}</ul>` : ''}
-    ${isCoach() ? '<div class="row end"><button class="btn ghost" data-del>삭제</button><button class="btn" data-edit>수정</button></div>' : ''}`, { wide: !!p.pad });
+    ${isCoach() ? '<div class="row end"><button class="btn ghost" data-del>삭제</button><button class="btn" data-edit>수정</button></div>' : ''}
+    ${type === 'meeting' ? '<section class="mt-talk" data-talk></section>' : ''}`, { wide: !!p.pad });
+  if (type === 'meeting') talk(m.el.querySelector('[data-talk]'), p);
 
   if (p.pad) createPad(m.el.querySelector('[data-pad]'), p.pad, { editable: false });
   m.el.querySelector('[data-edit]')?.addEventListener('click', () => { m.close(); editor(type, p, refresh); });
   m.el.querySelector('[data-del]')?.addEventListener('click', async () => {
     if (!(await confirmBox('삭제할까요?'))) return;
-    try { await deleteDoc(doc(db, 'teams', state.team.id, 'posts', p.id)); m.close(); refresh(); } catch (e) { fail(e); }
+    try {
+      if (type === 'meeting') { // 댓글도 같이 지움
+        const cs = await getDocs(collection(db, 'teams', state.team.id, 'posts', p.id, 'comments'));
+        await Promise.all(cs.docs.map((d) => deleteDoc(d.ref)));
+      }
+      await deleteDoc(doc(db, 'teams', state.team.id, 'posts', p.id)); m.close(); refresh();
+    } catch (e) { fail(e); }
   });
+}
+
+// 미팅룸 댓글 · 답글 — teams/{id}/posts/{p}/comments (parent = 답글을 단 댓글 id, 답글은 한 단계만)
+const ms = (v) => (v?.toMillis ? v.toMillis() : v?.seconds ? v.seconds * 1000 : 0);
+const ago = (t) => { if (!t) return '방금'; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? '방금' : m < 60 ? `${m}분 전` : m < 1440 ? `${Math.round(m / 60)}시간 전` : m < 10080 ? `${Math.round(m / 1440)}일 전` : fmtDate(new Date(t)); };
+
+function talk(box, p) {
+  const col = collection(db, 'teams', state.team.id, 'posts', p.id, 'comments');
+  let list = [];
+  let replyTo = null; // 답글 쓰는 댓글 id
+  let editing = null; // 고치는 댓글 id
+  const mine = (c) => c.uid === state.user.uid;
+  const form = (ph, val = '', kind = 'new') => `<form class="mt-cform" data-cf="${kind}"><textarea name="body" rows="2" maxlength="1000" required placeholder="${ph}">${esc(val)}</textarea>
+    <div class="mt-cform-b">${kind !== 'new' ? '<button type="button" class="link-btn small" data-cancel>취소</button>' : ''}<button class="btn sm">${kind === 'edit' ? '저장' : '등록'}</button></div></form>`;
+  const one = (c, reply) => `<li class="mt-c${reply ? ' reply' : ''}" data-cid="${c.id}">
+    <div class="mt-c-h"><b>${esc(c.name || '')}</b>${c.role === 'coach' ? '<span class="tag">코치</span>' : ''}<small class="muted">${ago(ms(c.createdAt))}${c.editedAt ? ' · 고침' : ''}</small></div>
+    ${editing === c.id ? form('댓글 고치기', c.body, 'edit') : `<p>${text(c.body)}</p>
+    <div class="mt-c-a">${reply ? '' : '<button type="button" class="link-btn small" data-reply>답글</button>'}${mine(c) ? '<button type="button" class="link-btn small" data-edit>고치기</button>' : ''}${mine(c) || isCoach() ? '<button type="button" class="link-btn small" data-cdel>삭제</button>' : ''}</div>`}
+  </li>`;
+  const draw = () => {
+    const tops = list.filter((c) => !c.parent || !list.some((x) => x.id === c.parent));
+    box.innerHTML = `<h3 class="mt-talk-h">댓글 <small class="muted">${list.length}</small></h3>
+      <ul class="mt-comments">${tops.map((c) => {
+        const reps = list.filter((x) => x.parent === c.id);
+        return `${one(c)}${reps.length || replyTo === c.id ? `<li class="mt-reps"><ul>${reps.map((r) => one(r, true)).join('')}${replyTo === c.id ? `<li class="mt-c reply">${form(`${c.name || ''}님에게 답글`, '', 'reply')}</li>` : ''}</ul></li>` : ''}`;
+      }).join('') || '<li class="muted small mt-empty">궁금한 점이나 생각을 남겨 보세요.</li>'}</ul>
+      ${form('댓글을 남겨요 — 선수 · 코치 모두 볼 수 있어요')}`;
+    box.querySelectorAll('[data-reply]').forEach((b) => (b.onclick = () => { replyTo = b.closest('[data-cid]').dataset.cid; editing = null; draw(); box.querySelector('[data-cf="reply"] textarea')?.focus(); }));
+    box.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => { editing = b.closest('[data-cid]').dataset.cid; replyTo = null; draw(); box.querySelector('[data-cf="edit"] textarea')?.focus(); }));
+    box.querySelectorAll('[data-cancel]').forEach((b) => (b.onclick = () => { replyTo = null; editing = null; draw(); }));
+    box.querySelectorAll('[data-cdel]').forEach((b) => (b.onclick = async () => {
+      const id = b.closest('[data-cid]').dataset.cid;
+      const reps = list.filter((x) => x.parent === id);
+      if (!(await confirmBox(reps.length ? `댓글을 지울까요? 답글 ${reps.length}개도 같이 지워져요.` : '댓글을 지울까요?'))) return;
+      try { await Promise.all([id, ...reps.map((x) => x.id)].map((x) => deleteDoc(doc(col, x)))); await load(); } catch (err) { fail(err); }
+    }));
+    box.querySelectorAll('[data-cf]').forEach((f) => {
+      const ta = f.querySelector('textarea');
+      ta.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) f.requestSubmit(); };
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const body = ta.value.trim();
+        if (!body) return;
+        f.querySelector('button.btn').disabled = true;
+        try {
+          if (f.dataset.cf === 'edit') await updateDoc(doc(col, editing), { body, editedAt: serverTimestamp() });
+          else await addDoc(col, { body, uid: state.user.uid, name: state.profile.name, role: isCoach() ? 'coach' : 'player', ...(f.dataset.cf === 'reply' ? { parent: replyTo } : {}), createdAt: serverTimestamp() });
+          replyTo = null; editing = null;
+          await load();
+        } catch (err) { fail(err); f.querySelector('button.btn').disabled = false; }
+      };
+    });
+  };
+  const load = async () => {
+    const cs = await getDocs(query(col, orderBy('createdAt'), limit(300)));
+    list = cs.docs.map((d) => ({ id: d.id, ...d.data() }));
+    draw();
+    // 목록 카드의 댓글 수 맞추기
+    if ((p.commentN || 0) !== list.length) {
+      p.commentN = list.length;
+      updateDoc(doc(db, 'teams', state.team.id, 'posts', p.id), { commentN: list.length }).catch(() => {});
+    }
+  };
+  box.innerHTML = '<p class="muted small">댓글 불러오는 중…</p>';
+  load().catch(fail);
 }
 
 function editor(type, p, refresh) {
