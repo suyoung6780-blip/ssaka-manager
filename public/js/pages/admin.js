@@ -9,7 +9,7 @@ import { state, go, hooks, compActive, SPACES, spaceKind } from '../store.js';
 
 const tabs = (cur) => `<div class="tabs admin-tabs">${[['/admin', '전체 공지'], ['/admin/teams', '전체 팀'], ['/admin/users', '전체 인원']].map(([h, l]) => `<a href="#${h}" class="${h === cur ? 'active' : ''}">${l}</a>`).join('')}</div>`;
 
-import { ref, bannerHtml } from './banner.js';
+import { ref, bannerHtml, loadBanner } from './banner.js';
 export { loadBanner } from './banner.js';
 
 export async function page(el) {
