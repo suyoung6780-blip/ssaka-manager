@@ -134,7 +134,7 @@ service cloud.firestore {
         && (request.resource.data.get('trial', false) != true
           || (!exists(/databases/$(database)/documents/trials/$(trialKey()))
             && getAfter(/databases/$(database)/documents/trials/$(trialKey())).data.teamId == t));
-      allow update: if isOwner(t) && changed().hasOnly(['name', 'category', 'isPublic', 'intro']);
+      allow update: if isOwner(t) && changed().hasOnly(['name', 'category', 'isPublic', 'intro', 'gk3d']); // gk3d: 선수 일지 3D (GK) 장면 (off · gk · all)
       // 대표 넘기기: 지금 대표가 우리 팀의 승인된 지도자에게만
       allow update: if isOwner(t) && changed().hasOnly(['ownerUid', 'ownerName'])
         && get(/databases/$(database)/documents/teams/$(t)/members/$(request.resource.data.ownerUid)).data.role == 'coach'

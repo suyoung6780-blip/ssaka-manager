@@ -126,7 +126,7 @@ function planCard(p, progMap) {
           ${b.desc ? `<p>${text(b.desc)}</p>` : ''}
           ${prog ? `<button class="link-btn small" data-show="${prog.id}">▶ 크게 보기</button>` : ''}
         </div>
-        ${prog?.image ? `<img class="bthumb" src="${esc(prog.image)}" alt="">` : prog?.pad ? `<div class="bthumb" data-board="${prog.id}"></div>` : ''}
+        ${prog?.image || prog?.gk3dImg ? `<img class="bthumb" src="${esc(prog.image || prog.gk3dImg)}" alt="">` : prog?.pad ? `<div class="bthumb" data-board="${prog.id}"></div>` : ''}
       </li>`;
     }).join('')}</ol>` : ''}
     ${p.gear || p.memo ? `<div class="plan-foot">

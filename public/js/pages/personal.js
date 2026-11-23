@@ -10,6 +10,7 @@ import { withdraw } from './privacy.js';
 import { installButton, bindInstall } from '../install.js';
 import { loadPrograms, present } from './training.js';
 import { createPad, blank } from '../tactic.js';
+import { mountGK3D, gk3dAllowed, viewScene, sceneTag } from '../gk3d.js'; // 시제품 3.0: 3D (GK) 장면
 import { sleepMin, sleepOf, fmtSleep, sleepLong, SHORT_SLEEP } from '../sleep.js';
 import * as GL from '../proto/goalLog.js';
 import { AGE_GROUPS } from './team.js';
@@ -173,18 +174,18 @@ function planRef(plans, progMap) {
     ${plans.map((p) => `<div class="jplan ref">
       <div class="jplan-head"><strong>${esc(p.title || '훈련')}</strong><small>${esc([p.time, p.place].filter(Boolean).join(' · '))}</small></div>
       ${p.goal ? `<div class="plan-goal"><small>오늘의 목표</small><p>${text(p.goal)}</p></div>` : ''}
-      ${(p.blocks || []).map((b, i) => { const prog = progMap[b.programId]; const visual = prog && (prog.image || prog.pad); return `<div class="ref-block ${visual ? 'with-vis' : ''}">
-        ${visual ? `<aside class="sess-vis" data-prog="${prog.id}" title="눌러서 크게 보기">${prog.image ? `<img src="${esc(prog.image)}" alt="">` : '<div data-sess-pad></div>'}<span>▶ 크게 보기</span></aside>` : ''}
+      ${(p.blocks || []).map((b, i) => { const prog = progMap[b.programId]; const visual = prog && (prog.image || prog.gk3dImg || prog.pad); return `<div class="ref-block ${visual ? 'with-vis' : ''}">
+        ${visual ? `<aside class="sess-vis" data-prog="${prog.id}" title="눌러서 크게 보기">${prog.image || prog.gk3dImg ? `<img src="${esc(prog.image || prog.gk3dImg)}" alt="">` : '<div data-sess-pad></div>'}<span>▶ 크게 보기</span></aside>` : ''}
         <div><b>${i + 1}. ${esc(b.name || '훈련')}</b>${b.min ? ` <small class="muted">${esc(b.min)}분</small>` : ''}${b.desc ? `<p class="muted small">${text(b.desc)}</p>` : ''}</div></div>`; }).join('')}
     </div>`).join('')}</details>`;
 }
 
 function sessionCard(key, b, i, v = {}, prog = null) {
   const f = (k) => `s__${key}__${k}`;
-  const visual = prog && (prog.image || prog.pad);
+  const visual = prog && (prog.image || prog.gk3dImg || prog.pad);
   return `<article class="sess ${visual ? 'with-vis' : ''}">
     ${visual ? `<aside class="sess-vis" data-prog="${prog.id}" title="눌러서 크게 보기">
-      ${prog.image ? `<img src="${esc(prog.image)}" alt="">` : '<div data-sess-pad></div>'}
+      ${prog.image || prog.gk3dImg ? `<img src="${esc(prog.image || prog.gk3dImg)}" alt="">` : '<div data-sess-pad></div>'}
       <span>▶ 크게 보기</span>
       ${lines(prog.points).length ? `<ol>${lines(prog.points).slice(0, 3).map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
     </aside>` : ''}
@@ -359,7 +360,7 @@ export async function daily(el, _p, date0) {
         <h4>나의 평점 <small class="muted">오늘 경기에서 나는 몇 점?</small></h4>
         ${scale('m_rating', 10, mj.rating)}
         </div>
-        <div class="card-head jsess-head"><h4 data-play="yes">장면별 경기 일지 <small class="muted">기억나는 장면을 하나씩 그림 + 글로 적어요</small></h4><h4 data-play="no">밖에서 본 장면 <small class="muted">경기를 보며 기억나는 장면을 그림 + 글로 적어요</small></h4><button type="button" class="btn sm" data-add-scene>+ 장면 추가</button></div>
+        <div class="card-head jsess-head"><h4 data-play="yes">장면별 경기 일지 <small class="muted">기억나는 장면을 하나씩 그림 + 글로 적어요</small></h4><h4 data-play="no">밖에서 본 장면 <small class="muted">경기를 보며 기억나는 장면을 그림 + 글로 적어요</small></h4><div class="row"><button type="button" class="btn sm" data-add-scene>+ 장면 추가</button>${gk3dAllowed() ? '<button type="button" class="btn ghost sm" data-add-scene3d>+ 3D (GK) 장면</button>' : ''}</div></div>
         <div data-scenes></div>
         <button type="button" class="add-big" data-add-scene>＋ 장면 하나 더 추가하기<small>기억나는 장면이 더 있으면 눌러서 그려요</small></button>
         ${mj.good || mj.bad ? `<details class="legacy"><summary class="muted small">예전 방식으로 쓴 내용</summary>
@@ -486,19 +487,22 @@ export async function daily(el, _p, date0) {
   const addScene = (sc = {}) => {
     const wrap = document.createElement('div');
     wrap.className = 'mj-scene sess mine';
-    wrap.innerHTML = `<header class="mj-scene-head"><span class="bno">${scenes.length + 1}</span><input class="sess-name" data-sf="title" maxlength="40" value="${esc(sc.title || '')}" placeholder="장면 이름 (예: 전반 20분 왼쪽 오버래핑)"><button type="button" class="link-btn small" data-rm-scene>빼기</button></header>
+    const is3d = sc.kind === 'gk3d';
+    wrap.innerHTML = `<header class="mj-scene-head"><span class="bno">${scenes.length + 1}</span>${is3d ? sceneTag(sc) : ''}<input class="sess-name" data-sf="title" maxlength="40" value="${esc(sc.title || '')}" placeholder="장면 이름 (예: 전반 20분 왼쪽 오버래핑)"><button type="button" class="link-btn small" data-rm-scene>빼기</button></header>
       <div data-scene-pad></div>
       ${sceneField('note', esc(sc.note || ''), 'sess-did')}
       <div class="grid3 sess-fields">${['good', 'bad', 'next'].map((k) => sceneField(k, esc(sc[k] || ''))).join('')}</div>
       <label class="sess-ask">코치님께 질문 <small class="muted">(이 장면에서 궁금한 점 — 코치님이 바로 아래에 답해 주세요)</small><textarea rows="2" data-scene-ask placeholder="예) 이 상황에서 나는 안쪽을 막아야 했나요, 바깥을 막아야 했나요?">${esc(sc.ask || '')}</textarea></label>
       ${sAns(sc)}`;
     sceneBox.appendChild(wrap);
-    const entry = { wrap, key: sc.key || newSceneKey(), pad: createPad(wrap.querySelector('[data-scene-pad]'), sc.pad || { ...blank('full'), items: [] }) };
+    const padBox = wrap.querySelector('[data-scene-pad]');
+    const entry = { wrap, key: sc.key || newSceneKey(), kind: is3d ? 'gk3d' : '', pad: is3d ? mountGK3D(padBox, sc.gk3d || null) : createPad(padBox, sc.pad || { ...blank('full'), items: [] }) };
     scenes.push(entry);
     syncPlay?.();
     wrap.querySelector('[data-rm-scene]').onclick = () => { wrap.remove(); scenes.splice(scenes.indexOf(entry), 1); sceneBox.querySelectorAll('.bno').forEach((n, i) => { n.textContent = i + 1; }); };
   };
   (mj.scenes?.length ? mj.scenes : [{}]).forEach(addScene); // 처음엔 빈 장면 하나
+  el.querySelectorAll('[data-add-scene3d]').forEach((b) => (b.onclick = () => { addScene({ kind: 'gk3d' }); scenes[scenes.length - 1].wrap.scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
   el.querySelectorAll('[data-add-scene]').forEach((b) => (b.onclick = () => { addScene(); scenes[scenes.length - 1].wrap.scrollIntoView({ behavior: 'smooth', block: 'start' }); scenes[scenes.length - 1].wrap.querySelector('.sess-name').focus({ preventScroll: true }); }));
   // 내 훈련 일지: 세션 추가 · 삭제 (번호 다시 매김)
   const sessBox = el.querySelector('[data-mysess]');
@@ -548,9 +552,9 @@ export async function daily(el, _p, date0) {
     if (getGL) { const g = getGL(); Object.assign(match, match.played === false ? Object.fromEntries(Object.entries(g).map(([k, v]) => [k, Array.isArray(v) ? [] : v])) : g); }
     const g0 = games.find((g) => g.id === match.gameId) || games[0];
     if (g0) Object.assign(match, { opponent: g0.opponent, type: g0.matchType, gf: +g0.gf, ga: +g0.ga });
-    match.scenes = scenes.filter((x) => x.wrap.isConnected).map((x) => ({ key: x.key, pad: x.pad.getData(), note: x.wrap.querySelector('[data-scene-note]').value, ask: x.wrap.querySelector('[data-scene-ask]').value.trim(),
+    match.scenes = scenes.filter((x) => x.wrap.isConnected).map((x) => ({ key: x.key, ...(x.kind === 'gk3d' ? { kind: 'gk3d', gk3d: x.pad.isEmpty() ? '' : JSON.stringify(x.pad.getData()) } : { pad: x.pad.getData() }), note: x.wrap.querySelector('[data-scene-note]').value, ask: x.wrap.querySelector('[data-scene-ask]').value.trim(),
       ...Object.fromEntries([...x.wrap.querySelectorAll('[data-sf]')].map((f) => [f.dataset.sf, f.value.trim()])) }))
-      .filter((sc) => sc.note.trim() || sc.ask || sc.title || sc.good || sc.bad || sc.next || (sc.pad?.items || []).length); // 빈 장면은 빼고
+      .filter((sc) => sc.note.trim() || sc.ask || sc.title || sc.good || sc.bad || sc.next || (sc.pad?.items || []).length || sc.gk3d); // 빈 장면은 빼고
     // 세션별 입력 모으기
     const sess = {};
     for (const [k, v] of Object.entries(d)) {
@@ -575,7 +579,7 @@ export async function daily(el, _p, date0) {
     }
     // 제출할 때: 쓴 장면마다 작전판 그림은 필수
     if (submit && d.kind === 'match') {
-      const i = match.scenes.findIndex((sc) => !(sc.pad?.items || []).length);
+      const i = match.scenes.findIndex((sc) => (sc.kind === 'gk3d' ? !sc.gk3d : !(sc.pad?.items || []).length)); // 3D (GK) 장면은 3D 그림이 있으면 됨
       if (i >= 0) {
         const w = scenes.filter((x) => x.wrap.isConnected).find((x) => x.key === match.scenes[i].key)?.wrap;
         w?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -658,7 +662,7 @@ export function dayPageHtml(x, coachView = false, head = '') {
     <div class="row end"><button type="button" class="link-btn small" data-pdf1>이 장 PDF로 저장</button><button type="button" class="link-btn small" data-edit>${coachView ? '이 날 검사 창 열기' : '이 날 일지 열기 (고치기)'}</button></div>`;
 }
 export function bindDayPage(page, x, coachView = false) {
-  page.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = x.match?.scenes?.[+box.dataset.viewPad]; if (sc?.pad) createPad(box, sc.pad, { editable: false }); });
+  page.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = x.match?.scenes?.[+box.dataset.viewPad]; viewScene(box, sc); });
   page.querySelectorAll('[data-view-spad]').forEach((box) => { const sp2 = x.sessions?.[box.dataset.viewSpad]?.pad; if (sp2) createPad(box, sp2, { editable: false }); });
   page.querySelector('[data-pdf1]').onclick = () => saveJournalsPdf([x]);
   page.querySelector('[data-edit]').onclick = () => {
@@ -822,7 +826,7 @@ export function matchHtml(l, coachAns = false) {
     ${GL.journalSummary(m)}
     ${m.good ? `<p><b>잘한 플레이</b><br>${text(m.good)}</p>` : ''}${m.bad ? `<p><b>아쉬운 플레이</b><br>${text(m.bad)}</p>` : ''}
     ${m.learned ? `<p><b>배운 점</b><br>${text(m.learned)}</p>` : ''}${m.next ? `<p><b>다음 경기 각오</b><br>${text(m.next)}</p>` : ''}
-    ${(m.scenes || []).map((sc, i) => `<div class="mj-scene read"><strong>${bench ? '본 장면' : '장면'} ${i + 1}${sc.title ? ` · ${esc(sc.title)}` : ''}</strong><div data-view-pad="${i}"></div>${['note', 'good', 'bad', 'next'].map((k) => (sc[k] ? `<p><b>${SCENE_LB[k][bench ? 1 : 0][2]}</b> ${text(sc[k])}</p>` : '')).join('')}${askBlock(sc.ask, sc.key ? `m_${sc.key}` : '', l.answers || {}, coachAns)}</div>`).join('')}`;
+    ${(m.scenes || []).map((sc, i) => `<div class="mj-scene read"><strong>${bench ? '본 장면' : '장면'} ${i + 1}${sc.title ? ` · ${esc(sc.title)}` : ''}${sceneTag(sc)}</strong><div data-view-pad="${i}"></div>${['note', 'good', 'bad', 'next'].map((k) => (sc[k] ? `<p><b>${SCENE_LB[k][bench ? 1 : 0][2]}</b> ${text(sc[k])}</p>` : '')).join('')}${askBlock(sc.ask, sc.key ? `m_${sc.key}` : '', l.answers || {}, coachAns)}</div>`).join('')}`;
 }
 
 // 질문 + 답변 (코치 화면이면 답변 칸, 아니면 읽기)
@@ -981,7 +985,7 @@ export async function journalCheck(el, _p, date0) {
       <div class="row end"><button class="btn">검사 완료</button></div></form>` : ''}`, { wide: true });
     m.el.querySelector('.jc-hist')?.addEventListener('click', () => m.close());
     // 경기 장면 작전판 (읽기 전용)
-    m.el.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = l.match.scenes[+box.dataset.viewPad]; if (sc?.pad) createPad(box, sc.pad, { editable: false }); });
+    m.el.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = l.match.scenes[+box.dataset.viewPad]; viewScene(box, sc); });
     m.el.querySelectorAll('[data-view-spad]').forEach((box) => { const sp = l.sessions?.[box.dataset.viewSpad]?.pad; if (sp) createPad(box, sp, { editable: false }); });
     if (m.el.querySelector('form')) m.el.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
@@ -1128,7 +1132,7 @@ export async function saveJournalsPdf(list) {
       prog.el.querySelector('[data-pp]').textContent = `${i + 1} / ${list.length}개`;
       const x = list[i];
       wrap.innerHTML = pdfPage(x);
-      wrap.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = x.match?.scenes?.[+box.dataset.viewPad]; if (sc?.pad) createPad(box, sc.pad, { editable: false }); });
+      wrap.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = x.match?.scenes?.[+box.dataset.viewPad]; viewScene(box, sc); });
       wrap.querySelectorAll('[data-view-spad]').forEach((box) => { const sp = x.sessions?.[box.dataset.viewSpad]?.pad; if (sp) createPad(box, sp, { editable: false }); });
       await new Promise((r) => setTimeout(r, 80));
       const page = wrap.firstElementChild;

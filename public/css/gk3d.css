@@ -1,0 +1,164 @@
+/* 3D (GK) — 키퍼랩 3D 작전판 화면 (키퍼랩 css 에서 작전판 부분만 가져와 .gk3d 안에 가둠 · 강조색은 싸카매니저 초록) */
+.gk3d { --k-black: #070908; --k-ink: #0e1210; --k-ink-2: #141916; --k-ink-3: #1d2420; --k-line: #232a26; --k-line-2: #313a35; --k-mute: #8b948f; --k-mute-2: #b6bdb8; --k-white: #f2f4f1; --k-pure: #ffffff; --k-acc: #39e75f;
+  color: var(--k-white); font-family: inherit; }
+.gk3d button { font: inherit; cursor: pointer; }
+.gk3d { border: 1px solid var(--k-line-2); border-radius: 8px; overflow: hidden; background: var(--k-black); min-width: 0; max-width: 100%; }
+.gk3d.view .pad-stage { pointer-events: none; }
+.gk3d.view .pad2-top, .gk3d.view .pad-palette, .gk3d.view [data-k-edit] { display: none; }
+.gk3d .pad-fallback[hidden] { display: none; }
+.gk3d.is-full { z-index: 1000; }
+.gk3d-layer { position: fixed; inset: 0; z-index: 900; background: #0b0e0c; display: flex; flex-direction: column; }
+.gk3d-layer > header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid rgba(238,241,236,.1); }
+.gk3d-layer > header b { font-size: 15px; white-space: nowrap; }
+.gk3d-layer > header .muted { font-size: 12px; }
+.gk3d-layer > .gk3d-body { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 24px; }
+.gk3d-layer > .gk3d-body > .gk3d { max-width: 1200px; margin: 0 auto; }
+.gk3d-tag { display: inline-block; font-size: 11px; font-weight: 800; color: #0b0e0c; background: var(--brand, #39e75f); border-radius: 4px; padding: 1px 6px; margin-left: 6px; vertical-align: 2px; }
+.gk3d { min-width: 0; max-width: 100%; border: 1px solid var(--k-line-2); border-radius: 8px; overflow: hidden; background: var(--k-black); }
+.gk3d { min-width: 0; max-width: 100%; border: 1px solid var(--k-line-2); border-radius: 8px; overflow: hidden; background: var(--k-black); }
+.gk3d .tool {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-width: 44px; height: 44px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid transparent; background: transparent; color: var(--k-mute-2);
+  transition: background .15s, color .15s, border-color .15s;
+}
+.gk3d .tool svg { width: 20px; height: 20px; flex: none; }
+.gk3d .tool em { font-style: normal; font-size: 12px; font-weight: 600; }
+.gk3d .tool:hover { background: var(--k-ink-3); color: var(--k-pure); }
+.gk3d .tool.is-active { background: var(--k-pure); color: var(--k-black); }
+.gk3d .tool.is-active svg circle[fill="#000"] { fill: var(--k-pure); }
+.gk3d .tool-text { font-size: 13px; font-weight: 600; border-color: var(--k-line-2); }
+.gk3d .seg { display: flex; min-width: 0; gap: 2px; padding: 3px; border: 1px solid var(--k-line-2); border-radius: 8px; overflow-x: auto; scrollbar-width: none; }
+.gk3d .seg::-webkit-scrollbar { display: none; }
+.gk3d .seg button {
+  flex: none; min-height: 36px; padding: 0 12px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--k-mute-2); font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+.gk3d .seg button:hover { color: var(--k-pure); background: var(--k-ink-3); }
+.gk3d .seg button[aria-checked="true"] { background: var(--k-pure); color: var(--k-black); }
+.gk3d .tool.is-active .sw { border-color: #000; }
+.gk3d .tool.is-sticky { box-shadow: inset 0 0 0 2px #000, 0 0 0 2px var(--k-pure); }
+.gk3d .play-btn { border-color: var(--k-pure) !important; color: var(--k-pure); }
+.gk3d .play-btn.is-active { background: var(--k-pure); color: var(--k-black); }
+.gk3d .seg .seg-free { border-left: 1px solid var(--k-line-2); margin-left: 4px; }
+.gk3d .pad-stage { position: relative; width: 100%; aspect-ratio: 16 / 10; touch-action: none; background: #050505; overflow: hidden; user-select: none; -webkit-user-select: none; }
+.gk3d .pad-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.gk3d .pad-fallback { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--k-mute-2); }
+.gk3d .pad-hint {
+  position: absolute; left: 12px; bottom: 12px; margin: 0; max-width: calc(100% - 24px);
+  padding: 6px 12px; border-radius: 999px; background: rgba(0,0,0,.7); border: 1px solid var(--k-line-2);
+  font-size: 12px; color: var(--k-mute-2); pointer-events: none;
+  transition: opacity .4s;
+}
+.gk3d .pad-hint.is-hidden { opacity: 0; }
+@media (max-width: 820px) {
+  .gk3d .tool em { display: none; }
+  .gk3d .seg { flex: 1; }
+  .gk3d .pad-hint { white-space: normal; width: calc(100% - 24px); text-align: center; }
+}
+.gk3d .pad2-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px; border-bottom: 1px solid var(--k-line-2); background: var(--k-ink-2); }
+.gk3d .pitch-picker { display: flex; gap: 8px; }
+.gk3d .pitch-picker button { position: relative; padding: 0; width: 132px; border: 2px solid var(--k-line-2); border-radius: 8px; overflow: hidden; background: #000; color: var(--k-pure); }
+.gk3d .pitch-picker img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; }
+.gk3d .pitch-picker span { position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 6px; font-size: 11px; font-weight: 700; background: linear-gradient(transparent, rgba(0,0,0,.75)); text-align: left; }
+.gk3d .pitch-picker button[aria-checked="true"] { border-color: var(--k-pure); box-shadow: 0 0 0 2px rgba(255,255,255,.25); }
+.gk3d .pad2-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--k-line-2); background: var(--k-ink); }
+.gk3d .pad2-bar .tool:disabled { opacity: .35; cursor: default; }
+.gk3d .bar-sep { width: 1px; height: 24px; background: var(--k-line-2); margin: 0 4px; }
+.gk3d .bar-grow { flex: 1; }
+.gk3d .pad-over { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.gk3d .pad-stage[data-mode="line"], .gk3d .pad-stage[data-mode="num"], .gk3d .pad-stage[data-mode="text"], .gk3d .pad-stage[data-mode="zone"] { cursor: crosshair; }
+.gk3d .pad-stage .pad-hint { z-index: 3; }
+.gk3d .ftb {
+  position: absolute; z-index: 5; transform: translate(-50%, -100%);
+  display: flex; align-items: center; gap: 2px; padding: 4px; white-space: nowrap;
+  background: rgba(14,14,14,.94); border: 1px solid var(--k-line-2); border-radius: 10px; box-shadow: 0 10px 24px rgba(0,0,0,.45);
+}
+.gk3d .ftb button { min-width: 34px; height: 34px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; color: var(--k-white); font-size: 14px; font-weight: 700; }
+.gk3d .ftb button:hover { background: var(--k-ink-3); }
+.gk3d .ftb button.danger:hover { background: #3a1214; }
+.gk3d .ftb .ftb-name { padding: 0 8px; font-size: 12px; font-weight: 700; color: var(--k-mute-2); }
+.gk3d .ftb .sw { min-width: 22px; width: 22px; height: 22px; padding: 0; margin: 0 2px; border-radius: 50%; background: var(--c); border: 2px solid rgba(255,255,255,.35); }
+.gk3d .ftb .sw.on { border-color: var(--k-pure); box-shadow: 0 0 0 2px rgba(255,255,255,.35); }
+.gk3d .ftb input { width: 150px; min-height: 32px; padding: 4px 8px; font-size: 13px; }
+.gk3d .ftb .sz.on { background: var(--k-pure); color: var(--k-black); }
+.gk3d .ftb .sz-s { font-size: 11px; }
+.gk3d .ftb .sz-l { font-size: 17px; }
+.gk3d .pad-palette { border-top: 1px solid var(--k-line-2); background: var(--k-ink-2); }
+.gk3d .pal-tabs { display: flex; gap: 2px; padding: 6px 8px 0; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--k-line); }
+.gk3d .pal-tabs::-webkit-scrollbar { display: none; }
+.gk3d .pt { flex: none; min-height: 38px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--k-mute-2); font-size: 13px; font-weight: 700; }
+.gk3d .pt:hover { color: var(--k-pure); }
+.gk3d .pt.on { color: var(--k-pure); border-bottom-color: var(--k-pure); }
+.gk3d .pal-body { display: flex; gap: 6px; padding: 10px 10px 12px; overflow-x: auto; min-height: 96px; align-items: stretch; }
+.gk3d .pi { flex: none; width: 78px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 2px 6px; border: 1px solid var(--k-line); border-radius: 8px; background: var(--k-black); color: var(--k-mute-2); font-size: 11px; font-weight: 600; line-height: 1.25; text-align: center; }
+.gk3d .pi img { width: 56px; height: 56px; }
+.gk3d .pi-line svg { margin: 8px 0; }
+.gk3d .pi:hover { border-color: var(--k-mute); color: var(--k-pure); }
+.gk3d .pi.on { border-color: var(--k-pure); color: var(--k-pure); box-shadow: inset 0 0 0 1px var(--k-pure); }
+.gk3d .pal-note { margin: 0; align-self: center; font-size: 12px; color: var(--k-mute); padding: 0 8px; white-space: normal; max-width: 420px; }
+.gk3d .pal-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gk3d .pal-badge { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #e5383b; color: #fff; font-weight: 800; border: 2px solid #fff; }
+.gk3d .pal-btn { min-height: 36px; padding: 0 14px; border: 1px solid var(--k-line-2); border-radius: 8px; background: transparent; color: var(--k-mute-2); font-size: 13px; font-weight: 700; }
+.gk3d .pal-btn.on, .gk3d .pal-btn:hover { border-color: var(--k-pure); color: var(--k-pure); }
+@media (max-width: 600px) {
+  .gk3d .pad-stage .pad-hint { display: none; }
+  .gk3d .pitch-picker button { width: 104px; }
+}
+.gk3d .pi-shape .shp { display: grid; place-items: center; width: 56px; height: 46px; font-size: 30px; color: var(--k-acc); }
+.gk3d .pal-sep { width: 1px; align-self: stretch; background: var(--k-line-2); margin: 0 4px; }
+.gk3d .pal-sw { width: 26px; height: 26px; border-radius: 50%; padding: 0; background: var(--c); border: 2px solid rgba(255,255,255,.3); }
+.gk3d .pal-sw.on { border-color: var(--k-pure); box-shadow: 0 0 0 2px rgba(255,255,255,.3); }
+.gk3d .ftb button.on, .gk3d .ftb .tg.on { background: var(--k-pure); color: var(--k-black); }
+.gk3d .pad2-top { flex-wrap: nowrap; }
+.gk3d .pitch-picker { overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; min-width: 0; flex: 1; }
+.gk3d .pitch-picker button { flex: none; }
+.gk3d .pitch-picker button[aria-checked="true"] { border-color: var(--k-acc); box-shadow: 0 0 0 2px rgba(57,231,95,.35); }
+.gk3d .pitch-picker button[aria-checked="true"] span::before { content: "✓ "; color: var(--k-acc); }
+.gk3d .pal-sw, .gk3d .ftb .sw { position: relative; }
+.gk3d .pal-sw.on, .gk3d .ftb .sw.on { border-color: #0b0b0b; box-shadow: 0 0 0 2px #0b0b0b, 0 0 0 4px var(--k-acc); }
+.gk3d .pal-sw.on::after, .gk3d .ftb .sw.on::after {
+  content: "✓"; position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 13px; font-weight: 900; color: #111; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff;
+}
+.gk3d .ftb .sw { margin: 0 4px; }
+.gk3d .pal-btn.on, .gk3d .pi.on, .gk3d .pi-shape.on { border-color: var(--k-acc); box-shadow: inset 0 0 0 1px var(--k-acc); color: var(--k-pure); }
+.gk3d .ftb button.on, .gk3d .ftb .tg.on { background: var(--k-acc); color: #111; }
+@media (max-width: 820px) {
+  .gk3d .pad2-top { flex-wrap: wrap; }
+}
+.gk3d.is-full { opacity: 1 !important; transform: none !important; transition: none !important; position: fixed; inset: 0; z-index: 300; border-radius: 0; border: 0; display: flex; flex-direction: column; max-width: none; background: var(--k-black); z-index: 1000; }
+.gk3d.is-full .pad-stage { flex: 1; min-height: 0; aspect-ratio: auto; }
+.gk3d.is-full .pad2-top, .gk3d.is-full .pad2-bar, .gk3d.is-full .pad-palette { flex: none; }
+body.gk3d-full { overflow: hidden; }
+body.gk3d-full .float-social, body.gk3d-full .to-top { display: none; }
+@media (max-width: 600px) {
+  .gk3d .pad2-top { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; }
+  .gk3d .pitch-picker { width: 100%; }
+  .gk3d .pitch-picker button { width: 112px; }
+  .gk3d .pad2-bar { gap: 6px; padding: 8px 10px; }
+  .gk3d .pad2-bar .tool-text { padding: 0 10px; font-size: 12px; min-height: 38px; }
+  .gk3d .bar-grow { display: none; }
+  .gk3d .pad2-bar .btn-sm { flex: 1; }
+  .gk3d .pad-stage { aspect-ratio: 4 / 3; }
+  .gk3d.is-full .pad-stage { aspect-ratio: auto; }
+  .gk3d .pi { width: 70px; }
+  .gk3d .pal-body { padding: 8px; }
+  .gk3d .pal-note { max-width: 100%; }
+  .gk3d .ftb { flex-wrap: wrap; max-width: calc(100vw - 32px); white-space: normal; justify-content: center; }
+  .gk3d .ftb button { min-width: 38px; height: 38px; }
+  .gk3d .ftb input { width: 120px; }
+}
+@media (max-width: 600px) {
+  .gk3d .pi span { font-size: 10.5px; }
+}
+.gk3d .ftb:has(.ftb-br) { flex-wrap: wrap; max-width: min(500px, calc(100vw - 32px)); justify-content: flex-start; white-space: normal; row-gap: 4px; }
+.gk3d .ftb-br { flex-basis: 100%; height: 0; }
+.gk3d .ftb .ftb-part { width: 54px; padding: 0 4px 0 8px; }
+.gk3d .ftb .sw { min-width: 20px; width: 20px; height: 20px; margin: 0 3px; }
+.gk3d .pk-pick { flex: none; display: inline-flex; width: 24px; height: 24px; margin-left: 4px; border-radius: 50%; overflow: hidden; border: 2px dashed rgba(255,255,255,.5); cursor: pointer; }
+.gk3d .pk-pick input { width: 40px; height: 40px; margin: -8px; padding: 0; border: 0; background: none; cursor: pointer; }
+/* 보여주기 모드 · 상세: 3D (GK) 훈련이 칸을 꽉 채우게 */
+.present-visual [data-pad3] { width: 100%; height: 100%; max-height: calc(100vh - 180px); display: flex; }
+.present-visual [data-pad3] > .gk3d { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.present-visual [data-pad3] .pad-stage { flex: 1; min-height: 0; aspect-ratio: auto; }

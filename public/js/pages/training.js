@@ -9,6 +9,7 @@ import {
 import { state, isCoach, go } from '../store.js';
 import { createPad, blank, FULL_DEF } from '../tactic.js';
 import { keepDraft, fillFields, draftStrip } from '../drafts.js';
+import { gk3dAllowed, mountGK3D, gk3dThumb } from '../gk3d.js'; // 시제품 3.0: 3D (GK)
 
 const AGES = ['U8', 'U10', 'U12', 'U15', 'U18', '성인'];
 const PEOPLE = [['', '전체 인원'], ['1-6', '6명 이하'], ['7-12', '7~12명'], ['13-18', '13~18명'], ['19-99', '19명 이상']];
@@ -19,6 +20,7 @@ const lines = (s) => String(s || '').split('\n').map((l) => l.replace(/^\s*[-•
 
 function thumb(p) {
   if (p.image) return `<img src="${esc(p.image)}" alt="">`;
+  if (p.gk3dImg) return `<img src="${esc(p.gk3dImg)}" alt="">`; // 3D (GK) 훈련: 저장할 때 찍은 그림
   if (p.pad) return '<div data-thumb-pad></div>';
   return `<div class="thumb-link"><span>◉</span><b>${esc(p.topics?.[0] || '훈련')}</b></div>`;
 }
@@ -69,16 +71,45 @@ export async function board(el) {
     <div class="tb-bar">
       <p class="muted small">마음대로 그리고 <b>훈련 프로그램으로 저장</b>하면 옆 칸 [훈련 프로그램]에 들어가요 · 그리던 것은 자동으로 보관돼요</p>
       <div class="tb-acts">
+        ${gk3dAllowed() ? '<button class="btn ghost sm" data-tb-3d title="골키퍼 장면을 3D 선수로 그려요">3D (GK)</button>' : ''}
         <button class="btn ghost sm" data-tb-img>이미지로 저장</button>
         <button class="btn ghost sm" data-tb-vid>영상으로 저장</button>
         <button class="btn sm" data-tb-save>훈련 프로그램으로 저장</button>
       </div>
     </div>
-    <div class="tb-pad" data-pad></div>`;
+    <div class="tb-pad" data-pad></div>
+    <div class="tb-pad" data-pad3d hidden></div>`;
   const box = el.querySelector('[data-pad]');
   const fresh = () => { const d = blank('full'); [d.field.w, d.field.h] = FULL_DEF.h; return d; }; // 처음엔 경기장 전체 100×70 (경기장 버튼으로 반 코트 · 직접 크기)
   let pad = createPad(box, init || fresh(), { motion: true, draft: BOARD_KEY(), exportTitle: '작전판' });
   const vidBtn = el.querySelector('[data-tb-vid]');
+  let pad3now = () => null; // 3D (GK) 작전판 (켜 본 뒤에만)
+  // 3D (GK): 새 창 대신 같은 자리 · 같은 크기로 바꿔 보여 줌 (다시 누르면 2D 작전판) · 그리던 3D는 이 기기에 보관
+  const b3 = el.querySelector('[data-tb-3d]');
+  if (b3) {
+    const KEY3 = `ssaka-gk3d:${BOARD_KEY()}`; // 전술보드는 늘 2D로 열림
+    const box2 = box, box3 = el.querySelector('[data-pad3d]');
+    let pad3 = null;
+    pad3now = () => pad3;
+    const setMode = async (m) => {
+      const on = m === '3d';
+      box2.hidden = on; box3.hidden = !on;
+      el.querySelectorAll('[data-tb-img], [data-tb-vid]').forEach((x) => { x.style.display = on ? 'none' : ''; }); // 3D는 작전판 안에 이미지 · 영상 저장이 있음 // 3D는 작전판 안에 이미지 · 영상 저장이 있음
+      b3.textContent = on ? '2D 작전판으로' : '3D (GK)';
+      const tip = el.querySelector('.tb-bar p');
+      tip.dataset.two ||= tip.innerHTML;
+      tip.innerHTML = on ? '<b>3D (GK)</b> — 골키퍼 장면을 3D 선수로 그려요 · 이미지 · 영상은 작전판 안 버튼으로 저장 · 그리던 것은 이 기기에 보관돼요' : tip.dataset.two;
+      b3.classList.toggle('on', on);
+      if (on && !pad3) {
+        const { mountGK3D } = await import('../gk3d.js');
+        let init = null; try { init = JSON.parse(localStorage.getItem(KEY3) || 'null'); } catch { /* */ }
+        let t = null;
+        pad3 = mountGK3D(box3, init, { onChange: () => { clearTimeout(t); t = setTimeout(() => { try { localStorage.setItem(KEY3, JSON.stringify(pad3.getData())); } catch { /* */ } }, 400); } });
+      }
+      if (on) pad3?.refresh();
+    };
+    b3.onclick = () => setMode(box3.hidden ? '3d' : '2d');
+  }
 
   el.querySelector('[data-tb-img]').onclick = async (e) => {
     const img3d = await pad.image3d?.(); // 3D 보기면 3D 그림 그대로 저장
@@ -90,7 +121,16 @@ export async function board(el) {
     if (pad.video3d?.('작전판', e.currentTarget)) return; // 중계 화면이면 그대로 녹화
     exportPad('video', pad.getData(), '작전판', e.currentTarget);
   };
-  el.querySelector('[data-tb-save]').onclick = () => editor({ pad: pad.getData() }, () => { pad.clearDraft(); go('/tactics/programs'); }, null, { lockPad: true });
+  el.querySelector('[data-tb-save]').onclick = async () => {
+    const p3 = el.querySelector('[data-pad3d]');
+    if (p3 && !p3.hidden && pad3now()) { // 3D (GK)로 그린 것 → 훈련 프로그램
+      const a = pad3now();
+      if (a.isEmpty()) { toast('먼저 3D 작전판에 골키퍼나 선을 놓아 주세요.'); return; }
+      editor({ gk3d: JSON.stringify(a.getData()), gk3dImg: await gk3dThumb(a) }, () => go('/tactics/programs'), null, { lockPad: true });
+      return;
+    }
+    editor({ pad: pad.getData() }, () => { pad.clearDraft(); go('/tactics/programs'); }, null, { lockPad: true });
+  };
 }
 
 export async function loadPrograms() {
@@ -192,6 +232,7 @@ export async function library(el) {
 
 function visual(p, cls = '') {
   if (p.image) return `<img class="${cls}" src="${esc(p.image)}" alt="">`;
+  if (p.gk3d) return `<div class="${cls}" data-pad3></div>`; // 3D (GK) 훈련
   if (p.pad) return `<div class="${cls}" data-pad></div>`;
   return '';
 }
@@ -217,6 +258,7 @@ export function detail(p, refresh) {
     </div>`, { wide: true });
   const padBox = m.el.querySelector('[data-pad]');
   if (padBox) createPad(padBox, p.pad, { editable: false });
+  const p3box = m.el.querySelector('[data-pad3]'); if (p3box) mountGK3D(p3box, p.gk3d, { editable: false });
   m.el.querySelector('[data-present]').onclick = () => present(p);
   m.el.querySelector('[data-ximg]')?.addEventListener('click', (e) => exportPad('image', p.pad, p.title, e.currentTarget));
   m.el.querySelector('[data-xvid]')?.addEventListener('click', (e) => exportPad('video', p.pad, p.title, e.currentTarget));
@@ -246,6 +288,7 @@ export function present(p) {
   document.body.appendChild(wrap);
   const padBox = wrap.querySelector('[data-pad]');
   const pad = padBox ? createPad(padBox, p.pad, { editable: false }) : null;
+  const p3box = wrap.querySelector('[data-pad3]'); if (p3box) mountGK3D(p3box, p.gk3d, { editable: false });
   if (pad?.hasMotion()) wrap.insertAdjacentHTML('beforeend', '<div class="present-keys"><kbd>Space</kbd> · <kbd>Enter</kbd> · <kbd>→</kbd> 움직임 재생 · <kbd>←</kbd> 처음으로</div>');
   const close = () => {
     document.removeEventListener('keydown', onKey);
@@ -294,7 +337,7 @@ export function editor(p, refresh, dr = null, { lockPad = false } = {}) {
           <small class="muted">사진·이미지 (선택) — 올리면 작전판 대신 썸네일과 보여주기 화면에 나옵니다</small>
           ${p.image ? '<button type="button" class="link-btn small" data-img-rm>그림 빼기</button>' : ''}</div>
       </div>
-      ${lockPad ? '<div class="tb-preview"><small class="muted">택티컬에서 그린 그림</small><div data-pad-lock></div></div>' : `<label class="switch"><input type="checkbox" data-use-pad ${p.pad || !p.id ? 'checked' : ''}><span>작전판 그리기</span></label>
+      ${p.gk3d && !lockPad ? '<div class="tb-preview"><small class="muted">3D (GK) 그림 — 여기서 바로 고쳐요</small><div data-pad3-edit></div></div>' : lockPad ? `<div class="tb-preview"><small class="muted">택티컬에서 그린 ${p.gk3d ? '3D (GK) ' : ''}그림</small><div data-pad-lock></div></div>` : `<label class="switch"><input type="checkbox" data-use-pad ${p.pad || !p.id ? 'checked' : ''}><span>작전판 그리기</span></label>
       <div data-pad></div>`}
       <label>훈련 방법<textarea name="body" rows="5" placeholder="조직 · 규칙 · 진행 순서">${esc(p.body || '')}</textarea></label>
       <label>코칭 포인트 <small class="muted">한 줄에 하나 — 보여주기 모드에서 크게 나옵니다</small>
@@ -321,8 +364,9 @@ export function editor(p, refresh, dr = null, { lockPad = false } = {}) {
   const padBox = form.querySelector('[data-pad]');
   const usePad = form.querySelector('[data-use-pad]');
   const lockBox = form.querySelector('[data-pad-lock]');
-  if (lockBox) createPad(lockBox, p.pad, { editable: false, play: false });
-  const padNow = () => (lockPad ? p.pad : usePad.checked && pad ? pad.getData() : null);
+  if (lockBox) { if (p.gk3d) mountGK3D(lockBox, p.gk3d, { editable: false }); else createPad(lockBox, p.pad, { editable: false, play: false }); }
+  const p3edit = form.querySelector('[data-pad3-edit]'); const pad3 = p3edit ? mountGK3D(p3edit, p.gk3d) : null; // 3D (GK) 훈련 고치기
+  const padNow = () => (lockPad ? p.pad : usePad?.checked && pad ? pad.getData() : null); // 3D (GK) 훈련은 usePad 없음
   const syncPad = () => {
     if (!usePad) return;
     if (usePad.checked && !pad) pad = createPad(padBox, dr?.pad || p.pad || { ...blank('custom'), grid: { preset: 'none', cols: 0, rows: 0 } }, { motion: true, onChange: () => keep.touch(), exportTitle: () => form.querySelector('[name=title]').value.trim() || '훈련' });
@@ -345,7 +389,8 @@ export function editor(p, refresh, dr = null, { lockPad = false } = {}) {
       body: d.body, points: d.points, image,
       topics: [...new Set(d.topics.split(',').map((x) => x.trim()).filter(Boolean))].slice(0, 8),
       ages: [...form.querySelectorAll('[name=ages]:checked')].map((x) => x.value),
-      pad: padNow(),
+      pad: p.gk3d ? null : padNow(),
+      ...(p.gk3d ? { gk3d: pad3 ? JSON.stringify(pad3.getData()) : p.gk3d, gk3dImg: (pad3 && (await gk3dThumb(pad3))) || p.gk3dImg || '' } : {}),
     };
     try {
       const col = collection(db, 'teams', state.team.id, 'posts');

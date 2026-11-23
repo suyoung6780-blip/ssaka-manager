@@ -5,7 +5,8 @@ import { PAY_TEST, FREE_MODE, PLANS, ALL_PLANS, LEGEND, WONDERKID, CYCLES, planP
 import {
   esc, toast, fail, formData, options, pageHead, modal, confirmBox, fmtDate, CATEGORIES, normCat, ROLES,
 } from '../ui.js';
-import { state, loadContext, go, publicProfile, teamActive, teamPlan, hooks, compActive, freeMode, SPACES, spaceKind, loadParentLink } from '../store.js';
+import { state, loadContext, go, publicProfile, teamActive, teamPlan, hooks, compActive, freeMode, SPACES, spaceKind, loadParentLink, hasFeature } from '../store.js';
+import { GK3D_MODES } from '../gk3d.js'; // 시제품 3.0: 3D (GK)
 
 // ───────── 팀 코드: 10자리, 대문자 · 소문자 · 숫자 섞어서, 매번 새로 ─────────
 // 헷갈리는 글자(0 O o · 1 I l)는 뺌 — 손으로 옮겨 적어도 틀리지 않게
@@ -680,6 +681,8 @@ export async function settings(el) {
       ${kind === 'team' ? `<p class="name-note${t.nameWarn ? ' on' : ''}">팀을 알아볼 수 있게 실제 팀 이름을 정확하게 적어 주세요. 알아볼 수 없는 이름은 기능이 제한될 수 있어요.</p>` : ''}
       ${kind === 'gaffer' ? `<input type="hidden" name="category" value="${esc(t.category || '지도자 계정')}">` : `<label>${kind === 'personal' ? '선수 학년 · 연령' : '팀 구분 <small class="muted">(연령 · 리그 — 바꾸면 팀 검색에서 이 구분으로 보여요)</small>'}<select name="category">${options(CATEGORIES, normCat(t.category))}</select></label>`}
       <p class="muted small">${kind === 'team' ? '다른 팀에는 팀 이름 · 구분 · 대표 지도자 이름만 보여요. 선수단과 팀 안 내용은 우리 팀만 봐요.' : '팀 검색에 나오지 않아요.'}</p>
+      ${kind === 'team' && hasFeature('proto3') ? `<label>선수 일지의 3D (GK) 장면 <small class="muted">(지도자는 늘 쓸 수 있어요)</small><select name="gk3d">${options(GK3D_MODES, t.gk3d || 'gk')}</select></label>
+      <p class="muted small">선수가 경기 일지에 장면을 더할 때 전술보드 대신 3D 골키퍼로 그릴 수 있어요. 골키퍼만 · 모든 선수 · 쓰지 않음 중에 골라요.</p>` : ''}
       <button class="btn">저장</button>
     </form>
     <section class="card">
@@ -731,7 +734,7 @@ export async function settings(el) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const d = formData(form);
-    const patch = { name: d.name.trim(), category: d.category };
+    const patch = { name: d.name.trim(), category: d.category, ...(d.gk3d ? { gk3d: d.gk3d } : {}) };
     try {
       await updateDoc(doc(db, 'teams', t.id), patch);
       Object.assign(state.team, patch);
