@@ -267,7 +267,7 @@ seed('teams/T1/matches/m1', { date: today, matchType: '리그', compName: '2026 
     ['후반 14′', 1, '두 번째 골 전 압박 시작이 좋았어 · 체력 관리는 같이 보자', ['p1'], true]]
     .forEach(([label, p, text, uids, shared], i) => seed(`teams/T1/matchNotes/mnDemo/items/d${i}`, { label, p, m: 0, text, at: t0 + i * 600e3, by: '김코치', byUid: U, uids, shared, seeUids: shared ? uids : [], createdAt: now() }));
 }
-seed('teams/T1/matches/m2', { date: (() => { const d = new Date(); d.setDate(d.getDate() - 3); return ymd(d); })(), matchType: '스토브리그', compName: '2026 제주 동계 스토브리그', ageGroup: 'U14', opponent: 'B', gf: 0, ga: 0, scorers: [], assists: [] });
+seed('teams/T1/matches/m2', { date: (() => { const d = new Date(); d.setDate(d.getDate() - 3); return ymd(d); })(), matchType: '스토브리그', compName: '2026 제주 동계 스토브리그', ageGroup: 'U14', pk: { gf: 4, ga: 3 }, opponent: 'B', gf: 0, ga: 0, scorers: [], assists: [] });
 seed('teams/T1/goals/g1', { scope: 'team', title: '리그 3위 이내', category: '결과 · 성적', period: '시즌', due: '2026-11-30', target: 3, current: 5, unit: '위', lower: true, desc: '남은 6경기 4승 이상', status: 'doing', ownerUid: U, createdAt: now() });
 seed('teams/T1/goals/g3', { scope: 'team', title: '클린시트 10경기', category: '경기력', period: '시즌', target: 10, current: 4, unit: '경기', status: 'doing', ownerUid: U, createdAt: now() });
 seed('teams/T1/goals/g4', { scope: 'team', title: '빌드업에서 롱볼 대신 짧은 패스 우선', category: '기술 · 전술', period: '월', progress: 60, status: 'doing', ownerUid: U, createdAt: now() });

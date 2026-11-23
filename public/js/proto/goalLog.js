@@ -264,7 +264,8 @@ export function gatherHtml(list, dismissed, groups = [], compNames = []) {
             : `<strong>${esc(g.type.v || '')}${g.age.v ? ` · ${esc(g.age.v)}` : ''} vs</strong><input class="gl-opp" data-opp value="${esc(g.opponent.v)}" placeholder="상대팀" aria-label="상대팀">`}
           <small class="muted">일지 ${g.logs.length}명</small></header>
         ${t ? `<p class="gl-score">우리 <b>${+t.gf}</b> : <b>${+t.ga}</b> 상대</p>`
-          : `<div class="gl-score">우리 ${stepper('gf', g.gf.v)} : ${stepper('ga', g.ga.v)} 상대</div>`}
+          : `<div class="gl-score">우리 ${stepper('gf', g.gf.v)} : ${stepper('ga', g.ga.v)} 상대</div>
+          <div class="gl-pk" data-pk ${+g.gf.v === +g.ga.v ? '' : 'hidden'}><label><input type="checkbox" data-pk-on><span>승부차기</span></label><span class="gl-pk-sc" data-pk-sc hidden>우리 ${stepper('pkgf', 0)} : ${stepper('pkga', 0)} 상대</span></div>`}
         <div class="gl-meta">${t ? '' : `<label><span>경기</span><select data-mt>${options(MATCH_TYPES, g.type.v || MATCH_TYPES[0])}</select></label>
           ${groups.length ? `<label><span>학년</span><select data-age>${options([['', '선택'], ...groups], g.age.v)}</select></label>` : ''}`}
           ${(t ? t.matchType : g.type.v || MATCH_TYPES[0]) === '연습경기' && t ? '' : `<label class="gl-comp" data-comp ${(t ? t.matchType : g.type.v || MATCH_TYPES[0]) === '연습경기' ? 'hidden' : ''}><span>대회명</span><input data-comp-in list="gl-comp-names" maxlength="40" autocomplete="off" placeholder="예: 2026 춘계 전국중등대회" value="${esc(t?.compName || '')}"></label>`}
@@ -292,6 +293,7 @@ export function readProp(card, g) {
   return {
     opponent: (card.querySelector('[data-opp]')?.value || '').trim(), gf: num('gf'), ga: num('ga'),
     matchType: card.querySelector('[data-mt]')?.value || g.target?.matchType || g.type.v || MATCH_TYPES[0],
+    pk: (() => { const box = card.querySelector('[data-pk]'); return box && !box.hidden && box.querySelector('[data-pk-on]').checked ? { gf: num('pkgf'), ga: num('pkga') } : null; })(),
     compName: (() => { const box = card.querySelector('[data-comp]'); return box && !box.hidden ? (box.querySelector('input').value || '').trim().replace(/\s+/g, ' ') : (g.target?.compName || ''); })(),
     ageGroup: card.querySelector('[data-age]') ? card.querySelector('[data-age]').value : (g.target?.ageGroup ?? g.age.v ?? ''),
     venue: card.querySelector('[data-venue].on')?.dataset.venue || '', memo: (card.querySelector('[data-memo]')?.value || '').trim(),
@@ -308,16 +310,20 @@ export function bindGather(root, list, { skip, detail, upload, players = [] }) {
       const r = readProp(card, g); const w = [];
       if (!g.target && r.nGoals && r.gf !== r.nGoals) w.push(`체크한 골 ${r.nGoals}개 · 점수는 ${r.gf}골`);
       if (!g.target && r.nConc && r.ga !== r.nConc) w.push(`체크한 실점 ${r.nConc}개 · 점수는 ${r.ga}실점`);
+      const pkBox = card.querySelector('[data-pk]');
+      if (pkBox) { pkBox.hidden = r.gf !== r.ga; pkBox.querySelector('[data-pk-sc]').hidden = !pkBox.querySelector('[data-pk-on]').checked; }
+      if (r.pk && r.pk.gf === r.pk.ga) w.push('승부차기 점수가 같아요');
       const p = card.querySelector('[data-warn]'); p.hidden = !w.length; p.textContent = w.join(' · ');
     };
     card.querySelectorAll('[data-step]').forEach((b) => (b.onclick = () => { const v = card.querySelector(`[data-v="${b.dataset.step}"]`); v.textContent = Math.max(0, Math.min(99, +v.textContent + +b.dataset.d)); warn(); }));
     card.querySelectorAll('[data-set-opp]').forEach((b) => (b.onclick = () => { card.querySelector('[data-opp]').value = b.dataset.setOpp; }));
     ['gf', 'ga'].forEach((k) => card.querySelectorAll(`[data-set-${k}]`).forEach((b) => (b.onclick = () => { card.querySelector(`[data-v="${k}"]`).textContent = +b.dataset[`set${k[0].toUpperCase()}${k[1]}`] || 0; warn(); })));
-    card.querySelectorAll('input[type=checkbox]').forEach((c) => (c.onchange = () => { c.closest('tr').classList.toggle('off', !c.checked); card.querySelector(`[data-dot="${c.dataset.gfEv != null ? `f${c.dataset.gfEv}` : `a${c.dataset.gaEv}`}"]`)?.classList.toggle('off', !c.checked); warn(); }));
+    card.querySelectorAll('input[type=checkbox]:not([data-pk-on])').forEach((c) => (c.onchange = () => { c.closest('tr').classList.toggle('off', !c.checked); card.querySelector(`[data-dot="${c.dataset.gfEv != null ? `f${c.dataset.gfEv}` : `a${c.dataset.gaEv}`}"]`)?.classList.toggle('off', !c.checked); warn(); }));
     card.querySelectorAll('[data-venue]').forEach((b) => (b.onclick = () => { card.querySelectorAll('[data-venue]').forEach((x) => x.classList.toggle('on', x === b)); b.parentElement.classList.remove('err'); }));
     // 연습경기면 대회명 칸 숨김
     card.querySelector('[data-mt]')?.addEventListener('change', (e) => { const c = card.querySelector('[data-comp]'); if (c) c.hidden = e.target.value === '연습경기'; });
     card.querySelector('[data-opp]')?.addEventListener('input', (e) => e.target.classList.remove('err'));
+    card.querySelector('[data-pk-on]')?.addEventListener('change', warn);
     // 선수가 안 적은 장면: 경기 기록 창과 같은 칸(분 · 선수 · 도움 · 상황 · 위치)을 이 자리에서
     card.querySelector('[data-extra-open]').onclick = (e) => {
       const box = card.querySelector('[data-extra]'); box.hidden = false; e.currentTarget.hidden = true;
@@ -334,6 +340,8 @@ export function bindGather(root, list, { skip, detail, upload, players = [] }) {
     // 꼭 필요한 칸: 상대 · 홈/원정 (나중에 다시 고치지 않게)
     const noOpp = items.find((x) => !x.g.target && !x.opponent);
     if (noOpp) { const inp = cards[items.indexOf(noOpp)].querySelector('[data-opp]'); inp.focus(); inp.classList.add('err'); return; }
+    const pkSame = items.find((x) => x.pk && x.pk.gf === x.pk.ga);
+    if (pkSame) { const v = cards[items.indexOf(pkSame)].querySelector('[data-pk]'); v.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
     const noVen = items.find((x) => !x.venue && !x.g.target?.venue);
     if (noVen) { const v = cards[items.indexOf(noVen)].querySelector('.gl-venue'); v.classList.add('err'); v.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
     upload(items, b);
