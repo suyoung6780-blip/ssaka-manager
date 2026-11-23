@@ -159,7 +159,7 @@ export const planLine = (pl = teamPlan()) => {
   if (pl.kind === 'paid') { const p = ALL_PLANS.find((x) => x.id === pl.plan); return `${p ? `${p.name} 요금제` : '결제'} · ${fmtDate(new Date(pl.until))}까지 (${left(pl.until)})`; }
   if (pl.kind === 'comp') { const nm = planName(pl.plan); return `운영자 무료 제공${nm ? ` · ${nm} 요금제` : ''} · ${pl.until === Infinity ? '평생' : `${fmtDate(new Date(pl.until))}까지`}`; }
   if (pl.kind === 'trial') return `무료 체험 · ${fmtDate(new Date(pl.until))}까지 (${left(pl.until)})`;
-  if (pl.kind === 'free') return pl.until === Infinity ? `${DEMO_PLAN.name} 요금제 · 무료 (선수 · 지도자 제한 없음)` : `무료 기간 · ${fmtDate(new Date(pl.until))}까지 (${left(pl.until)})`;
+  if (pl.kind === 'free') return pl.until === Infinity ? `${DEMO_PLAN.name} · ${DEMO_PLAN.sub} (선수 · 지도자 제한 없음)` : `무료 기간 · ${fmtDate(new Date(pl.until))}까지 (${left(pl.until)})`;
   if (pl.until) { const p = ALL_PLANS.find((x) => x.id === pl.plan); return `${p ? `${p.name} 요금제 · ` : ''}${fmtDate(new Date(pl.until))}에 끝났어요 · 결제가 필요해요`; }
   return '결제가 필요해요';
 };

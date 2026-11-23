@@ -141,7 +141,7 @@ function allowed(guard) {
   }
 }
 
-// 맨 밑 회사 정보 (결제사 · 카드사 심사에서 보는 항목 — 통신판매업 신고번호가 나오면 '신고 진행 중' 자리에)
+// 맨 밑 회사 정보 (결제사 · 카드사 심사에서 보는 항목 · 통신판매업 신고번호 2026-11-23 받음)
 const FOOTER = `
 <footer class="site-foot">
   <div class="sf-top">
@@ -162,7 +162,7 @@ const FOOTER = `
     <div class="sf-biz">
       <p class="sf-name">싸카매니저</p>
       <p><span><em>대표 · 개인정보 보호책임자</em>유수영</span><span><em>사업자등록번호</em>451-15-03077 (간이과세자)</span></p>
-      <p><span><em>통신판매업 신고</em>신고 진행 중</span><span><em>이메일</em><a href="mailto:${PRIVACY.email}">${PRIVACY.email}</a></span></p>
+      <p><span><em>통신판매업 신고</em>제2026-경기안산-2252호</span><span><em>이메일</em><a href="mailto:${PRIVACY.email}">${PRIVACY.email}</a></span></p>
       <p><span><em>주소</em>경기도 안산시 단원구 사세충열로4길 6</span></p>
     </div>
     <div class="sf-cs">

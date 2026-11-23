@@ -38,13 +38,13 @@ export const CYCLES = { month: { label: '1개월', days: 30, mult: 1 }, year: { 
 export const planPrice = (p, cycle) => p.month * CYCLES[cycle].mult;
 // 새 팀 무료 체험 (팀을 만든 날부터) · 유료 전환 전에 만든 팀(free)의 무료 사용 마지막 날
 export const TRIAL_DAYS = 14; // 한 아이디(이메일)당 한 번 — firestore.rules 의 14d 와 같게
-export const FREE_UNTIL = '2026-11-23T00:00:00+09:00';
+export const FREE_UNTIL = '2027-01-01T00:00:00+09:00'; // 2026-11-23 공지: 2026-12-31까지 무료 · 2027-01-01 정식 유료
 
 // ④ 무료 운영 모드 — true: 지금은 모든 팀 무료 (베타). 요금 안내 · 결제 화면 · 환불정책은 그대로 보이고 결제도 됨 (결제사 심사용)
 //    false: 결제 사용 (새 팀은 체험 14일 뒤 결제 · 예전 팀은 FREE_UNTIL 까지 무료) — 바꾸기 30일 전에 회원에게 알리기
 export const FREE_MODE = true;
 // 지금 무료 기간 안내 카드 (요금 안내 맨 앞)
-export const DEMO_PLAN = { name: '데모', sub: '지금 베타 기간', price: '무료', note: '유료로 바뀌기 30일 전에 알려 드려요' };
+export const DEMO_PLAN = { name: '베타 무료', sub: '2026년 12월 31일까지', price: '무료', note: '2027년 1월 1일부터 정식 유료 · 따로 신청하지 않아도 돼요' };
 // 이 날짜부터 새로 가입한 계정은 이메일 인증을 해야 시작할 수 있어요 (그 전 가입자는 그대로)
 export const EMAIL_VERIFY_FROM = '2026-10-12T00:00:00+09:00';
 
