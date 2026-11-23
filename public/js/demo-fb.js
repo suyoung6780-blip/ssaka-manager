@@ -254,9 +254,9 @@ if (LOCAL) {
   // 실험용 경기분석: 실제 U12 경기 영상 (이 컴퓨터의 파일 · public/__media 는 저장소에 올라가지 않음)
   seed('teams/T1/posts/p3match', { type: 'analysis', mode: 'match', title: '실험) U12 전반 — 자동 카메라 영상', opponent: '실험 경기', date: '2025-02-27', oppDir: 'right', target: 'both', size: 11,
     video: { url: '/__media/u12a.mp4', name: 'u12a.mp4' }, events: [], halfStart: {}, authorName: '김코치', createdAt: now() });
-}seed('teams/T1/matches/m0', { date: '2025-11-08', matchType: '대회', ageGroup: 'U13', opponent: '성남FC U13', gf: 3, ga: 2, scorers: [{ name: '이선수', goals: 1 }], assists: [] });
+}seed('teams/T1/matches/m0', { date: '2025-11-08', matchType: '대회', compName: '2025 추계 전국중등대회', ageGroup: 'U13', opponent: '성남FC U13', gf: 3, ga: 2, scorers: [{ name: '이선수', goals: 1 }], assists: [] });
 seed('teams/T1/matches/m00', { date: '2025-09-20', matchType: '연습경기', ageGroup: 'U15', opponent: '수원 U15', gf: 1, ga: 1, scorers: [], assists: [] });
-seed('teams/T1/matches/m1', { date: today, matchType: '리그', ageGroup: 'U15', opponent: 'A', gf: 2, ga: 1, scorers: [{ name: '박선수', goals: 2 }], assists: [], noteId: 'mnDemo' });
+seed('teams/T1/matches/m1', { date: today, matchType: '리그', compName: '2026 전국 중등리그', ageGroup: 'U15', opponent: 'A', gf: 2, ga: 1, scorers: [{ name: '박선수', goals: 2 }], assists: [], noteId: 'mnDemo' });
 // 경기 노트 예시 (m1 경기와 연결) — 박선수(p1)에게 보여 준 메모 2개 · 지도자끼리 메모 2개
 {
   const t0 = Date.now() - 3 * 3600e3;
@@ -267,7 +267,7 @@ seed('teams/T1/matches/m1', { date: today, matchType: '리그', ageGroup: 'U15',
     ['후반 14′', 1, '두 번째 골 전 압박 시작이 좋았어 · 체력 관리는 같이 보자', ['p1'], true]]
     .forEach(([label, p, text, uids, shared], i) => seed(`teams/T1/matchNotes/mnDemo/items/d${i}`, { label, p, m: 0, text, at: t0 + i * 600e3, by: '김코치', byUid: U, uids, shared, seeUids: shared ? uids : [], createdAt: now() }));
 }
-seed('teams/T1/matches/m2', { date: (() => { const d = new Date(); d.setDate(d.getDate() - 3); return ymd(d); })(), matchType: '스토브리그', ageGroup: 'U14', opponent: 'B', gf: 0, ga: 0, scorers: [], assists: [] });
+seed('teams/T1/matches/m2', { date: (() => { const d = new Date(); d.setDate(d.getDate() - 3); return ymd(d); })(), matchType: '스토브리그', compName: '2026 제주 동계 스토브리그', ageGroup: 'U14', opponent: 'B', gf: 0, ga: 0, scorers: [], assists: [] });
 seed('teams/T1/goals/g1', { scope: 'team', title: '리그 3위 이내', category: '결과 · 성적', period: '시즌', due: '2026-11-30', target: 3, current: 5, unit: '위', lower: true, desc: '남은 6경기 4승 이상', status: 'doing', ownerUid: U, createdAt: now() });
 seed('teams/T1/goals/g3', { scope: 'team', title: '클린시트 10경기', category: '경기력', period: '시즌', target: 10, current: 4, unit: '경기', status: 'doing', ownerUid: U, createdAt: now() });
 seed('teams/T1/goals/g4', { scope: 'team', title: '빌드업에서 롱볼 대신 짧은 패스 우선', category: '기술 · 전술', period: '월', progress: 60, status: 'doing', ownerUid: U, createdAt: now() });

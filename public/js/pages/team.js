@@ -463,10 +463,13 @@ export async function records(el) {
   const players = list.filter((m) => m.role === 'player');
   const groups = AGE_GROUPS[state.team.category] || [];
   const years = [...new Set(ms.map((m) => (m.date || '').slice(0, 4)).filter(Boolean))].sort().reverse();
-  const flt = { year: '전체', type: '전체', age: '전체' };
+  const flt = { year: '전체', type: '전체', comp: '전체', age: '전체' };
+  // 대회 · 리그 이름 (연습경기는 이름 없음) — 예: 2026 춘계 전국중등대회
+  const compNames = [...new Set(ms.map((m) => (m.compName || '').trim()).filter(Boolean))].sort((a, b) => b.localeCompare(a, 'ko'));
   let anaOpen = false; let anaScorer = ''; // 득점 · 실점 분석 펼침 (기록실 안에서)
   const pass = (m, skip) => (skip === 'year' || flt.year === '전체' || (m.date || '').startsWith(flt.year))
     && (skip === 'type' || flt.type === '전체' || m.matchType === flt.type)
+    && (skip === 'comp' || flt.comp === '전체' || (m.compName || '').trim() === flt.comp)
     && (skip === 'age' || flt.age === '전체' || m.ageGroup === flt.age);
   const statTable = (title, label, pairs) => `<section class="card"><h3>${title}</h3>${pairs.length ? `<table class="tbl rec-tbl"><tr><th>${label}</th><th>경기</th><th>승-무-패</th><th>승률</th><th>득/실</th></tr>
     ${pairs.map(([t, x]) => `<tr><td>${esc(t)}</td><td>${x.games}</td><td>${x.w}-${x.d}-${x.l}${wdlMini(x)}</td><td><b class="wr">${x.winRate}%</b></td><td>${x.gf}/${x.ga}</td></tr>`).join('')}</table>` : empty('기록 없음')}</section>`;
@@ -487,12 +490,13 @@ export async function records(el) {
     const byYear = years.map((y) => [`${y}년`, calcStats(ms.filter((m) => pass(m, 'year') && (m.date || '').startsWith(y)))]).filter(([, x]) => x.games);
     const byAge = [...groups, ...(ms.some((m) => !m.ageGroup) ? ['(학년 미지정)'] : [])]
       .map((g) => [g, calcStats(ms.filter((m) => pass(m, 'age') && (g === '(학년 미지정)' ? !m.ageGroup : m.ageGroup === g)))]).filter(([, x]) => x.games);
+    const byComp = compNames.map((c) => [c, calcStats(ms.filter((m) => pass(m, 'comp') && (m.compName || '').trim() === c))]).filter(([, x]) => x.games);
     const opp = {};
     rows.forEach((m) => (opp[m.opponent] ||= []).push(m));
 
     el.innerHTML = `${p3 ? `${pageHead('MATCH', '경기', isCoach() ? '<button class="btn" data-new>+ 경기 기록</button>' : '')}${GL.matchTabs('records')}` : pageHead('RECORDS', '경기 기록실', isCoach() ? '<button class="btn" data-new>+ 경기 기록</button>' : '')}
-    ${p3 ? GL.gatherHtml(gathered, dismissed, groups) : ''}
-    ${GL.filterBar([['year', '년도', years.map((y) => [y, `${y}년`])], ['type', '경기', MATCH_TYPES.map((t) => [t, t])], ...(groups.length ? [['age', '학년', groups.map((g) => [g, g])]] : [])], flt, `${rows.length}경기`)}
+    ${p3 ? GL.gatherHtml(gathered, dismissed, groups, compNames) : ''}
+    ${GL.filterBar([['year', '년도', years.map((y) => [y, `${y}년`])], ['type', '경기', MATCH_TYPES.map((t) => [t, t])], ...(compNames.length ? [['comp', '대회명', compNames.map((c) => [c, c])]] : []), ...(groups.length ? [['age', '학년', groups.map((g) => [g, g])]] : [])], flt, `${rows.length}경기`)}
     <section class="rec-hero">
       <div class="rec-ring">
         <div class="rec-ring-fig">${donut(st)}<div class="rec-ring-c"><strong>${st.winRate}<i>%</i></strong><small>승률</small></div></div>
@@ -522,6 +526,7 @@ export async function records(el) {
     <div class="rec-tables">
       ${statTable('년도별', '년도', byYear)}
       ${statTable('경기별', '형태', byType)}
+      ${byComp.length ? statTable('대회 · 리그별', '대회명', byComp) : ''}
       ${groups.length ? statTable('학년별', '학년', byAge) : ''}
     </div>
     <section class="card">
@@ -532,7 +537,7 @@ export async function records(el) {
     <section class="card">
       <h3>경기 목록</h3>
       ${rows.length ? `<table class="tbl matches"><tr><th>날짜</th><th>형태</th>${groups.length ? '<th>학년</th>' : ''}<th>상대</th><th>스코어</th><th>득점</th><th></th></tr>
-        ${rows.map((m) => `<tr data-mid="${m.id}"><td>${esc(m.date)}</td><td>${esc(m.matchType)}</td>${groups.length ? `<td>${esc(m.ageGroup || '-')}</td>` : ''}<td>${esc(m.opponent)}${m.venue ? ` <small>(${m.venue === 'home' ? '홈' : '원정'})</small>` : ''}</td>
+        ${rows.map((m) => `<tr data-mid="${m.id}"><td>${esc(m.date)}</td><td>${esc(m.matchType)}${m.compName ? `<small class="rec-comp">${esc(m.compName)}</small>` : ''}</td>${groups.length ? `<td>${esc(m.ageGroup || '-')}</td>` : ''}<td>${esc(m.opponent)}${m.venue ? ` <small>(${m.venue === 'home' ? '홈' : '원정'})</small>` : ''}</td>
           <td><span class="res ${result(m)}">${result(m)}</span> <strong>${+m.gf} : ${+m.ga}</strong></td>
           <td><small>${(m.scorers || []).map((s) => `${esc(s.name)}${+s.goals > 1 ? `(${s.goals})` : ''}`).join(', ')}</small></td>
           <td>${isCoach() ? '<button class="link-btn small" data-edit>수정</button>' : ''}</td></tr>`).join('')}</table>` : empty('경기 기록이 없습니다.')}
@@ -551,19 +556,19 @@ export async function records(el) {
       detail: (g, r) => {
         const t = g.target;
         const fromLogs = [...new Set([...(t?.fromLogs || []), ...g.logIds])];
-        if (t) return matchForm({ ...t, ...(r.venue ? { venue: r.venue } : {}), ...(r.memo ? { memo: r.memo } : {}), events: GL.mergeEvents(t.events, r.events), scorers: (t.scorers || []).length ? t.scorers : r.scorers, assists: (t.assists || []).length ? t.assists : r.assists, fromLogs }, '선수 일지에서 모은 장면을 이 경기에 넣어요. 확인하고 저장해 주세요.');
-        matchForm({ date: g.date, matchType: r.matchType, ageGroup: r.ageGroup, venue: r.venue, memo: r.memo, opponent: r.opponent, gf: r.gf, ga: r.ga, scorers: r.scorers, assists: r.assists, events: r.events, fromLogs }, `선수 일지 ${g.logs.length}개에서 모았어요.`);
+        if (t) return matchForm({ ...t, ...(r.compName ? { compName: r.compName } : {}), ...(r.venue ? { venue: r.venue } : {}), ...(r.memo ? { memo: r.memo } : {}), events: GL.mergeEvents(t.events, r.events), scorers: (t.scorers || []).length ? t.scorers : r.scorers, assists: (t.assists || []).length ? t.assists : r.assists, fromLogs }, '선수 일지에서 모은 장면을 이 경기에 넣어요. 확인하고 저장해 주세요.');
+        matchForm({ date: g.date, matchType: r.matchType, compName: r.compName, ageGroup: r.ageGroup, venue: r.venue, memo: r.memo, opponent: r.opponent, gf: r.gf, ga: r.ga, scorers: r.scorers, assists: r.assists, events: r.events, fromLogs }, `선수 일지 ${g.logs.length}개에서 모았어요.`);
       },
       // 이 날 경기 모두 올리기: 새 경기는 기록실에 만들고, 이미 있는 경기는 장면만 더함
       upload: async (items, btn) => {
         btn.disabled = true;
         try {
-          await Promise.all(items.map(({ g, opponent, gf, ga, scorers, assists, events, matchType, ageGroup, venue, memo }) => {
+          await Promise.all(items.map(({ g, opponent, gf, ga, scorers, assists, events, matchType, compName, ageGroup, venue, memo }) => {
             const t = g.target;
             const fromLogs = [...new Set([...(t?.fromLogs || []), ...g.logIds])];
-            if (t) return updateDoc(tdoc('matches', t.id), { events: GL.mergeEvents(t.events, events), ...((t.scorers || []).length ? {} : { scorers }), ...((t.assists || []).length ? {} : { assists }), ...(venue ? { venue } : {}), ...(memo ? { memo } : {}), fromLogs });
+            if (t) return updateDoc(tdoc('matches', t.id), { events: GL.mergeEvents(t.events, events), ...((t.scorers || []).length ? {} : { scorers }), ...((t.assists || []).length ? {} : { assists }), ...(compName ? { compName } : {}), ...(venue ? { venue } : {}), ...(memo ? { memo } : {}), fromLogs });
             // 지도자가 '경기 기록'으로 넣은 것과 같은 칸 (형태 · 학년 · 홈/원정 · 메모) — 다시 고칠 일 없게
-            return addDoc(tcol('matches'), { date: g.date, matchType, ageGroup: ageGroup || '', venue, opponent, gf, ga, scorers, assists, events, fromLogs, memo, createdAt: serverTimestamp() });
+            return addDoc(tcol('matches'), { date: g.date, matchType, compName: matchType === '연습경기' ? '' : compName, ageGroup: ageGroup || '', venue, opponent, gf, ga, scorers, assists, events, fromLogs, memo, createdAt: serverTimestamp() });
           }));
           toast(`${items.length}경기를 기록실에 올렸어요`);
           const y = window.scrollY; await records(el); window.scrollTo(0, y);
@@ -614,6 +619,10 @@ export async function records(el) {
         <div class="grid2">
           <label>날짜<input type="date" name="date" required value="${esc(m.date || todayStr())}"></label>
           <label>경기 형태<select name="matchType">${options(MATCH_TYPES, m.matchType)}</select></label>
+        </div>
+        <label data-comp>대회 · 리그 이름<input name="compName" list="comp-names" maxlength="40" placeholder="예: 2026 춘계 전국중등대회" value="${esc(m.compName || '')}" autocomplete="off">
+            <datalist id="comp-names">${compNames.map((c) => `<option value="${esc(c)}">`).join('')}</datalist><small class="muted">한 번 적으면 다음엔 골라 쓸 수 있어요 · 비워 둬도 돼요</small></label>
+        <div class="grid2">
           ${groups.length ? `<label>학년<select name="ageGroup">${options([['', '선택'], ...groups], m.ageGroup || (flt.age !== '전체' ? flt.age : ''))}</select></label>` : ''}
           <label>상대팀<input name="opponent" required value="${esc(m.opponent || '')}"></label>
           <label>홈/원정<select name="venue">${options([['home', '홈'], ['away', '원정'], ['neutral', '중립']], m.venue)}</select></label>
@@ -628,6 +637,10 @@ export async function records(el) {
       </form>`);
     const f = md.el.querySelector('form');
     const glEd = md.el.querySelector('[data-gl-ed]');
+    // 연습경기면 대회 이름 칸 숨김
+    const typeSel = f.querySelector('[name="matchType"]'); const compBox = f.querySelector('[data-comp]');
+    const syncComp = () => { compBox.hidden = typeSel.value === '연습경기'; };
+    typeSel.addEventListener('change', syncComp); syncComp();
     const getEv = glEd ? GL.mountEditor(glEd, m.events || [], [...players].sort(byName)) : null;
     f.querySelectorAll('.picks:not(.gl-ed) [data-add]').forEach((b) => (b.onclick = () => b.previousElementSibling.insertAdjacentHTML('beforeend', pickRow())));
     f.addEventListener('click', (e) => { if (e.target.matches('[data-rm]')) e.target.parentElement.remove(); });
@@ -641,7 +654,7 @@ export async function records(el) {
       const read = (key) => [...f.querySelectorAll(`[data-key="${key}"] .pick`)]
         .map((r) => { const v = r.querySelector('select').value; const p = players.find((x) => x.id === v); return p ? { uid: p.id, name: p.name, goals: +r.querySelector('input').value || 1 } : { name: v, goals: +r.querySelector('input').value || 1 }; })
         .filter((s) => s.name);
-      const data = { ...d, gf: +d.gf, ga: +d.ga, scorers: read('scorers'), assists: read('assists'), ...(getEv ? { events: getEv() } : {}), ...(m.fromLogs ? { fromLogs: m.fromLogs } : {}) };
+      const data = { ...d, compName: d.matchType === '연습경기' ? '' : (d.compName || '').trim().replace(/\s+/g, ' '), gf: +d.gf, ga: +d.ga, scorers: read('scorers'), assists: read('assists'), ...(getEv ? { events: getEv() } : {}), ...(m.fromLogs ? { fromLogs: m.fromLogs } : {}) };
       try {
         if (m.id) await updateDoc(tdoc('matches', m.id), data);
         else await addDoc(tcol('matches'), { ...data, createdAt: serverTimestamp() });

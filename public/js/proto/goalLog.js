@@ -248,24 +248,26 @@ function sceneTables(g) {
   return `${maps}${fr ? `<div class="tbl-scroll"><table class="gl-scene"><caption>득점 <b>${g.goals.length}</b></caption><tr><th></th><th>분</th><th>골</th><th>도움</th><th>상황</th><th>위치</th></tr>${fr}</table></div>` : ''}
     ${ar ? `<div class="tbl-scroll"><table class="gl-scene against"><caption>실점 <b>${g.conceded.length}</b></caption><tr><th></th><th>분</th><th>상황</th><th>위치</th><th>적은 선수</th></tr>${ar}</table></div>` : ''}`;
 }
-export function gatherHtml(list, dismissed, groups = []) {
+export function gatherHtml(list, dismissed, groups = [], compNames = []) {
   const show = list.filter((g) => !dismissed.has(g.key + g.logIds.join(',')));
   if (!show.length) return '';
   const days = [...new Set(show.map((g) => g.date))].sort().reverse();
   const chips = (k, x) => (x.conflict ? x.all.map(([v, n], i) => `<button type="button" class="gl-pick ${i ? '' : 'top'}" data-set-${k}="${esc(v)}">${esc(v)} <i>${n}명</i></button>`).join('') : '');
   const stepper = (k, v) => `<span class="gl-step"><button type="button" data-step="${k}" data-d="-1" aria-label="빼기">−</button><b data-v="${k}">${+v || 0}</b><button type="button" data-step="${k}" data-d="1" aria-label="더하기">+</button></span>`;
   return `<details class="card gl-gather" open><summary><b>선수 일지에서 모은 경기</b><span class="gl-cnt">${show.length}</span><small class="muted">날짜마다 확인하고 한 번에 올려요</small></summary>
+    <datalist id="gl-comp-names">${compNames.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
     ${days.map((d) => { const gs = show.filter((g) => g.date === d); return `<section class="gl-day" data-day="${esc(d)}">
       <h4>${dayLabel(d)} <small class="muted">경기 ${gs.length}개</small></h4>
       ${gs.map((g, i) => { const t = g.target; return `<article class="gl-prop" data-gi="${list.indexOf(g)}">
         <header><span class="gl-no">${CIRC[i] || i + 1}</span>
-          ${t ? `<strong>${esc(t.matchType || '')}${t.ageGroup ? ` · ${esc(t.ageGroup)}` : ''} vs ${esc(t.opponent)}</strong><small class="gl-in">기록실에 있는 경기 · 장면만 더해요</small>`
+          ${t ? `<strong>${esc(t.matchType || '')}${t.compName ? ` · ${esc(t.compName)}` : ''}${t.ageGroup ? ` · ${esc(t.ageGroup)}` : ''} vs ${esc(t.opponent)}</strong><small class="gl-in">기록실에 있는 경기 · 장면만 더해요</small>`
             : `<strong>${esc(g.type.v || '')}${g.age.v ? ` · ${esc(g.age.v)}` : ''} vs</strong><input class="gl-opp" data-opp value="${esc(g.opponent.v)}" placeholder="상대팀" aria-label="상대팀">`}
           <small class="muted">일지 ${g.logs.length}명</small></header>
         ${t ? `<p class="gl-score">우리 <b>${+t.gf}</b> : <b>${+t.ga}</b> 상대</p>`
           : `<div class="gl-score">우리 ${stepper('gf', g.gf.v)} : ${stepper('ga', g.ga.v)} 상대</div>`}
         <div class="gl-meta">${t ? '' : `<label><span>경기</span><select data-mt>${options(MATCH_TYPES, g.type.v || MATCH_TYPES[0])}</select></label>
           ${groups.length ? `<label><span>학년</span><select data-age>${options([['', '선택'], ...groups], g.age.v)}</select></label>` : ''}`}
+          ${(t ? t.matchType : g.type.v || MATCH_TYPES[0]) === '연습경기' && t ? '' : `<label class="gl-comp" data-comp ${(t ? t.matchType : g.type.v || MATCH_TYPES[0]) === '연습경기' ? 'hidden' : ''}><span>대회명</span><input data-comp-in list="gl-comp-names" maxlength="40" autocomplete="off" placeholder="예: 2026 춘계 전국중등대회" value="${esc(t?.compName || '')}"></label>`}
           <div class="gl-venue" role="group" aria-label="홈/원정"><span>홈/원정</span>${[['home', '홈'], ['away', '원정'], ['neutral', '중립']].map(([v, l]) => `<button type="button" data-venue="${v}" class="${(t?.venue || '') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         ${!t && (g.opponent.conflict || g.gf.conflict || g.ga.conflict) ? `<div class="gl-diff"><b>선수마다 다르게 적었어요</b> <small class="muted">누르면 그 값으로 바뀌어요</small>
           ${g.opponent.conflict ? `<div><span>상대</span>${chips('opp', g.opponent)}</div>` : ''}${g.gf.conflict ? `<div><span>득점</span>${chips('gf', g.gf)}</div>` : ''}${g.ga.conflict ? `<div><span>실점</span>${chips('ga', g.ga)}</div>` : ''}</div>` : ''}
@@ -290,6 +292,7 @@ export function readProp(card, g) {
   return {
     opponent: (card.querySelector('[data-opp]')?.value || '').trim(), gf: num('gf'), ga: num('ga'),
     matchType: card.querySelector('[data-mt]')?.value || g.target?.matchType || g.type.v || MATCH_TYPES[0],
+    compName: (() => { const box = card.querySelector('[data-comp]'); return box && !box.hidden ? (box.querySelector('input').value || '').trim().replace(/\s+/g, ' ') : (g.target?.compName || ''); })(),
     ageGroup: card.querySelector('[data-age]') ? card.querySelector('[data-age]').value : (g.target?.ageGroup ?? g.age.v ?? ''),
     venue: card.querySelector('[data-venue].on')?.dataset.venue || '', memo: (card.querySelector('[data-memo]')?.value || '').trim(),
     scorers: cnt(goals, 'uid', 'name'), assists: cnt(goals, 'assistUid', 'assistName'),
@@ -312,6 +315,8 @@ export function bindGather(root, list, { skip, detail, upload, players = [] }) {
     ['gf', 'ga'].forEach((k) => card.querySelectorAll(`[data-set-${k}]`).forEach((b) => (b.onclick = () => { card.querySelector(`[data-v="${k}"]`).textContent = +b.dataset[`set${k[0].toUpperCase()}${k[1]}`] || 0; warn(); })));
     card.querySelectorAll('input[type=checkbox]').forEach((c) => (c.onchange = () => { c.closest('tr').classList.toggle('off', !c.checked); card.querySelector(`[data-dot="${c.dataset.gfEv != null ? `f${c.dataset.gfEv}` : `a${c.dataset.gaEv}`}"]`)?.classList.toggle('off', !c.checked); warn(); }));
     card.querySelectorAll('[data-venue]').forEach((b) => (b.onclick = () => { card.querySelectorAll('[data-venue]').forEach((x) => x.classList.toggle('on', x === b)); b.parentElement.classList.remove('err'); }));
+    // 연습경기면 대회명 칸 숨김
+    card.querySelector('[data-mt]')?.addEventListener('change', (e) => { const c = card.querySelector('[data-comp]'); if (c) c.hidden = e.target.value === '연습경기'; });
     card.querySelector('[data-opp]')?.addEventListener('input', (e) => e.target.classList.remove('err'));
     // 선수가 안 적은 장면: 경기 기록 창과 같은 칸(분 · 선수 · 도움 · 상황 · 위치)을 이 자리에서
     card.querySelector('[data-extra-open]').onclick = (e) => {
