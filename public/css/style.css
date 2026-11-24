@@ -5611,3 +5611,5 @@ html:has(.studio.st-full) .modal-wrap, html:has(.studio.st-phone) .modal-wrap, h
 .rec-pkline { color: var(--sub); font-weight: 700; font-size: 12.5px; }
 .gl-pk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 8px; font-size: 14px; color: var(--sub); }
 .gl-pk-sc { display: inline-flex; align-items: center; gap: 8px; }
+/* 훈련 일지: 그림 종류 (전술보드 · 3D (GK)) */
+.sess-padkind { display: flex; gap: 6px; margin: 0 0 8px; }

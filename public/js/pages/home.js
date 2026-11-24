@@ -1,7 +1,7 @@
 import { homeIdpCard } from '../proto/idpStatus.js'; // 시제품 3.0: 홈에 성장 평가 현황 (팀 기능 proto3일 때만)
 import { homePlayerHero } from '../proto/homeHero.js'; // 시제품 3.0: 선수 홈 맨 위 내 선수 카드
 import { FREE_MODE } from '../config.js';
-import { viewScene } from '../gk3d.js';
+import { viewScene, viewSess } from '../gk3d.js';
 import {
   db, collection, query, where, orderBy, limit, getDocs, doc, getDoc, addDoc, updateDoc, deleteDoc, serverTimestamp,
 } from '../fb.js';
@@ -537,7 +537,7 @@ async function parentHome(el) {
       <label>보호자 한마디<textarea rows="2" maxlength="300" data-cc placeholder="예) 오늘 끝까지 뛴 거 멋졌어!">${esc(x.coachComment || '')}</textarea></label>
       <div class="row end"><button class="btn" data-ccsave>한마디 남기기</button></div>`, { wide: true });
     m.el.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = x.match?.scenes?.[+box.dataset.viewPad]; viewScene(box, sc); });
-    m.el.querySelectorAll('[data-view-spad]').forEach((box) => { const sp = x.sessions?.[box.dataset.viewSpad]?.pad; if (sp) createPad(box, sp, { editable: false }); });
+    m.el.querySelectorAll('[data-view-spad]').forEach((box) => { viewSess(box, x.sessions?.[box.dataset.viewSpad]); });
     m.el.querySelector('[data-ccsave]').onclick = async () => {
       try { await updateDoc(doc(db, 'teams', t.id, 'logs', x.id), { coachComment: m.el.querySelector('[data-cc]').value.trim() }); m.close(); toast('한마디를 남겼어요. 선수 일지에 보여요.'); parentHome(el); } catch (e) { fail(e); }
     };

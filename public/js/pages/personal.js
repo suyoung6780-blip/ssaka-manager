@@ -10,7 +10,7 @@ import { withdraw } from './privacy.js';
 import { installButton, bindInstall } from '../install.js';
 import { loadPrograms, present } from './training.js';
 import { createPad, blank } from '../tactic.js';
-import { mountGK3D, gk3dAllowed, viewScene, sceneTag } from '../gk3d.js'; // 시제품 3.0: 3D (GK) 장면
+import { mountGK3D, gk3dAllowed, viewScene, viewSess, sceneTag } from '../gk3d.js'; // 시제품 3.0: 3D (GK) 장면
 import { sleepMin, sleepOf, fmtSleep, sleepLong, SHORT_SLEEP } from '../sleep.js';
 import * as GL from '../proto/goalLog.js';
 import { AGE_GROUPS } from './team.js';
@@ -160,7 +160,7 @@ function mySessCard(key, i, v = {}, ans = null) {
       <label>어려웠던 점<textarea name="${f('hard')}" rows="2" placeholder="예) 압박 오면 공을 뺏겼어요">${esc(v.hard || '')}</textarea></label>
       <label>다음엔 이렇게<textarea name="${f('next')}" rows="2" placeholder="예) 받기 전에 어깨 너머 보기">${esc(v.next || '')}</textarea></label>
     </div>
-    <div class="sess-padbox"><div data-spadbox></div></div>
+    <div class="sess-padbox">${gk3dAllowed() ? `<div class="sess-padkind" role="group" aria-label="그림 종류"><button type="button" class="btn sm ${v.gk3d ? 'ghost' : ''}" data-pk="2d">전술보드</button><button type="button" class="btn sm ${v.gk3d ? '' : 'ghost'}" data-pk="3d">3D (GK)</button></div>` : ''}<div data-spadbox></div></div>
     <label class="sess-ask">코치님께 질문 <small class="muted">(이 훈련에서 궁금한 점 — 코치님이 바로 아래에 답해 주세요)</small><textarea name="${f('ask')}" rows="2" placeholder="예) 압박이 올 때 몸을 어느 쪽으로 열어야 하나요?">${esc(v.ask || '')}</textarea></label>
     ${ans?.text ? `<div class="sess-ans"><span class="tag solid">코치 답변${ans.by ? ` · ${esc(ans.by)}` : ''}</span><p>${text(ans.text)}</p></div>` : v.ask ? '<p class="muted small sess-wait">코치님 답변을 기다리는 중이에요</p>' : ''}
     </div>
@@ -512,10 +512,24 @@ export async function daily(el, _p, date0) {
     const k = card.dataset.skey;
     if (sessPads.has(k)) return;
     const box = card.querySelector('[data-spadbox]');
-    sessPads.set(k, createPad(box, data || { ...blank('custom'), grid: { preset: 'none', cols: 0, rows: 0 } }, { motion: true }));
+    // 3D (GK)로 그린 훈련이면 3D 작전판 (data: 세션 그대로 · 예전 호출은 pad 만)
+    const sv = data && (data.gk3d !== undefined || data.pad !== undefined || data.as3d) && !data.items ? data : { pad: data };
+    if (sv.gk3d || sv.as3d) { const p3 = mountGK3D(box, sv.gk3d || null); p3.is3d = true; sessPads.set(k, p3); return; }
+    sessPads.set(k, createPad(box, sv.pad || { ...blank('custom'), grid: { preset: 'none', cols: 0, rows: 0 } }, { motion: true }));
   };
+  // 그림 종류 바꾸기: 전술보드 ↔ 3D (GK) (그린 게 있으면 한 번 묻고)
+  const bindKind = (card) => card.querySelectorAll('[data-pk]').forEach((b) => (b.onclick = () => {
+    const k = card.dataset.skey; const cur = sessPads.get(k); const want3 = b.dataset.pk === '3d';
+    if (cur && !!cur.is3d === want3) return;
+    const has = cur && (cur.is3d ? !cur.isEmpty() : (cur.getData().items || []).length);
+    if (has && !window.confirm('지금 그린 그림이 지워져요. 바꿀까요?')) return;
+    sessPads.delete(k); card.querySelector('[data-spadbox]').innerHTML = '';
+    openPad(card, want3 ? { as3d: true } : { pad: null });
+    card.querySelectorAll('[data-pk]').forEach((x) => x.classList.toggle('ghost', x !== b));
+  }));
   const bindSess = (card) => {
-    openPad(card, sessions[card.dataset.skey]?.pad); // 작전판은 처음부터 펼쳐 둠 (필수)
+    openPad(card, sessions[card.dataset.skey] || null); // 작전판은 처음부터 펼쳐 둠 (필수)
+    bindKind(card);
     card.querySelector('[data-sdel]').onclick = () => { if (sessBox.children.length <= 1) { card.querySelectorAll('input:not([type=radio]), textarea').forEach((x) => { x.value = ''; }); card.querySelectorAll('input[type=radio]').forEach((x) => { x.checked = false; }); sessPads.delete(card.dataset.skey); card.querySelector('[data-spadbox]').innerHTML = ''; openPad(card); return; } sessPads.delete(card.dataset.skey); card.remove(); renumber(); }; };
   sessBox.querySelectorAll('.sess.mine').forEach(bindSess);
   el.querySelectorAll('[data-add-sess]').forEach((b) => (b.onclick = () => {
@@ -564,9 +578,12 @@ export async function daily(el, _p, date0) {
       (sess[m[1]] ||= {})[m[2]] = m[2] === 'focus' ? +v || null : v;
     }
     // 세션 작전판
-    for (const [k, pad] of sessPads) { if (el.querySelector(`[data-skey="${k}"]`)) (sess[k] ||= {}).pad = pad.getData(); }
+    for (const [k, pad] of sessPads) {
+      if (!el.querySelector(`[data-skey="${k}"]`)) continue;
+      if (pad.is3d) Object.assign((sess[k] ||= {}), { pad: null, gk3d: pad.isEmpty() ? '' : JSON.stringify(pad.getData()) }); else Object.assign((sess[k] ||= {}), { pad: pad.getData(), gk3d: '' });
+    }
     // 아무것도 안 쓴 세션은 빼고 저장
-    for (const [k, v] of Object.entries(sess)) if (!['name', 'did', 'good', 'hard', 'next', 'ask'].some((f) => (v[f] || '').trim()) && !v.focus && !(v.pad?.items || []).length) delete sess[k];
+    for (const [k, v] of Object.entries(sess)) if (!['name', 'did', 'good', 'hard', 'next', 'ask'].some((f) => (v[f] || '').trim()) && !v.focus && !(v.pad?.items || []).length && !v.gk3d) delete sess[k];
     // 제출할 때: 경기에 뛰었는지 · 전반 · 후반 뛴 시간은 필수 (안 뛰었으면 느낀 점)
     if (submit && d.kind === 'match') {
       const hf = +match.plen || 25;
@@ -589,7 +606,7 @@ export async function daily(el, _p, date0) {
     }
     // 제출할 때: 쓴 훈련마다 작전판 그림은 필수
     if (submit && d.kind !== 'match') {
-      const noPad = Object.entries(sess).find(([, v]) => !(v.pad?.items || []).length);
+      const noPad = Object.entries(sess).find(([, v]) => !(v.pad?.items || []).length && !v.gk3d); // 3D (GK)로 그렸으면 됨
       if (noPad) {
         const card = el.querySelector(`[data-skey="${noPad[0]}"]`);
         card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -663,7 +680,7 @@ export function dayPageHtml(x, coachView = false, head = '') {
 }
 export function bindDayPage(page, x, coachView = false) {
   page.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = x.match?.scenes?.[+box.dataset.viewPad]; viewScene(box, sc); });
-  page.querySelectorAll('[data-view-spad]').forEach((box) => { const sp2 = x.sessions?.[box.dataset.viewSpad]?.pad; if (sp2) createPad(box, sp2, { editable: false }); });
+  page.querySelectorAll('[data-view-spad]').forEach((box) => { viewSess(box, x.sessions?.[box.dataset.viewSpad]); });
   page.querySelector('[data-pdf1]').onclick = () => saveJournalsPdf([x]);
   page.querySelector('[data-edit]').onclick = () => {
     try { sessionStorage.setItem(coachView ? 'ssaka.jc.open' : 'ssaka.daily.date', coachView ? JSON.stringify({ date: x.date, uid: x.uid }) : x.date); } catch { /* */ }
@@ -848,7 +865,7 @@ export function journalHtml(l, coachAns = false) {
   return `${ss.length ? ss.map((x) => `
     <div class="sess read"><header><strong>${esc(x.name || '훈련')}</strong><span class="muted small">집중 ${stars(x.focus)}</span></header>
       ${x.did ? `<p><b>한 것</b> ${text(x.did)}</p>` : ''}
-      ${(x.pad?.items || []).length ? `<div class="sess-viewpad" data-view-spad="${esc(x._k)}"></div>` : ''}
+      ${(x.pad?.items || []).length || x.gk3d ? `<div class="sess-viewpad" data-view-spad="${esc(x._k)}"></div>` : ''}
       ${x.good ? `<p><b>잘된 점</b> ${text(x.good)}</p>` : ''}${x.hard ? `<p><b>어려웠던 점</b> ${text(x.hard)}</p>` : ''}${x.next ? `<p><b>다음엔</b> ${text(x.next)}</p>` : ''}
       ${askBlock(x.ask, x._k, ans, coachAns)}
       </div>`).join('') : `
@@ -986,7 +1003,7 @@ export async function journalCheck(el, _p, date0) {
     m.el.querySelector('.jc-hist')?.addEventListener('click', () => m.close());
     // 경기 장면 작전판 (읽기 전용)
     m.el.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = l.match.scenes[+box.dataset.viewPad]; viewScene(box, sc); });
-    m.el.querySelectorAll('[data-view-spad]').forEach((box) => { const sp = l.sessions?.[box.dataset.viewSpad]?.pad; if (sp) createPad(box, sp, { editable: false }); });
+    m.el.querySelectorAll('[data-view-spad]').forEach((box) => { viewSess(box, l.sessions?.[box.dataset.viewSpad]); });
     if (m.el.querySelector('form')) m.el.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
       try {
@@ -1133,7 +1150,7 @@ export async function saveJournalsPdf(list) {
       const x = list[i];
       wrap.innerHTML = pdfPage(x);
       wrap.querySelectorAll('[data-view-pad]').forEach((box) => { const sc = x.match?.scenes?.[+box.dataset.viewPad]; viewScene(box, sc); });
-      wrap.querySelectorAll('[data-view-spad]').forEach((box) => { const sp = x.sessions?.[box.dataset.viewSpad]?.pad; if (sp) createPad(box, sp, { editable: false }); });
+      wrap.querySelectorAll('[data-view-spad]').forEach((box) => { viewSess(box, x.sessions?.[box.dataset.viewSpad]); });
       await new Promise((r) => setTimeout(r, 80));
       const page = wrap.firstElementChild;
       const cv = await window.html2canvas(page, { scale: 2, backgroundColor: '#ffffff', logging: false });

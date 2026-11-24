@@ -28,6 +28,12 @@ export async function gk3dThumb(api, w = 640) {
     return c.toDataURL('image/jpeg', 0.8);
   } catch { return ''; }
 }
+// 훈련 일지 세션 보기: 3D (GK)로 그렸으면 3D, 아니면 원래 작전판
+export function viewSess(box, s) {
+  if (!s) return;
+  if (s.gk3d) { mountGK3D(box, parse(s.gk3d), { editable: false }); return; }
+  if (s.pad) createPad(box, s.pad, { editable: false });
+}
 export const sceneTag = (sc) => (sc?.kind === 'gk3d' ? '<span class="gk3d-tag">3D (GK)</span>' : '');
 
 const VER = '20261124b';

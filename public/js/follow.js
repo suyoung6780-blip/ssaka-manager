@@ -80,26 +80,32 @@ export class FollowAI {
     for (const d of dets) { d.fx = (d.x0 + d.x1) / 2; d.fy = d.y1; d.h = d.y1 - d.y0; d.w = d.x1 - d.x0; d.app = this.appear(src, d); }
 
     // 3) 누가 어느 상자인지 한꺼번에 정함 (모든 짝을 따져 가장 자연스러운 조합)
+    // 원근: 화면 위쪽(먼 곳)으로 갈수록 작게 보임 — 잔디 시작선(hz)이 있으면 발 높이로 기대 키를 맞춤
+    const Yh = st.hz != null ? st.hz * VH : null;
+    const persp = (k, fy) => (Yh != null && k.py - Yh > k.ph * 0.5 && fy - Yh > 0 ? Math.max(0.75, Math.min(1.33, (fy - Yh) / (k.py - Yh))) : 1);
     const cost = (k, d, isT) => {
-      const s = Math.max(6, k.ph);
+      const s = Math.max(6, k.ph) * (isT ? persp(k, d.fy) : 1);
       const dp = Math.hypot(d.fx - k.px, (d.fy - k.py) * 1.2) / s;
       const gate = isT ? 0.75 + 0.45 * Math.min(k.miss, 8) * z + (k.occRun ? 0.45 : 0) : 0.9 + 0.3 * Math.min(k.miss || 0, 4);
       if (dp > gate) return null;
       const ds = Math.abs(Math.log(Math.max(4, d.h) / s));
-      if (ds > 0.8 && !(isT && k.miss > 3)) return null;
+      // 키가 확 다른 상자는 다른 사람 (뒤쪽 먼 선수 · 다리만 잡힌 반쪽 상자로 옮겨 타서 작아지지 않게) — 고른 선수는 놓친 동안에도 검사
+      if (isT ? ds > (k.miss > 8 ? 0.6 : 0.45) : ds > 0.8) return null;
       let app = 0.15;
       if (d.app) {
         const bc = isT ? bcOf(d.app, k.app0) * 0.6 + bcOf(d.app, k.app) * 0.4 : k.app ? bcOf(d.app, k.app) : 0.65;
         if (isT) d.bcT = bc;
         // 유니폼 색이 확 다르면 다른 사람 (상대 팀 · 심판 · 코치로 옮겨 타지 않게)
         if (isT && bc < 0.15 && k.miss < 6) return null; // 완전히 다른 색만 막음 (흐린 영상은 같은 선수도 색 점수가 낮게 나옴)
+        // 이 선수의 평소 색 점수보다 크게 낮으면 다른 사람 — 스치며 다른 팀 · 뒤 선수로 옮겨 타는 것 막기 (영상 화질에 맞춘 상대 기준)
+        if (isT && (k.selfBc ?? 0.75) >= 0.5 && bc < (k.selfBc ?? 0.75) - (k.miss > 12 ? 0.32 : 0.22)) return null;
         // 색 점수는 영상 화질에 따라 기준이 다름 (흐리면 같은 선수도 0.5쯤) → 이 선수의 평소 점수보다 얼마나 낮은지로 봄
         app = Math.max(0, (isT ? k.selfBc ?? 0.75 : 0.7) - bc) * 1.4;
       }
       const wide = Math.max(0, d.w / Math.max(1, d.h) - 0.7) * 1.2; // 두 사람이 붙은 넓은 상자
       // 겹침이 막 풀린 때는 유니폼 색을 더 믿음 (겹친 동안 위치 예측은 틀어지기 쉬움)
       const aw = isT && k.occRun ? 2.8 : 1.8;
-      return dp * 1.0 + ds * 0.6 + app * aw + wide;
+      return dp * 1.0 + ds * (isT ? 1.0 : 0.6) + app * aw + wide;
     };
     const C = tracks.map((k, i) => dets.map((d) => cost(k, d, i === 0)));
     const UN = [1.6 + 0.2 * Math.min(st.miss, 6), ...st.nb.map(() => 1.4)]; // 짝 없이 두는 값
