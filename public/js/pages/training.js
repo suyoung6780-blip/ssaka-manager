@@ -87,7 +87,7 @@ export async function board(el) {
   // 3D (GK): 새 창 대신 같은 자리 · 같은 크기로 바꿔 보여 줌 (다시 누르면 2D 작전판) · 그리던 3D는 이 기기에 보관
   const b3 = el.querySelector('[data-tb-3d]');
   if (b3) {
-    const KEY3 = `ssaka-gk3d:${BOARD_KEY()}`; // 전술보드는 늘 2D로 열림
+    const KEY3 = `ssaka-gk3d:${BOARD_KEY()}`, MODE = `ssaka-tb-mode:${BOARD_KEY()}`; // 3D로 그리다 뒤로 가도: 같은 창에서 다시 오면 3D 그대로 (새로 열면 2D)
     const box2 = box, box3 = el.querySelector('[data-pad3d]');
     let pad3 = null;
     pad3now = () => pad3;
@@ -100,15 +100,17 @@ export async function board(el) {
       tip.dataset.two ||= tip.innerHTML;
       tip.innerHTML = on ? '<b>3D (GK)</b> — 골키퍼 장면을 3D 선수로 그려요 · 이미지 · 영상은 작전판 안 버튼으로 저장 · 그리던 것은 이 기기에 보관돼요' : tip.dataset.two;
       b3.classList.toggle('on', on);
+      try { sessionStorage.setItem(MODE, m); } catch { /* */ }
       if (on && !pad3) {
         const { mountGK3D } = await import('../gk3d.js');
         let init = null; try { init = JSON.parse(localStorage.getItem(KEY3) || 'null'); } catch { /* */ }
-        let t = null;
-        pad3 = mountGK3D(box3, init, { onChange: () => { clearTimeout(t); t = setTimeout(() => { try { localStorage.setItem(KEY3, JSON.stringify(pad3.getData())); } catch { /* */ } }, 400); } });
+        pad3 = mountGK3D(box3, init, { keepKey: KEY3 });
       }
       if (on) pad3?.refresh();
     };
     b3.onclick = () => setMode(box3.hidden ? '3d' : '2d');
+    let last = null; try { last = sessionStorage.getItem(MODE); } catch { /* */ }
+    if (last === '3d') setMode('3d');
   }
 
   el.querySelector('[data-tb-img]').onclick = async (e) => {

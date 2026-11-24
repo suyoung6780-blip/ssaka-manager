@@ -30,7 +30,7 @@ export async function gk3dThumb(api, w = 640) {
 }
 export const sceneTag = (sc) => (sc?.kind === 'gk3d' ? '<span class="gk3d-tag">3D (GK)</span>' : '');
 
-const VER = '20261124a';
+const VER = '20261124b';
 const THREE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
 let loading = null;
 const script = (src) => new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('3D 엔진을 불러오지 못했어요')); document.head.appendChild(s); });
@@ -61,8 +61,9 @@ async function saveFile(blob, name) {
 
 // 상자 안에 3D (GK) 작전판 붙이기 — editable:false 면 보기만 (재생 · 크게 · 이미지 저장)
 // 돌려주는 것: { getData, isEmpty, refresh } (불러오는 동안은 initial 그대로 돌려줌)
-export function mountGK3D(box, initial = null, { editable = true, onChange = null, title = '3D (GK)' } = {}) {
-  box.innerHTML = `<div class="gk3d ${editable ? '' : 'view'}">
+// keepKey: 이 기기에 저절로 보관 (바뀔 때 · 2초마다 · 화면을 나갈 때 — 실수로 뒤로 가도 남음)
+export function mountGK3D(box, initial = null, { editable = true, onChange = null, keepKey = null } = {}) {
+  box.innerHTML = `<div class="gk3d loading ${editable ? '' : 'view'}">
     <div class="pad2-top"><div class="pitch-picker" data-k="angles" role="radiogroup" aria-label="경기장 각도"></div><div class="seg" data-k="turf" role="radiogroup" aria-label="경기장 색"></div></div>
     <div class="pad2-bar" role="toolbar" aria-label="3D 작전판 도구">
       <button type="button" class="tool tool-text" data-k="undo" data-k-edit title="되돌리기 (Ctrl+Z)">↶ 되돌리기</button>
@@ -82,7 +83,7 @@ export function mountGK3D(box, initial = null, { editable = true, onChange = nul
   initial = parse(initial);
   const root = box.firstElementChild, $k = (k) => root.querySelector(`[data-k="${k}"]`);
   let pad = null, T3 = null, active = false;
-  const api = { getData: () => (pad ? pad.getState() : initial), isEmpty: () => (pad ? pad.isEmpty() : !initial || !(initial.items || []).length), refresh: () => pad?.refresh(), snapshot: () => pad?.snapshot(), ready: null };
+  const api = root._gk3d = { getData: () => (pad ? pad.getState() : initial), isEmpty: () => (pad ? pad.isEmpty() : !initial || !(initial.items || []).length), refresh: () => pad?.refresh(), snapshot: () => pad?.snapshot(), ready: null };
 
   const syncUndo = () => { if (!pad) return; $k('undo').disabled = !pad.canUndo; $k('redo').disabled = !pad.canRedo; };
   const renderSegs = () => {
@@ -100,15 +101,25 @@ export function mountGK3D(box, initial = null, { editable = true, onChange = nul
 
   api.ready = loadGK3D().then((t3) => {
     T3 = t3;
-    $k('fb').hidden = true;
     pad = T3.createPad({
       stage: $k('stage'), palette: $k('pal'), hint: $k('hint'),
       onPlayChange: (on) => { $k('play').textContent = on ? '■ 정지' : '▶ 재생'; $k('play').classList.toggle('is-active', on); },
-      onChange: () => { syncUndo(); onChange?.(); },
+      onChange: () => { syncUndo(); api.keep?.(); onChange?.(); },
     });
     if (initial) { try { pad.load(initial); } catch { /* 예전 모양이면 빈 판 */ } }
     renderSegs();
-    T3.ready.then(() => renderSegs());
+    // 3D 선수를 다 불러오기 전엔 가려 둠 (먼저 그려지는 2D 그림이 잠깐 보이지 않게) — 늦으면 15초 뒤 그냥 보여 줌
+    const show = () => { root.classList.remove('loading'); $k('fb').hidden = true; renderSegs(); pad.refresh(); };
+    Promise.race([T3.ready, new Promise((ok) => setTimeout(ok, 15000))]).then(show, show);
+    if (keepKey) {
+      let last = '';
+      const keep = () => { if (!pad) return; try { const j = JSON.stringify(pad.getState()); if (j !== last) { localStorage.setItem(keepKey, j); last = j; } } catch { /* */ } };
+      const tick = setInterval(() => { if (!root.isConnected) { keep(); stopKeep(); return; } keep(); }, 2000);
+      const onLeave = () => keep();
+      const stopKeep = () => { clearInterval(tick); removeEventListener('hashchange', onLeave); removeEventListener('pagehide', onLeave); document.removeEventListener('visibilitychange', onLeave); };
+      addEventListener('hashchange', onLeave); addEventListener('pagehide', onLeave); document.addEventListener('visibilitychange', onLeave);
+      api.keep = keep;
+    }
     return api;
   }).catch((e) => { $k('fb').textContent = `${e.message} · 인터넷 연결을 확인한 뒤 새로고침해 주세요`; $k('fb').hidden = false; });
 

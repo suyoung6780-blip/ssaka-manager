@@ -2,6 +2,9 @@
 .gk3d { --k-black: #070908; --k-ink: #0e1210; --k-ink-2: #141916; --k-ink-3: #1d2420; --k-line: #232a26; --k-line-2: #313a35; --k-mute: #8b948f; --k-mute-2: #b6bdb8; --k-white: #f2f4f1; --k-pure: #ffffff; --k-acc: #39e75f;
   color: var(--k-white); font-family: inherit; }
 .gk3d button { font: inherit; cursor: pointer; }
+.gk3d [hidden] { display: none !important; }
+.gk3d.loading .pad-stage canvas, .gk3d.loading .ftb, .gk3d.loading .pal-body { visibility: hidden; } /* 3D 선수 불러오는 동안 */
+.gk3d .pad-fallback { z-index: 4; background: #070908; } /* 키퍼랩 기본 규칙 — 선수 도구 줄(.ftb) 등이 숨김일 때 안 보이게 */
 .gk3d { border: 1px solid var(--k-line-2); border-radius: 8px; overflow: hidden; background: var(--k-black); min-width: 0; max-width: 100%; }
 .gk3d.view .pad-stage { pointer-events: none; }
 .gk3d.view .pad2-top, .gk3d.view .pad-palette, .gk3d.view [data-k-edit] { display: none; }
