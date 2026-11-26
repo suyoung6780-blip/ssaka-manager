@@ -787,6 +787,8 @@ const TOOL_GROUPS = [
   ['지우개', '⌧', ['erase'], true],
   ['강조', '◎', ['spot'], true],
 ];
+// 휴대폰 세로 화면 아래 줄에 늘 보이는 도구 (나머지는 [더 보기])
+const PHONE_CORE = ['select', 'player', 'ball', 'pass', 'pen'];
 const ITEM_SCALE = 0.65; // 공 · 기구 · 번호 · 글자 · 화살표 기본 크기 (선수는 그대로)
 const ARROW_HINT = '끌어서 화살표 · 고른 뒤 선 위의 작은 점을 끌면 휘는 점이 하나씩 늘어나요 (사이드 스텝 · 지그재그) · 흰 점 더블클릭하면 그 점만 지움';
 const TOOL_INFO = Object.fromEntries(TOOLS.map(([k, l, ic]) => [k, { l, ic }]));
@@ -848,8 +850,8 @@ export function createPad(container, initial, { editable = true, motion = false,
     </div>
     <div class="pad-tools">
       ${TOOL_GROUPS.filter((g) => !g[3] || P3()).map(([l, ic, ks], gi) => (ks.length === 1
-        ? `<button type="button" class="ptool" data-tool="${ks[0]}" title="${l}"><b>${ic}</b><span class="plab">${l}</span></button>`
-        : `<span class="pgroup" data-grp="${gi}"><button type="button" class="ptool" data-gbtn="${gi}" title="${l}"><b>${ic}</b><span class="plab"><span data-glabel>${l}</span> ▾</span></button>
+        ? `<button type="button" class="ptool${PHONE_CORE.includes(ks[0]) ? ' pcore' : ''}" data-tool="${ks[0]}" title="${l}"><b>${ic}</b><span class="plab">${l}</span></button>`
+        : `<span class="pgroup${PHONE_CORE.includes(ks[0]) ? ' pcore' : ''}" data-grp="${gi}"><button type="button" class="ptool" data-gbtn="${gi}" title="${l}"><b>${ic}</b><span class="plab"><span data-glabel>${l}</span> ▾</span></button>
           <span class="pgmenu" hidden>${ks.map((k) => `<button type="button" data-tool="${k}"><b>${TOOL_INFO[k].ic}</b>${TOOL_INFO[k].l}</button>`).join('')}</span></span>`)).join('')}
       <button type="button" class="ptool" data-fieldtg title="경기장 · 그리드 · 포메이션 · 선수 모양"><b>⚙</b><span class="plab">경기장</span></button>
       ${P3() ? '<button type="button" class="ptool p3d" data-3d title="중계 화면 — 관중석이 있는 경기장을 위에서 내려다보기 (그대로 그리고 옮길 수 있어요)"><b class="p3di"><svg viewBox="0 0 22 16" width="24" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M5 2.5h12l3.5 11h-19z"/><path d="M11 2.5v11"/><ellipse cx="11" cy="8" rx="2.6" ry="1.9"/></svg></b><span class="plab" data-3dlab>중계 화면</span></button>' : ''}
@@ -859,6 +861,7 @@ export function createPad(container, initial, { editable = true, motion = false,
       <button type="button" class="ptool pnotes" data-notes hidden title="그림을 보면서 글 쓰기"><b>✎</b><span class="plab">글</span></button>
       ${exportTitle != null ? `<button type="button" class="ptool pexp" data-xp="image" title="이미지로 저장"><b>▣</b><span class="plab">이미지 저장</span></button>
       <button type="button" class="ptool pexp" data-xp="video" title="영상으로 저장 (움직임이 있을 때)"><b>▶</b><span class="plab">영상 저장</span></button>` : ''}
+      <button type="button" class="ptool pmore" data-more title="도구 더 보기"><b>⋯</b><span class="plab" data-morelab>더 보기</span></button>
       <button type="button" class="ptool pfull" data-act="full" title="크게 (Esc로 닫기)"><b>⛶</b><span class="plab" data-flabel>크게</span></button>
     </div>
     <div class="pad-acts pad-sel" data-selbar>
@@ -1171,13 +1174,25 @@ export function createPad(container, initial, { editable = true, motion = false,
   });
   const arrowsIn = (s) => data.items.filter((x) => x.k === 'arrow' && (x.from || 0) === s && visIn(x, s));
 
+  // 휴대폰 크게 화면(· 일지 쉬운 쓰기): 세로로 들면 경기장도 세로, 가로로 들면 가로 — 더 크게 보이는 쪽 (저장되는 그림은 그대로)
+  function phoneFit() {
+    if (!editable || !isPhone()) return null;
+    const full = container.classList.contains('pad-full');
+    if (!full && !container.closest('.ez')) return null;
+    const { w, h } = data.field; if (!(w > 0 && h > 0)) return null;
+    const W = full ? innerWidth : container.clientWidth || innerWidth;
+    const H = full ? innerHeight - 150 : innerHeight * 0.62;
+    const sH = Math.min(W / w, H / h); const sV = Math.min(W / h, H / w);
+    return sV > sH * 1.05 ? true : sH > sV * 1.05 ? false : null;
+  }
   function render() {
     data.items.forEach((it) => { it.id ||= newId(); });
     const { w, h } = data.field;
     const u = unit();
     const T = THEME[data.field.color] || THEME.dark;
     const m = margin();
-    vertical = data.field.orient ? data.field.orient === 'v' : isVertical(data.field.type); // 가로 · 세로 보기 (직접 고르면 그대로)
+    const fit = phoneFit();
+    vertical = fit != null ? fit : data.field.orient ? data.field.orient === 'v' : isVertical(data.field.type); // 가로 · 세로 보기 (직접 고르면 그대로)
     svg.setAttribute('viewBox', vertical ? `${-m} ${-m} ${h + 2 * m} ${w + 2 * m}` : `${-m} ${-m} ${w + 2 * m} ${h + 2 * m}`);
     svg.style.background = data.field.type === 'custom' ? T.bg : T.out;
     // 두 손가락으로 확대한 상태 유지 (경기장 크기가 바뀌면 처음으로)
@@ -1702,7 +1717,10 @@ export function createPad(container, initial, { editable = true, motion = false,
     closeMenus();
     m.hidden = !open;
     m.style.left = ''; m.style.top = '';
-    if (open && phoneUi) { // 휴대폰 전체화면: 도구 줄 옆으로, 화면 아래로 넘치면 위로
+    if (open && phoneUi && matchMedia('(orientation: portrait)').matches) { // 휴대폰 세로: 아래 도구 줄 위로 열림 — 화면 좌우 밖으로 나가면 안쪽으로
+      const r = m.getBoundingClientRect(); const vw = document.documentElement.clientWidth;
+      if (r.right > vw - 6) m.style.left = `${vw - 6 - r.right}px`; else if (r.left < 6) m.style.left = `${6 - r.left}px`;
+    } else if (open && phoneUi) { // 휴대폰 전체화면: 도구 줄 옆으로, 화면 아래로 넘치면 위로
       const r = m.getBoundingClientRect(); const over = r.bottom - (innerHeight - 8);
       if (over > 0) m.style.top = `${-over}px`;
     } else if (open) { // 휴대폰: 메뉴가 화면 오른쪽 밖으로 나가면 안쪽으로 당김
@@ -1808,6 +1826,22 @@ export function createPad(container, initial, { editable = true, motion = false,
     hint?.classList.toggle('gone', on);
     render();
   };
+  // 휴대폰 세로: 아래 줄 [더 보기] — 나머지 도구 펼치기 (도구를 고르면 접힘)
+  const toolsEl = container.querySelector('.pad-tools');
+  toolsEl?.addEventListener('click', (e) => {
+    if (e.target.closest('[data-more]')) { const on = container.classList.toggle('pad-more'); container.querySelector('[data-morelab]').textContent = on ? '접기' : '더 보기'; return; }
+    if (e.target.closest('[data-tool]') && container.classList.contains('pad-more')) { container.classList.remove('pad-more'); container.querySelector('[data-morelab]').textContent = '더 보기'; }
+  });
+  // 휴대폰을 돌리거나 화면 크기가 바뀌면: 세로 · 가로 경기장 다시 맞춤
+  if (editable && isPhone()) {
+    let rt = 0;
+    const onRs = () => {
+      if (!svg.isConnected) { removeEventListener('resize', onRs); return; }
+      clearTimeout(rt);
+      rt = setTimeout(() => { if (container.classList.contains('pad-full') || container.closest('.ez')) render(); }, 120);
+    };
+    addEventListener('resize', onRs);
+  }
   // 세로로 들고 있을 때: '가로로 돌리면 크게' 한 번 안내 (이대로 쓰기를 누르면 다시 안 물어봄)
   const PORTRAIT_OK = 'ssaka.pad.portraitOk';
   let hint = null;
