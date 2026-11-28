@@ -3732,8 +3732,13 @@ html.pad-locked, html.pad-locked body { overflow: hidden; overscroll-behavior: n
 }
 /* 새 분석실 — 중간 화면(태블릿 가로) · 휴대폰 */
 @media (max-width: 1100px) and (min-width: 861px) {
-  .studio.v2 .studio-main { grid-template-columns: 68px minmax(0, 1fr); }
-  .studio.v2 .studio-main > .st-side { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--sv-line); }
+  /* 크게 보기(st-full)는 따로 — 이 규칙이 겹치면 칸이 엉켜 선수 목록이 왼쪽 위 · 타임라인이 좁아졌음 */
+  .studio.v2:not(.st-full) .studio-main:not(.view-only) { grid-template-columns: 68px minmax(0, 1fr); }
+  .studio.v2:not(.st-full) .studio-main > .st-side { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--sv-line); }
+  .studio.studio.v2.st-full .studio-main { grid-template-columns: 68px minmax(0, 1fr) 260px; }
+  .studio.studio.v2.st-full .studio-main > .st-tools { grid-column: 1; }
+  .studio.studio.v2.st-full .studio-main > .st-stage { grid-column: 2; }
+  .studio.studio.v2.st-full .studio-main > .st-side { grid-column: 3; }
 }
 @media (max-width: 860px) {
   .studio.v2 .studio-main, .studio.v2 .studio-main.view-only { grid-template-columns: minmax(0, 1fr); border-radius: 0; }

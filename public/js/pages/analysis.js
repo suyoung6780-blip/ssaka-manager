@@ -1975,7 +1975,16 @@ export async function studio(el, { id, mode }) {
     render();
     if (!video.paused) schedule();
   };
-  const schedule = () => (video.requestVideoFrameCallback ? video.requestVideoFrameCallback(onFrame) : requestAnimationFrame(onFrame));
+  // 재생 중 다음 장면 그리기: 영상의 '새 장면' 알림(requestVideoFrameCallback)을 기다림.
+  // 사파리는 이 알림을 안 보내는 경우가 있어(영상은 가는데 시간 · 타임라인 · 그림이 멈춤) → 잠깐 안 오면 화면 주기(requestAnimationFrame)로 대신 그림
+  let schedTok = 0; let rvfcOk = false; let rvfcMiss = 0;
+  const schedule = () => {
+    const tok = ++schedTok; let fired = false;
+    const go = () => { if (fired || tok !== schedTok) return; fired = true; onFrame(); };
+    if (video.requestVideoFrameCallback && (rvfcOk || rvfcMiss < 3)) video.requestVideoFrameCallback(() => { rvfcOk = true; rvfcMiss = 0; go(); });
+    else { requestAnimationFrame(go); return; }
+    setTimeout(() => { if (fired || tok !== schedTok || video.paused) return; if (!rvfcOk) rvfcMiss++; requestAnimationFrame(go); }, rvfcOk ? 250 : 90);
+  };
   video.addEventListener('play', () => {
     if (segPlaying) stopOverlay();
     if (seqAuto) seqAuto = false; else if (startSeq()) return;
@@ -4992,7 +5001,8 @@ export async function studio(el, { id, mode }) {
       sctx.drawImage(f, 0, 0, swap ? VH : VW, swap ? VW : VH); sctx.restore();
     };
     const queue = []; let decErr = null;
-    const dec = new VideoDecoder({ output: (f) => queue.push(f), error: (e) => { decErr = e; } });
+    let lastDec = performance.now(); // 디코더가 마지막으로 장면을 낸 때 (멈춤 감시)
+    const dec = new VideoDecoder({ output: (f) => { lastDec = performance.now(); queue.push(f); }, error: (e) => { decErr = e; } });
     dec.configure(dcfg);
     let samplesDone = false;
     mp4.onSamples = (tid, _u, samples) => {
@@ -5056,13 +5066,16 @@ export async function studio(el, { id, mode }) {
           const f = queue.shift();
           const m = f.timestamp / 1e6;
           if (m >= from - 1e-3 && m <= to + 1e-3) { const q0 = performance.now(); drawRot(f); f.close(); pf.draw += performance.now() - q0; await frameAt(m); } else f.close();
+          lastDec = performance.now();
           if (m > to) finished = true;
           continue;
         }
         if (samplesDone || off >= blob.size) {
-          if (!flushed) { flushed = true; await dec.flush(); continue; }
+          if (!flushed) { flushed = true; try { await within(dec.flush(), 15000, '디코더 마무리 멈춤'); } catch (e) { console.info('[영상 만들기] 빠른 방식 마무리 멈춤 → 재생 방식으로 이어감', e?.message); logError('export-dec-stall', e, { info: `flush ${lastM.toFixed(2)}/${to.toFixed(2)}` }); break; } continue; }
           break;
         }
+        // 디코더가 15초 넘게 장면을 안 내면 멈춘 것 → 여기까지 하고 재생 방식으로 이어감
+        if (!document.hidden && performance.now() - lastDec > 15000) { console.info('[영상 만들기] 빠른 방식 멈춤 → 재생 방식으로 이어감'); logError('export-dec-stall', new Error('디코더가 장면을 안 냄'), { info: `${lastM.toFixed(2)}/${to.toFixed(2)}` }); break; }
         if (dec.decodeQueueSize > 24) { const q0 = performance.now(); await new Promise((r) => setTimeout(r, 1)); pf.wait += performance.now() - q0; continue; }
         { const q0 = performance.now(); await feed(); pf.wait += performance.now() - q0; }
       }
@@ -5096,6 +5109,8 @@ export async function studio(el, { id, mode }) {
     if (brandMark) { const mw = lh * (brandMark.width / brandMark.height); c.drawImage(brandMark, W - pad - tw - lh * 0.4 - mw, cy - lh / 2, mw, lh); }
     c.restore();
   }
+  // 기다리다 멈춘 채로 영영 안 끝나지 않게: 정해진 시간 안에 안 끝나면 오류로 (윈도우 노트북 압축 칩 · 디코더가 대답 없이 멈추는 경우)
+  const within = (p, ms, msg) => { let tm; return Promise.race([p, new Promise((_, rej) => { tm = setTimeout(() => rej(new Error(msg)), ms); })]).finally(() => clearTimeout(tm)); };
   // 압축 칩 · 압축기 오류 표시 (소프트웨어로 다시 해 볼 수 있는 실패)
   const encFail = (e) => Object.assign(e instanceof Error ? e : new Error(String(e?.message || e || '영상 압축 오류')), { enc: true });
   // 기본은 예전 고화질(1080p30 ≈ 28Mbps, 잔디 결이 뭉개지지 않게). lite 는 메모리에 모으는 긴 영상만 (≈ 12Mbps)
@@ -5134,7 +5149,8 @@ export async function studio(el, { id, mode }) {
     });
     let closed = false;
     let encErr = null;
-    const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { encErr = e; } });
+    let lastOut = performance.now(); // 압축 칩이 마지막으로 결과를 낸 때 (멈춤 감시)
+    const enc = new VideoEncoder({ output: (chunk, meta) => { lastOut = performance.now(); muxer.addVideoChunk(chunk, meta); }, error: (e) => { encErr = e; } });
     enc.configure(cfg);
     // 그림을 원본 해상도로 그리도록 캔버스를 키움 (화면에 보이는 크기는 그대로)
     const was = sel; sel = null;
@@ -5158,12 +5174,16 @@ export async function studio(el, { id, mode }) {
       try { enc.encode(vf, { keyFrame: n % (fps * 2) === 0 }); } catch (e) { throw encFail(encErr || e); } finally { vf.close(); }
       n++;
       xpTick(n / fps);
-      while (enc.encodeQueueSize > QMAX && !encErr) await new Promise((r) => setTimeout(r, 2));
+      while (enc.encodeQueueSize > QMAX && !encErr) {
+        // 20초 넘게 하나도 안 나오면 칩이 멈춘 것 → 오류로 (부른 쪽에서 소프트웨어 방식으로 처음부터 다시)
+        if (!document.hidden && performance.now() - lastOut > 20000) throw encFail(new Error('압축 칩이 대답하지 않아요'));
+        await new Promise((r) => setTimeout(r, 2));
+      }
       // 다른 창으로 가면 브라우저가 이 창을 아주 느리게 돌림 → 돌아올 때까지 기다렸다가 이어서
       if (document.hidden && !busy.stop) {
         xpHidden(true);
         while (document.hidden && !busy.stop) await new Promise((r) => setTimeout(r, 300));
-        xpHidden(false);
+        xpHidden(false); lastOut = performance.now();
       }
       while (queued > (48 << 20) && !writeErr) await new Promise((r) => setTimeout(r, 5)); // 파일 쓰기가 밀리면 기다림
       if (writeErr) throw writeErr;
@@ -5303,7 +5323,7 @@ export async function studio(el, { id, mode }) {
         } finally { if (activeSrc !== back.src) await switchSrc(back.src, back.t); }
       }
       if (n === 0) throw Object.assign(new Error(busy.stop ? '멈췄어요' : '영상에서 장면을 하나도 꺼내지 못했어요'), { aborted: busy.stop });
-      try { await enc.flush(); } catch (e) { throw encFail(encErr || e); }
+      try { await within(enc.flush(), 30000, '압축 칩이 마무리를 못 해요'); } catch (e) { throw encFail(encErr || e); }
       if (encErr) throw encFail(encErr);
       muxer.finalize();
       if (ws) {
