@@ -5204,6 +5204,14 @@ export async function studio(el, { id, mode }) {
     const muted0 = video.muted; const rate0 = video.playbackRate;
     let watchdog = null;
     let onVis = null;
+    // 다음 장면이 나오면 부르기: 영상 '새 장면' 알림을 쓰고, 알림이 안 오는 브라우저(사파리 등)는 영상 시간이 바뀌는 걸 보고 대신 부름
+    const nextFrame = (cb) => {
+      let done = false; const t0v = video.currentTime;
+      const go = (now, md) => { if (done) return; done = true; cb(now, md); };
+      video.requestVideoFrameCallback?.((now, md) => go(now, md));
+      const poll = () => { if (done) return; if (!video.paused && video.currentTime !== t0v) { go(performance.now(), { mediaTime: video.currentTime }); return; } requestAnimationFrame(poll); };
+      setTimeout(() => requestAnimationFrame(poll), 80);
+    };
     try {
       if (busy.stop) throw Object.assign(new Error('멈췄어요'), { aborted: true }); // 시작하자마자 멈추기
       // 구간 하나(원래 영상 from → to)를 그려서 굽기 — 조각 목록이면 조각마다 차례로 부름
@@ -5239,7 +5247,7 @@ export async function studio(el, { id, mode }) {
           if (finished) return;
           if (document.hidden) { waiting = true; xpHidden(true); busy.msg = busy.msg.replace(/^(⏸ 다른 창에 있어서 잠깐 멈춤 — )?/, '⏸ 다른 창에 있어서 잠깐 멈춤 — '); drawPanel(); return; } // 다른 창이면 돌아올 때까지 기다림
           prf.playAt = performance.now();
-          video.requestVideoFrameCallback(onCb);
+          nextFrame(onCb);
           // 버퍼링 중엔 '재생'과 '잠깐 멈춤'이 겹쳐 재생 요청이 취소될 수 있음 → 오류로 보지 않음 (안 넘어가면 감시가 다시 재생)
           video.play().catch(() => {});
         };
@@ -5300,7 +5308,7 @@ export async function studio(el, { id, mode }) {
           if (idle > 4000 && video.paused) resume().catch(() => {});
           if (idle > 15000) { busy.stop = true; toast(`${fmtT(lastFrameAt)}에서 영상이 더 진행되지 않아 거기까지 저장해요`); finish(); }
         }, 1000);
-        video.requestVideoFrameCallback(onCb);
+        nextFrame(onCb);
         video.play().catch(() => {});
       });
       console.info('[영상 만들기] 재생 방식 · 건너뛴 프레임 바로잡음', fixes, '· 프레임당 ms', JSON.stringify(Object.fromEntries(['wait', 'proc', 'render', 'emit'].map((k) => [k, +(prf[k] / Math.max(1, prf.n)).toFixed(1)]))));
